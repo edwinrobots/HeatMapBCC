@@ -4,8 +4,8 @@ import numpy as np
 from scipy.special import psi, gammaln
 from scipy.sparse import coo_matrix
 from scipy.linalg import eigh 
+from scipy.stats import norm
 from gpgrid import infer_gpgrid
-
     
 def _pinv_1d(v, eps=1e-5):
     """
@@ -150,7 +150,10 @@ class  Heatmapbcc(ibcc.Ibcc):
     
     f = []#posteriors from the GP
     Cov = []
-    s = []          
+    s = []   
+    mPr = []   
+    
+    sd_post_T = []    
     
     def __init__(self, nx, ny, nClasses, nScores, alpha0, nu0, K, tableFormat=False):
         self.nx = nx
@@ -186,10 +189,14 @@ class  Heatmapbcc(ibcc.Ibcc):
         self.obsIdx_x = obsPairs[:,0]
         self.obsIdx_y = obsPairs[:,1]
     
+        nobs = len(self.obsIdx_x)
+        self.f_pr = np.tile(self.f_pr, nobs)
+        self.Cov_pr = np.tile(self.Cov_pr, (nobs,nobs))
+    
     def initT(self):     
         kappa = self.nu / np.sum(self.nu, axis=0)        
         self.ET = np.zeros((self.nClasses, self.nx, self.ny)) + kappa     
-    
+        
     def initLnKappa(self):
         if self.lnKappa != []:
             return
@@ -201,25 +208,27 @@ class  Heatmapbcc(ibcc.Ibcc):
         #start with a homogeneous grid       
         print 'Priors nu0 do not affect the gpgrid in the correct way'
         self.f_pr, self.Cov_pr,_,_,self.s_pr = infer_gpgrid([], [], [], \
-                                                    self.nx, self.ny)
+                                                    self.nx, self.ny, self.nu0)
+              
     
     def expecLnKappa(self):
         
         for j in range(1,self.nClasses):
             obsPoints = self.ET[j, self.obsIdx_x, self.obsIdx_y]
             self.f, self.Cov, mPr, sdPr, self.s = infer_gpgrid( \
-                     self.obsIdx_x, self.obsIdx_y, obsPoints, self.nx, self.ny)    
+                     self.obsIdx_x, self.obsIdx_y, obsPoints, self.nx, self.ny, self.nu0)    
             #convert to pseudo-counts
             totalNu = np.divide(np.multiply(mPr,(1-mPr)), (np.power(sdPr,2))) - 1
             self.nu[j,:,:] = np.multiply(totalNu, mPr)
             totalNu = np.multiply(totalNu, (1-mPr))
             
-            self.lnKappa[j,:,:] = np.log(mPr.transpose())
+            self.lnKappa[j,:,:] = np.log(mPr)
             
         self.nu[0,:,:] = totalNu
-        self.lnKappa[0,:,:] = np.log(1-mPr.transpose())
+        self.lnKappa[0,:,:] = np.log(1-mPr)
 #         self.lnKappa = np.concatenate(np.log(1-np.transpose(mPr)), np.log(np.transpose(mPr))) 
         self.sd_post_T = sdPr
+        self.mPr = mPr
             
     def expecT(self):       
         lnjoint = np.zeros((self.nClasses, self.nx, self.ny))
@@ -257,7 +266,7 @@ class  Heatmapbcc(ibcc.Ibcc):
             for l in range(self.nScores):
                 counts = np.matrix( np.transpose(self.C[:,3]==l) \
                                     * self.ET[1,self.C[:,1],self.C[:,2]])
-                self.alpha[j,l,:] = self.alpha0[j,l] + counts
+                self.alpha[j,l,:] = self.alpha0[j,l,:] + counts
         self.initLnPi()   
 
     def postLnJoint(self, lnjoint):
@@ -268,11 +277,27 @@ class  Heatmapbcc(ibcc.Ibcc):
 #         lnpKappa = np.tile(gammaln(np.sum(self.nu0))-np.sum(gammaln(self.nu0)), (1,self.nx,self.ny)) \
 #                     + np.sum(np.multiply(np.reshape(self.nu0-1,(self.nClasses,1,1)),self.lnKappa))
 #         return np.sum(np.sum(lnpKappa))
+        
+        #lnpKappa = self.lnGaussPdf(self.f_pr.transpose(), self.f.transpose(), self.Cov_pr)
+        #lnpKappa = np.sum(lnpKappa)
+        
+        #f_pr = np.zeros(len(self.f))
+        #cov_pr = np.diagflat(np.ones(len(self.f)))
+        
+#         prior_mean = np.divide(self.nu0, np.sum(self.nu0))
+#         f_pr = np.zeros(len(self.f)) + logit(prior_mean,4)
+#         prior_var = np.divide(np.prod(self.nu0), np.multiply(np.square(np.sum(self.nu0)),(np.sum(self.nu0)+1)) )
+#         cov_pr = np.diagflat(prior_var)
         lnpKappa = _loggausspdf(self.f.transpose(), self.f_pr.transpose(), self.Cov_pr)
-        return lnpKappa
+        return lnpKappa 
 
+    def lnGaussPdf (self, x, m, v):
+        return -np.log(np.sqrt(v)) -np.log(np.sqrt(2*np.pi)) - np.divide(np.square(x-m), (2*v))
              
     def qLnKappa(self):
+        
+        #lnqKappa = self.lnGaussPdf(self.f.transpose(), self.f.transpose(), self.Cov)
+        #lnqKappa = np.sum(lnqKappa)
         
         lnqKappa = _loggausspdf(self.f.transpose(), self.f.transpose(), self.Cov)
         

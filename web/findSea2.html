@@ -1,0 +1,80 @@
+ 
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <style type="text/css">
+      html { height: 100% }
+      body { height: 100%; margin: 0; padding: 0 }
+      #map-canvas { height: 100% }
+    </style>    
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.7/jquery.min.js"></script>
+    <script src="http://maps.googleapis.com/maps/api/js?key=AIzaSyAeqPac68BRWyDN4QSQDVU1RnkrIZVuhvc&sensor=true&libraries=visualization"/>
+    <!--script src="http://maps.google.com/maps/api/js?sensor=true&libraries=visualization" type="text/javascript"></script-->
+    <!--script type="text/javascript" src="jquery-2.1.0.min.js"/-->
+    <script type="text/javascript" src="seadata.js"> </script>
+    <script type="text/javascript">
+$(function(){
+
+     loadScript = function() {
+
+        var minlat = 18.0;
+        var maxlat = 20.0;
+        var minlon = -73.8;
+        var maxlon = -71.7;
+   
+        var nx = 1000;
+        var ny = 1000;
+
+        var stepLat = (maxlat-minlat)/nx;
+        var stepLon = (maxlon-minlon)/ny;
+        alert('initialising geocoder');
+        coder = new google.maps.Geocoder();
+
+        var land = {}
+    
+        alert('starting the loading process');
+
+        for(i=0; i<nx; i++){
+ 
+             land[i] = [];
+ 
+             for(j=0; j<ny; j++){
+ 
+                var coderReq = { 'latLng':new google.maps.LatLng(minlat+(i*stepLat), minlon+(i*stepLon))};
+
+                coder.geocode(coderReq, function(results,status){
+                    if (status == google.maps.GeocoderStatus.OK) {
+                        if(results[2]){
+                            land[i][j] = 1;
+                        }else{
+                            land[i][j] = 0;
+                        }
+                        $("#landbox span").text($("#landbox span").text()+land[i][j]);
+                        if (j==ny-1){
+                            $("#landbox span").text($("#landbox span").text()+"</br>");
+                        }                        
+                    } else {
+                        alert('Geocoder failed due to: ' + status);
+                    }
+                });
+             }
+        }
+
+        $("#landbox span").text($("#landbox span").text()+"done.");
+
+        //setHeatMapLayer();
+        //set up timeouts to call loadpeaks periodically
+    };
+});
+
+$(document).ready(function(){
+    loadScript();
+});
+    </script>
+  </head>
+  <body>
+    <div id="landbox"><span> Nothing here yet.<br/></span></div>
+  </body>
+</html>
