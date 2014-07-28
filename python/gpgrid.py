@@ -1,18 +1,18 @@
+import time
+import numpy as np
+
 def sigmoid(f,s):
-    import numpy as np
     g = np.divide(1, 1+np.exp(-s*f))
     return g
 
 def target_var(f,s,v):
-    import numpy as np
     mean = sigmoid(f,s)
-    topvariance = np.multiply(mean,(1-mean))
-    v = np.multiply(v,np.square(s))
-    prec = np.divide(1,np.multiply(v,np.square(topvariance))) + np.divide(1,topvariance)
+    topvariance = mean*(1-mean)
+    v = v*s*s
+    prec = 1/v*topvariance**2 + 1/topvariance
     return np.divide(1,prec)
 
 def latentvariance(std, mean,s):
-    import numpy as np
     prec = np.divide(1,np.square(std))
     topvariance = np.multiply(mean,(1-mean))
     prec = prec - np.divide(1,topvariance)
@@ -21,187 +21,198 @@ def latentvariance(std, mean,s):
     var = np.divide(var, np.square(s))
     return var
 
-def process_observations( obs_x, obs_y, obs_points, nx, ny, nu0 ):
-    import numpy as np
-    if obs_points==[]:
-        return [],[],[],[],[]
+class GPGrid(object):
+
+    obs_x = []
+    obs_y = []
+    obs_points = []
+    
+    obs_f = []
+    obs_C = []
+    
+    nx = 0
+    ny = 0
+    
+    nu0 = []
+    
+    s = 4 #sigma scaling
+    ls = 100 #length-scale
+    
+    G = []
+    partialK = []
+    z = []
+    
+    prior_mean = 0.5
+    prior_mean_latent = 0
         
-    obs_x = np.array(obs_x, dtype=np.int64)
-    obs_y = np.array(obs_y, dtype=np.int64)
-    if len(obs_points.shape)==1 or obs_points.shape[1]==1:
-        grid_p = np.zeros((nx,ny))
-        grid_all = np.zeros((nx,ny))
-        obs_points = np.array(obs_points).reshape(-1)
-        for i in range(len(obs_x)):
-            grid_p[obs_x[i], obs_y[i]] += obs_points[i]
-            grid_all[obs_x[i], obs_y[i]] += 1
-           
-        deduped_idxs = np.argwhere(grid_all>0)
-        obs_x = deduped_idxs[:,0]
-        obs_y = deduped_idxs[:,1]   
+    def __init__(self, nx, ny, nu0):
+        self.nx = nx
+        self.ny = ny  
+        self.nu0 = nu0        
+    
+    def process_observations( self ):
+        if self.obs_points==[]:
+            return [],[]
             
-        presp = grid_p[obs_x,obs_y]
-        allresp = grid_all[obs_x,obs_y]
-        
-    elif obs_points.shape[1]==2:
-        presp = np.array(obs_points[:,0]).reshape(obs_points.shape[0],1)
-        allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
-     
-    presp += nu0[1]
-    allresp += np.sum(nu0)
-        
-    z = np.divide(presp, allresp)
-    z = z.reshape((z.size,1))
-        
-    return obs_x, obs_y, presp, allresp, z    
-
-def infer_gpgrid( obs_x, obs_y, obs_points, nx,ny, nu0, nsamps=1000 ):
-    import numpy as np
-
-    s=4 # should be learned    
-    
-    obs_x, obs_y, presp, allresp, z = process_observations(obs_x, obs_y, obs_points, nx, ny, nu0)
-        
-    #grid_obs = np.zeros( (nx,ny) )
-    #grid_obs[obs_x,obs_y] = 1
-    
-    prior_mean = nu0[1] / np.sum(nu0)
-    prior_mean_latent = np.log(prior_mean/(1-prior_mean))
-    prior_var = prior_mean*(1-prior_mean)/(nu0[0]+nu0[1]+1)#1/nu0[0] + 1/nu0[1] #should be dealt with through Q?
-    #prior_var_latent = latentvariance(prior_var, prior_mean, s) 
-    
-    if obs_x==[]:
-        print "What is correct way to apply priors? Adding pseudo-counts will not apply to points that" + \
-        "are  not included in training."
-        mPr = prior_mean
-        stdPr = np.sqrt(prior_var)        
-        f = prior_mean_latent
-        var = latentvariance(stdPr, mPr, s)
-        return f, var, mPr, stdPr, s   
+        self.obs_x = np.array(self.obs_x, dtype=np.float64)
+        self.obs_y = np.array(self.obs_y, dtype=np.float64)
+        if len(self.obs_points.shape)==1 or self.obs_points.shape[1]==1:
+            grid_p = np.zeros((self.nx,self.ny))
+            grid_all = np.zeros((self.nx,self.ny))
+            self.obs_points = np.array(self.obs_points).reshape(-1)
+            for i in range(len(self.obs_x)):
+                grid_p[self.obs_x[i], self.obs_y[i]] += self.obs_points[i]
+                grid_all[self.obs_x[i], self.obs_y[i]] += 1
+               
+            deduped_idxs = np.argwhere(grid_all>0)
+            self.obs_x = deduped_idxs[:,0]
+            self.obs_y = deduped_idxs[:,1]   
+                
+            presp = grid_p[self.obs_x,self.obs_y]
+            allresp = grid_all[self.obs_x,self.obs_y]
+            
+        elif self.obs_points.shape[1]==2:
+            presp = np.array(self.obs_points[:,0]).reshape(self.obs_points.shape[0],1)
+            allresp = np.array(self.obs_points[:,1]).reshape(self.obs_points.shape[0],1)
          
-    #X = np.argwhere(grid_obs.transpose().reshape((nx*ny,1)).reshape(-1)).reshape(-1)  
-    
-    #gridx = np.float64(np.tile( range(1,nx+1), (ny, 1) ))
-    #gridy = np.float64(np.tile( range(1,ny+1), (nx, 1) ).transpose())
-    
-    #xx = gridx.transpose().reshape( (nx*ny,1) )
-    #yy = gridy.transpose().reshape( (nx*ny,1) )
-    
-    #ddx = np.tile(xx, (1,nx*ny) ) - np.tile(xx, (1,nx*ny) ).transpose()
-    #ddy = np.tile(yy, (1,nx*ny) ) - np.tile(yy, (1,nx*ny) ).transpose()
-    
-    #Update to produce training matrices only over known points
-    ddx = np.float64(np.tile(obs_x, (len(obs_x),1)).transpose() - np.tile(obs_x, (len(obs_x),1)));
-    ddy = np.float64(np.tile(obs_y, (len(obs_y),1)).transpose() - np.tile(obs_y, (len(obs_y),1)));
-    
-    #length scale
-    ls = 100
-    
-    Kx = np.exp( np.divide(-np.square(ddx), ls) )
-    Ky = np.exp( np.divide(-np.square(ddy), ls) )
-    K = np.multiply(Kx, Ky)
-    #n = nx*ny
-
-    f = np.zeros(len(obs_x))
-    #K = K + 1e-6 * np.eye(n) # jitter    
-    
-    #INCLUDE PRIORS HERE?
-    Pr_est = np.divide( presp+1, allresp+2 )
-    Q = np.diagflat( np.divide(np.multiply(Pr_est, 1-Pr_est), allresp) )
-    
-    converged = False    
-    nIt = 0
-    while not converged and nIt<1000:
-        old_f = f
-    
-        mean_X = sigmoid(f,s)
-        G = np.diagflat( s*np.multiply(mean_X, (1-mean_X)) )
-        Gtr = G.transpose()
-    
-        W = K.dot(Gtr).dot( np.linalg.inv(G.dot(K).dot(Gtr)+Q) )
-    
-        f = prior_mean_latent + W.dot(Gtr).dot(z-prior_mean) #prior_mean_latent + 
-        C = K - W.dot(G).dot(K) #possibly needs additional variance term sicne the observation is uncertain?
-    
-        diff = np.max(np.abs(f-old_f))
-        converged = diff<1e-3
-        #print 'GPGRID diff = ' + str(diff)
-        nIt += 1
-        
-#     samps = np.random.multivariate_normal(f.reshape(-1), C, nsamps)
-    
-    #Pr = np.zeros( (len(f), nsamps) )
-#     for i in range(nsamps):
-#         Pr[:,i] = sigmoid(samps[i,:].transpose(),s)
-    
-    #stdPr = np.std(Pr,1)
-    #mPr = np.mean(Pr,1)        
-    partialK = Gtr.dot(np.linalg.inv(G.dot(K).dot(Gtr)+Q) );        
-    mPr, stdPr = post_grid(G, Gtr, partialK, nx, ny, obs_x, obs_y, prior_mean, prior_mean_latent, z, f, C, s, ls)
-    return f, C, mPr, stdPr, s
-
-def post_peaks(G, Gtr, partialK, nx, ny, obs_x, obs_y, prior_mean, prior_mean_latent, z, f, C,s):
-    import numpy as np
-       
-    v = np.diag(C)
-    stdPr = target_var(f,s,v)
-    mPr = sigmoid(f,s)
-      
-    return mPr, stdPr
-
-def post_grid(G, Gtr, partialK, nx, ny, obs_x, obs_y, prior_mean, prior_mean_latent, z, f, C,s, ls):    
-    import numpy as np
-       
-    ddy = np.float64(np.tile(range(ny), (len(obs_y),1)) - np.tile(obs_y, (ny,1)).transpose());
-    Ky = np.exp( np.divide(-np.square(ddy), ls) ).transpose()   
-      
-    fending = Gtr.dot(z-prior_mean)
-    
-    f = np.zeros((nx, ny))
-    C = np.zeros((nx, ny))
-      
-#     mPr = np.zeros((nx,ny))
-#     stdPr = np.zeros((nx,ny))
-    #ddx_i = np.float64(np.tile(-obs_x, (ny,1))) 
-    ddx = np.float64(np.tile(-obs_x, (nx,1))) + np.array(range(nx)).reshape((nx,1))
-    Kx = np.exp( np.divide(-np.square(ddx), ls) )  
-    
-    for i in range(nx):
-        print i
-#         for j in range(ny):
-#             ddx=np.float64(i-obs_x)
-#             ddy=np.float64(j-obs_y)
-#  
-#             Kx=-np.square(ddx)/ls
-#             Ky=-np.square(ddy)/ls
-#  
-#             Kpred=np.exp(Kx+Ky)#np.multiply(Kx,Ky);           
-#             
-#             W=Kpred.dot(partialK)
-#             
-#             f[i,j] = W.dot(Gtr).dot(z-prior_mean)
-#             C[i,j] = 1 - W.dot(G).dot(Kpred.transpose())           
-        
-        #Kx_i = np.exp( np.divide(-np.square(ddx_i+i), ls) )
-        Kx_i = Kx[i,:]
-        Kpred_i = np.multiply(Ky,Kx_i)
-        W_i = Kpred_i.dot(partialK)  
-        f[i,:] = W_i.dot(fending).reshape(-1) 
-        C[i,:] = -np.sum(np.multiply(W_i.dot(G), Kpred_i), axis=1)       
- 
-#         nsamps = 1000
-#         for j in range(ny):
-#             samps = np.random.normal(f[i,j], C[i,j], nsamps)
-#             Pr = np.zeros(nsamps)
-#             for ss in range(nsamps):
-#                 Pr[ss] = sigmoid(samps[ss],s)
-#             mPr[i,j] = np.mean(Pr)
-#             stdPr[i,j] = np.std(Pr)
-          
-    f = f + prior_mean_latent 
-    C = C + 1
+        presp += self.nu0[1]
+        allresp += np.sum(self.nu0)
             
-    mPr = sigmoid(f,s)
-    stdPr = np.sqrt(target_var(f, s, C))
+        self.z = np.divide(presp, allresp)
+        self.z = self.z.reshape((self.z.size,1))
+            
+        return presp, allresp 
     
-    return mPr, stdPr
+    def train( self, obs_x, obs_y, obs_points ):
+        self.obs_x = obs_x
+        self.obs_y = obs_y
+        self.obs_points = obs_points
+                
+        presp, allresp = self.process_observations()
+        
+        self.prior_mean = self.nu0[1] / np.sum(self.nu0)
+        self.prior_mean_latent = np.log(self.prior_mean/(1-self.prior_mean))
+        prior_var = self.prior_mean*(1-self.prior_mean)/(self.nu0[0]+self.nu0[1]+1)#1/self.nu0[0] + 1/self.nu0[1] #should be dealt with through Q?
+        #prior_var_latent = latentvariance(prior_var, self.prior_mean, s) 
+        
+        if self.obs_x==[]:
+            print "What is correct way to apply priors? Adding pseudo-counts will not apply to points that" + \
+            "are  not included in training."
+            mPr = self.prior_mean
+            stdPr = np.sqrt(prior_var)        
+            f = self.prior_mean_latent
+            var = latentvariance(stdPr, mPr, self.s)
+            return f, var, mPr, stdPr
+        
+        #Update to produce training matrices only over known points
+        ddx = np.float64(np.tile(self.obs_x, (len(self.obs_x),1)).T - np.tile(self.obs_x, (len(self.obs_x),1)));
+        ddy = np.float64(np.tile(self.obs_y, (len(self.obs_y),1)).T - np.tile(self.obs_y, (len(self.obs_y),1)));
+        
+        Kx = np.exp( np.divide(-np.square(ddx), self.ls) )
+        Ky = np.exp( np.divide(-np.square(ddy), self.ls) )
+        K = Kx*Ky
+    
+        f = np.zeros(len(self.obs_x))
+        #K = K + 1e-6 * np.eye(n) # jitter    
+        
+        #INCLUDE PRIORS HERE?
+        Pr_est = np.divide( presp+1, allresp+2 )
+        Q = np.diagflat( np.divide(np.multiply(Pr_est, 1-Pr_est), allresp) )
+        
+        converged = False    
+        nIt = 0
+        while not converged and nIt<1000:
+            old_f = f
+        
+            mean_X = sigmoid(f,self.s)
+            self.G = np.diagflat( self.s*np.multiply(mean_X, (1-mean_X)) )
+        
+            W = K.dot(self.G.T).dot( np.linalg.inv(self.G.dot(K).dot(self.G.T)+Q) )
+        
+            f = self.prior_mean_latent + W.dot(self.G.T).dot(self.z-self.prior_mean) #self.prior_mean_latent + 
+            C = K - W.dot(self.G).dot(K) #possibly needs additional variance term sicne the observation is uncertain?
+        
+            diff = np.max(np.abs(f-old_f))
+            converged = diff<1e-3
+            #print 'GPGRID diff = ' + str(diff)
+            nIt += 1
+           
+        self.partialK = self.G.T.dot(np.linalg.inv(self.G.dot(K).dot(self.G.T)+Q) );    
+        self.obs_f = f.reshape(-1)
+        self.obs_C = C
+        v = np.diag(C)
+        return self.obs_f, C, sigmoid(self.obs_f, self.s), target_var(self.obs_f, self.s, v)
+
+    def post_peaks(self, f, C):     
+        v = np.diag(C)
+        stdPr = target_var(f,self.s,v)
+        mPr = sigmoid(f,self.s)
+          
+        return mPr, stdPr
+    
+    def post_grid(self):
+        
+        ddx = np.float64(-self.obs_x)
+        ddy = np.float64(-self.obs_y)
+        
+        f_end = self.G.T.dot(self.z-self.prior_mean) 
+        
+        f = np.zeros((self.nx,self.ny), dtype=np.float64) + self.prior_mean_latent
+        C = np.ones((self.nx,self.ny), dtype=np.float64)
+                
+        start = time.clock()
+
+        for i in np.arange(self.nx):
+            for j in np.arange(self.ny):
+                Kx = np.exp( -ddx**2/self.ls )
+                Ky = np.exp( -ddy**2/self.ls )
+        
+                Kpred = Kx*Ky
+        
+                W = Kpred.dot(self.partialK)
+        
+                f[i,j] += W.dot(f_end)
+                C[i,j] -= W.dot(self.G).dot(Kpred.T)
+                
+                ddy += 1
+            ddx += 1
+            ddy -= self.ny
+
+        fin = time.clock()
+        print "gpgrid prediction timer: " + str(fin-start)
+
+        mPr = sigmoid(f,self.s)
+        stdPr = np.sqrt(target_var(f, self.s, C))
+        
+        return mPr, stdPr, f, C
+         
+    def post_grid_noloops(self):           
+        ddy = np.arange(self.ny,dtype=np.float64).reshape((self.ny,1)) - np.tile(self.obs_y, (self.ny,1))
+        Ky = np.exp( -ddy**2/self.ls )
+          
+        fending = self.G.T.dot(self.z-self.prior_mean)
+        ddx = np.arange(self.nx,dtype=np.float64).reshape((self.nx,1)) - np.tile(self.obs_x, (self.nx,1))
+        Kx = np.exp( -ddx**2/self.ls )  
+        
+        start = time.clock()
+    
+        Kx = np.tile( Kx, (1,self.ny))
+        Kx = Kx.reshape((self.nx*self.ny, len(self.obs_x)))
+        Ky = np.tile(Ky, (self.nx,1))
+        Kpred = Kx*Ky
+        W_i = Kpred.dot(self.partialK)  
+        f = self.prior_mean_latent  + W_i.dot(fending).reshape((self.nx,self.ny)) 
+        C = np.ones(self.nx*self.ny)
+        Cwg = W_i.dot(self.G)
+        for i in np.arange(self.nx*self.ny):
+            C[i] -= Cwg[i,:].dot(Kpred[i,:].T)
+        #C -= np.sum(W_i.dot(self.G)*Kpred, axis=1)
+        C = C.reshape((self.nx,self.ny))
+        
+        fin = time.clock()
+        print "gpgrid prediction timer: " + str(fin-start)
+                
+        mPr = sigmoid(f,self.s)
+        stdPr = np.sqrt(target_var(f, self.s, C))
+        
+        return mPr, stdPr, f, C

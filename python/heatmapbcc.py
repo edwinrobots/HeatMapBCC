@@ -5,7 +5,7 @@ from scipy.special import psi, gammaln
 from scipy.sparse import coo_matrix
 from scipy.linalg import eigh 
 from scipy.stats import norm
-from gpgrid import infer_gpgrid
+from gpgrid import GPGrid
     
 def _pinv_1d(v, eps=1e-5):
     """
@@ -146,14 +146,14 @@ class  Heatmapbcc(ibcc.Ibcc):
     
     f_pr = [] #priors from the GP
     Cov_pr = []
-    s_pr = []
     
     f = []#posteriors from the GP
     Cov = []
-    s = []   
     mPr = []   
     
-    sd_post_T = []    
+    sd_post_T = []
+    
+    heatGP = []
     
     def __init__(self, nx, ny, nClasses, nScores, alpha0, nu0, K, tableFormat=False):
         self.nx = nx
@@ -163,6 +163,31 @@ class  Heatmapbcc(ibcc.Ibcc):
         self.post_T = []
         print 'Setting up a 2-D grid. This should be generalised!'        
         super(Heatmapbcc, self).__init__(nClasses, nScores, alpha0, nu0, K, tableFormat) 
+        
+    def combineClassifications(self, crowdLabels, trainT=None):
+        super(Heatmapbcc, self).combineClassifications(crowdLabels, trainT)
+        
+        self.sd_post_T = {}
+        self.mPr = {}
+        self.mPr[0] = np.ones((self.nx,self.ny))
+        
+        for j in range(1,self.nClasses):
+            mPr, sdPr, _, _ = self.heatGP[j].post_grid()
+            self.nu[j,:,:], _ = self.kappa_moments_to_nu(mPr, sdPr)     
+            self.lnKappa[j,:,:] = np.log(mPr)
+            self.sd_post_T[j] = sdPr
+            self.mPr[j] = mPr
+            self.mPr[0] -= mPr
+            
+        self.lnKappa[0,:,:] = np.log(self.mPr[0])
+        self.expecT()        
+        return self.ET
+    
+    def getmean(self, j=1):
+        return self.mPr[j]
+
+    def getsd(self, j=1):
+        return self.sd_post_T[j]
         
     def preprocessTraining(self, crowdLabels, trainT=None):
         if trainT==None:
@@ -190,8 +215,9 @@ class  Heatmapbcc(ibcc.Ibcc):
         self.obsIdx_y = obsPairs[:,1]
     
         nobs = len(self.obsIdx_x)
-        self.f_pr = np.tile(self.f_pr, nobs)
-        self.Cov_pr = np.tile(self.Cov_pr, (nobs,nobs))
+        for j in range(1,self.nClasses):
+            self.f_pr[j] = np.tile(self.f_pr[j], nobs)
+            self.Cov_pr[j] = np.tile(self.Cov_pr[j], (nobs,nobs))
     
     def initT(self):     
         kappa = self.nu / np.sum(self.nu, axis=0)        
@@ -201,44 +227,59 @@ class  Heatmapbcc(ibcc.Ibcc):
         if self.lnKappa != []:
             return
         self.nu = np.zeros((self.nClasses, self.nx, self.ny))
-        self.lnKappa = np.zeros((self.nClasses, self.nx, self.ny))        
+        self.lnKappa = np.zeros((self.nClasses, self.nx, self.ny))    
+        
+        self.heatGP = {}
+        self.f_pr = {}
+        self.Cov_pr = {}            
         for j in range(self.nClasses):
             self.nu[j,:,:] = self.nu0[j]   
             self.lnKappa[j,:,:] = psi(self.nu0[j]) - psi(np.sum(self.nu0))      
-        #start with a homogeneous grid       
-        print 'Priors nu0 do not affect the gpgrid in the correct way'
-        self.f_pr, self.Cov_pr,_,_,self.s_pr = infer_gpgrid([], [], [], \
-                                                    self.nx, self.ny, self.nu0)
-              
-    
+            #start with a homogeneous grid     
+            if j>0:  
+                self.heatGP[j] = GPGrid(self.nx, self.ny, self.nu0)
+                self.f_pr[j], self.Cov_pr[j], _, _ = self.heatGP[j].train([], [], [])
+
+    def kappa_moments_to_nu(self, mPr, sdPr):
+        totalNu = mPr*(1-mPr)/(sdPr**2) - 1
+        nu_j = totalNu*mPr
+        return nu_j, totalNu
+
     def expecLnKappa(self):
+        nu_rest = []
+        kappa_rest = []
         
+        self.f = {}
+        self.Cov = {}        
         for j in range(1,self.nClasses):
             obsPoints = self.ET[j, self.obsIdx_x, self.obsIdx_y]
-            self.f, self.Cov, mPr, sdPr, self.s = infer_gpgrid( \
-                     self.obsIdx_x, self.obsIdx_y, obsPoints, self.nx, self.ny, self.nu0)    
+            self.f[j], self.Cov[j], mPr, sdPr = self.heatGP[j].train(self.obsIdx_x, self.obsIdx_y, obsPoints)    
             #convert to pseudo-counts
-            totalNu = np.divide(np.multiply(mPr,(1-mPr)), (np.power(sdPr,2))) - 1
-            self.nu[j,:,:] = np.multiply(totalNu, mPr)
-            totalNu = np.multiply(totalNu, (1-mPr))
+            nu_j, totalNu = self.kappa_moments_to_nu(mPr, sdPr)
+            self.nu[j, self.obsIdx_x, self.obsIdx_y] = nu_j
+            if nu_rest==[]:
+                nu_rest = totalNu*(1-mPr)
+                kappa_rest = 1-mPr
+            else:
+                nu_rest = nu_rest - totalNu*(mPr)
+                kappa_rest = kappa_rest - mPr
             
-            self.lnKappa[j,:,:] = np.log(mPr)
+            self.lnKappa[j, self.obsIdx_x, self.obsIdx_y] = np.log(mPr)
             
-        self.nu[0,:,:] = totalNu
-        self.lnKappa[0,:,:] = np.log(1-mPr)
-#         self.lnKappa = np.concatenate(np.log(1-np.transpose(mPr)), np.log(np.transpose(mPr))) 
-        self.sd_post_T = sdPr
-        self.mPr = mPr
+        self.nu[0, self.obsIdx_x, self.obsIdx_y] = nu_rest
+        self.lnKappa[0, self.obsIdx_x, self.obsIdx_y] = np.log(kappa_rest)
             
     def expecT(self):       
         lnjoint = np.zeros((self.nClasses, self.nx, self.ny))
         for j in range(self.nClasses):
-            data = self.lnPi[j, self.C[:,3], self.C[:,0]].reshape(-1)
-            rows = np.array(self.C[:,1]).reshape(-1)
-            cols = np.array(self.C[:,2]).reshape(-1)
+            data = self.lnPi[j, self.C[:,3], self.C[:,0]].reshape(-1) #responses
+            rows = np.array(self.C[:,1]).reshape(-1) #x co-ord
+            cols = np.array(self.C[:,2]).reshape(-1) #y co-ord
             
             likelihood_j = coo_matrix((data, (rows,cols)), shape=(self.nx, self.ny)).todense()
-            lnjoint[j,:,:] = likelihood_j.reshape(1,self.nx, self.ny) + self.lnKappa[j,:,:]     
+            lnjoint[j,:,:] = likelihood_j
+        
+        lnjoint = lnjoint + self.lnKappa
         
         joint = np.zeros((self.nClasses, self.nx, self.ny))
         pT = np.zeros((self.nClasses, self.nx, self.ny))
@@ -261,47 +302,32 @@ class  Heatmapbcc(ibcc.Ibcc):
             
         return lnjoint
     
-    def expecLnPi(self):#Posterior Hyperparams
+    def postAlpha(self):#Posterior Hyperparams
         for j in range(self.nClasses):
             for l in range(self.nScores):
                 counts = np.matrix( np.transpose(self.C[:,3]==l) \
                                     * self.ET[1,self.C[:,1],self.C[:,2]])
-                self.alpha[j,l,:] = self.alpha0[j,l,:] + counts
-        self.initLnPi()   
+                self.alpha[j,l,:] = self.alpha0[j,l] + counts
 
     def postLnJoint(self, lnjoint):
-        lnpCT = np.sum(np.sum(np.sum( np.multiply(lnjoint, self.ET) )))                        
+        ET = self.ET[:, self.obsIdx_x, self.obsIdx_y]
+        lnjoint = lnjoint[:, self.obsIdx_x, self.obsIdx_y]
+        lnpCT = np.sum(np.sum(np.sum( np.multiply(lnjoint, ET) )))                        
         return lnpCT
     
     def postLnKappa(self):
-#         lnpKappa = np.tile(gammaln(np.sum(self.nu0))-np.sum(gammaln(self.nu0)), (1,self.nx,self.ny)) \
-#                     + np.sum(np.multiply(np.reshape(self.nu0-1,(self.nClasses,1,1)),self.lnKappa))
-#         return np.sum(np.sum(lnpKappa))
-        
-        #lnpKappa = self.lnGaussPdf(self.f_pr.transpose(), self.f.transpose(), self.Cov_pr)
-        #lnpKappa = np.sum(lnpKappa)
-        
-        #f_pr = np.zeros(len(self.f))
-        #cov_pr = np.diagflat(np.ones(len(self.f)))
-        
-#         prior_mean = np.divide(self.nu0, np.sum(self.nu0))
-#         f_pr = np.zeros(len(self.f)) + logit(prior_mean,4)
-#         prior_var = np.divide(np.prod(self.nu0), np.multiply(np.square(np.sum(self.nu0)),(np.sum(self.nu0)+1)) )
-#         cov_pr = np.diagflat(prior_var)
-        lnpKappa = _loggausspdf(self.f.transpose(), self.f_pr.transpose(), self.Cov_pr)
+        lnpKappa = 0
+        for j in range(1,self.nClasses):
+            lnpKappa += _loggausspdf(self.f[j].T, self.f_pr[j].T, self.Cov_pr[j])
         return lnpKappa 
-
-    def lnGaussPdf (self, x, m, v):
-        return -np.log(np.sqrt(v)) -np.log(np.sqrt(2*np.pi)) - np.divide(np.square(x-m), (2*v))
-             
-    def qLnKappa(self):
-        
-        #lnqKappa = self.lnGaussPdf(self.f.transpose(), self.f.transpose(), self.Cov)
-        #lnqKappa = np.sum(lnqKappa)
-        
-        lnqKappa = _loggausspdf(self.f.transpose(), self.f.transpose(), self.Cov)
-        
-#         lnqKappa = gammaln(np.sum(self.nu))-np.sum(gammaln(self.nu)) \
-#                         + np.sum(np.multiply(self.nu-1,self.lnKappa))
-#         return np.sum(np.sum(lnqKappa))
+ 
+    def qLnKappa(self):        
+        lnqKappa = 0
+        for j in range(1,self.nClasses):
+            lnqKappa += _loggausspdf(self.f[j].T, self.f[j].T, self.Cov[j])
         return lnqKappa
+        
+    def qLnT(self):
+        ET = self.ET[:, self.obsIdx_x, self.obsIdx_y]
+        lnqT = np.sum( np.multiply( ET,np.log(ET) ) )
+        return lnqT

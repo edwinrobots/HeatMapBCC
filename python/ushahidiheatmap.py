@@ -237,7 +237,7 @@ def insertTrusted(nx,ny,C):
 #--------  MAIN --------------------------------------------------
 if __name__ == '__main__':
    
-    fileprefix = './web/mapdata/map_big2_nosea'
+    fileprefix = './web/mapdata/map_big_nosea_speed'
    
     sea_map = []
    
@@ -246,29 +246,29 @@ if __name__ == '__main__':
     minlon = -73.8
     maxlon = -71.7   
     writeCoordsToJson(minlat,maxlat,minlon,maxlon)
-    
-    #High definition with no interpolation
-    nx = 2000
-    ny = 2000  
-    _, C = loadUshData(nx,ny)     
-    for j in range(1,2):
-        rep_pred, rep_std = reportIntensity(C[j], nx, ny)
-        sea_map = plotResults(nx, ny, rep_pred, sea_map, label='Predicted Incidents of type '+str(j))
-        #writeToJson(bcc_pred, nx,ny,j,label="_rep_intensity_")
-        writeImg("_rep_intensity_", j)
-          
-        plotResults(nx, ny, rep_std, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
-        #writeToJson(stdPred, nx,ny,j, label="_sd_")
-        writeImg("_rep_intensity__sd_",j)   
+#     
+#     #High definition with no interpolation
+#     nx = 2000
+#     ny = 2000  
+#     _, C = loadUshData(nx,ny)     
+#     for j in range(1,2):
+#         rep_pred, rep_std = reportIntensity(C[j], nx, ny)
+#         sea_map = plotResults(nx, ny, rep_pred, sea_map, label='Predicted Incidents of type '+str(j))
+#         #writeToJson(bcc_pred, nx,ny,j,label="_rep_intensity_")
+#         writeImg("_rep_intensity_", j)
+#           
+#         plotResults(nx, ny, rep_std, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+#         #writeToJson(stdPred, nx,ny,j, label="_sd_")
+#         writeImg("_rep_intensity__sd_",j)   
     
     #Using BCC - lower res so it is tractable to interpolate
-    nx = 2000
-    ny = 2000
+    nx = 1000
+    ny = 1000
     _, C = loadUshData(nx,ny)       
     for j in range(1,2):
         bcc_pred,combiner = runBCC(C[j],nx,ny,1)
-        bcc_mpr = combiner.mPr
-        plotResults(nx, ny, bcc_pred, sea_map, label='Predicted Incidents of type '+str(j))
+        bcc_mpr = combiner.getmean()
+        sea_map = plotResults(nx, ny, bcc_pred, sea_map, label='Predicted Incidents of type '+str(j))
         #writeToJson(bcc_pred, nx,ny,j)
         writeImg("", j)
                 
@@ -276,42 +276,43 @@ if __name__ == '__main__':
         #writeToJson(combiner.mPr, nx,ny,j, label="_mpr_")
         writeImg("_mpr_",j)
         
-        bcc_stdPred = combiner.sd_post_T
+        bcc_stdPred = combiner.getsd()
         plotResults(nx, ny, bcc_stdPred, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #writeToJson(stdPred, nx,ny,j, label="_sd_")
         writeImg("_sd_",j)
      
-    #insert a trusted report at 18.5333 N, -72.3333 W     
-    nx = 2000
-    ny = 2000
-    _, C = loadUshData(nx,ny)
-    C = insertTrusted(nx,ny,C)
-    for j in range(1,2):
-        rep_pred, rep_std = reportIntensity(C[j], nx, ny)
-        sea_map = plotResults(nx, ny, rep_pred, sea_map, label='Predicted Incidents of type '+str(j))
-        #writeToJson(bcc_pred, nx,ny,j,label="_rep_intensity_")
-        writeImg("_rep_intensity__expert_", j)
-          
-        plotResults(nx, ny, rep_std, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
-        #writeToJson(stdPred, nx,ny,j, label="_sd_")
-        writeImg("_rep_intensity__sd__expert_",j)      
-         
-    nx = 2000
-    ny = 2000  
-    _, C = loadUshData(nx,ny) 
-    C = insertTrusted(nx,ny,C)
-    for j in range(1,2):
-        bcc_pred2,combiner2 = runBCC(C[j],nx,ny,2)
-        plotResults(nx, ny, bcc_pred2, sea_map, label='Predicted Incidents of type '+str(j))
-#         writeToJson(bcc_pred, nx,ny,j, label="_expert_")
-        writeImg("_expert_",j)        
- 
-        bcc_mpr2 = combiner2.mPr
-        plotResults(nx, ny, bcc_mpr2, sea_map, label='Incident Rate of type '+str(j))
-#         writeToJson(combiner.mPr, nx,ny,j, label="_mpr_expert_")
-        writeImg("_mpr_expert_",j)
-         
-        bcc_stdPred2 = combiner2.sd_post_T
-        plotResults(nx, ny, bcc_stdPred2, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
-#         writeToJson(stdPred, nx,ny,j, label="_sd_expert_")        
-        writeImg("_sd__expert_",j)        
+#     #insert a trusted report at 18.5333 N, -72.3333 W     
+#     nx = 2000
+#     ny = 2000
+#     _, C = loadUshData(nx,ny)
+#     C = insertTrusted(nx,ny,C)
+#     for j in range(1,2):
+#         rep_pred, rep_std = reportIntensity(C[j], nx, ny)
+#         sea_map = plotResults(nx, ny, rep_pred, sea_map, label='Predicted Incidents of type '+str(j))
+#         #writeToJson(bcc_pred, nx,ny,j,label="_rep_intensity_")
+#         writeImg("_rep_intensity__expert_", j)
+#           
+#         plotResults(nx, ny, rep_std, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+#         #writeToJson(stdPred, nx,ny,j, label="_sd_")
+#         writeImg("_rep_intensity__sd__expert_",j)      
+#          
+#     nx = 2000
+#     ny = 2000  
+#     _, C = loadUshData(nx,ny) 
+#     C = insertTrusted(nx,ny,C)
+#     for j in range(1,2):
+#         bcc_pred2,combiner2 = runBCC(C[j],nx,ny,2)
+#         sea_map = plotResults(nx, ny, bcc_pred2, sea_map, label='Predicted Incidents of type '+str(j))
+# #         writeToJson(bcc_pred, nx,ny,j, label="_expert_")
+#         writeImg("_expert_",j)        
+#  
+#         bcc_mpr2 = combiner2.getmean()
+#         plotResults(nx, ny, bcc_mpr2, sea_map, label='Incident Rate of type '+str(j))
+# #         writeToJson(combiner.mPr, nx,ny,j, label="_mpr_expert_")
+#         writeImg("_mpr_expert_",j)
+#          
+#         bcc_stdPred2 = combiner2.getsd()
+
+#         plotResults(nx, ny, bcc_stdPred2, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+# #         writeToJson(stdPred, nx,ny,j, label="_sd_expert_")        
+#         writeImg("_sd__expert_",j)        
