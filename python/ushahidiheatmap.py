@@ -3,18 +3,18 @@ Created on 23 Jun 2014
 
 @author: edwin
 '''
+import heatmapbcc
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import heatmapbcc
 from scipy.sparse import coo_matrix
 
 sea_map = []
 
 def runBCC(C,nx,ny,nReporters):
-    nu0 = np.array([0.05, 0.05])#0.03
+    nu0 = np.array([0.5, 0.5])#0.03
     
-    alpha0 = np.array([[3, 1], [1, 3]])
+    alpha0 = np.array([[30.0, 1.0], [1.0, 30.0]])
     if nReporters==2:
         alpha0new = np.zeros((2,2,2))
         alpha0new[:,:,0] = alpha0#[[150, 100], [100, 150]]
@@ -22,7 +22,7 @@ def runBCC(C,nx,ny,nReporters):
         alpha0[:,:,1] = [[1000,1], [1, 1000]]      
     combiner = heatmapbcc.Heatmapbcc(nx, ny, 2, 2, alpha0, nu0, nReporters)
     combiner.minNoIts = 5
-    combiner.maxNoIts = 20
+    combiner.maxNoIts = 200
     bcc_pred = combiner.combineClassifications(C)
     #bcc_pred = np.exp(combiner.lnKappa)
     bcc_pred = bcc_pred[1,:,:].reshape((nx,ny))
@@ -198,13 +198,13 @@ def loadUshData(nx,ny):
                 continue
             
             try:
-                Crow = np.matrix([0, repx, repy, 1]) # all report values are 1 since we only have confirmations of an incident, not confirmations of nothing happening
+                Crow = np.array([0, repx, repy, 1]) # all report values are 1 since we only have confirmations of an incident, not confirmations of nothing happening
             except ValueError:
                 print 'ValueError creating a row of the crowdsourced data matrix.!'        
             if C=={} or typeID not in C:
-                C[typeID] = Crow
+                C[typeID] = Crow.reshape((1,4))
             else:
-                C[typeID] = np.concatenate((C[typeID], Crow), axis=0)      
+                C[typeID] = np.concatenate((C[typeID], Crow.reshape(1,4)), axis=0)      
 
     return nreporters, C   
 
@@ -228,7 +228,7 @@ def writeCoordsToJson(minlat,maxlat,minlon,maxlon):
         
 def insertTrusted(nx,ny,C):
     x,y = translate_points_to_local(18.52,-72.284,nx,ny)
-    Crow = np.matrix([[1, x, y, 0],[1, x+1, y, 0],[1, x+2, y, 0],[1, x+3, y, 0], \
+    Crow = np.array([[1, x, y, 0],[1, x+1, y, 0],[1, x+2, y, 0],[1, x+3, y, 0], \
                     [1, x+1, y+1, 0],[1, x+1, y-1, 0],[1, x+2, y+1, 0],[1, x+3, y-1, 0], \
                     [1, x-1, y+1, 0],[1, x-1, y-1, 0],[1, x+2, y-1, 0],[1, x+3, y+1, 0]]) 
     C[1] = np.concatenate((C[1], Crow), axis=0)
@@ -262,8 +262,8 @@ if __name__ == '__main__':
 #         writeImg("_rep_intensity__sd_",j)   
     
     #Using BCC - lower res so it is tractable to interpolate
-    nx = 1000
-    ny = 1000
+    nx = 200
+    ny = 200
     _, C = loadUshData(nx,ny)       
     for j in range(1,2):
         bcc_pred,combiner = runBCC(C[j],nx,ny,1)
