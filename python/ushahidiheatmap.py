@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.sparse import coo_matrix
-
+import time
 sea_map = []
 
 def runBCC(C,nx,ny,nReporters):
@@ -23,6 +23,7 @@ def runBCC(C,nx,ny,nReporters):
     combiner = heatmapbcc.Heatmapbcc(nx, ny, 2, 2, alpha0, nu0, nReporters)
     combiner.minNoIts = 5
     combiner.maxNoIts = 200
+    combiner.convThreshold = 0.1
     bcc_pred = combiner.combineClassifications(C)
     #bcc_pred = np.exp(combiner.lnKappa)
     bcc_pred = bcc_pred[1,:,:].reshape((nx,ny))
@@ -262,24 +263,30 @@ if __name__ == '__main__':
 #         writeImg("_rep_intensity__sd_",j)   
     
     #Using BCC - lower res so it is tractable to interpolate
-    nx = 200
-    ny = 200
+    nx = 1002
+    ny = 1000
     _, C = loadUshData(nx,ny)       
     for j in range(1,2):
-        bcc_pred,combiner = runBCC(C[j],nx,ny,1)
-        bcc_mpr = combiner.getmean()
-        sea_map = plotResults(nx, ny, bcc_pred, sea_map, label='Predicted Incidents of type '+str(j))
-        #writeToJson(bcc_pred, nx,ny,j)
-        writeImg("", j)
-                
-        plotResults(nx, ny, bcc_mpr, sea_map, label='Incident Rate of type '+str(j))
-        #writeToJson(combiner.mPr, nx,ny,j, label="_mpr_")
-        writeImg("_mpr_",j)
+        start = time.clock()
         
-        bcc_stdPred = combiner.getsd()
-        plotResults(nx, ny, bcc_stdPred, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
-        #writeToJson(stdPred, nx,ny,j, label="_sd_")
-        writeImg("_sd_",j)
+        bcc_pred,combiner = runBCC(C[j],nx,ny,1)
+        
+        fin = time.clock()
+        print "bcc heatmap prediction timer (no loops): " + str(fin-start)
+                        
+#         bcc_mpr = combiner.getmean()
+#         sea_map = plotResults(nx, ny, bcc_pred, sea_map, label='Predicted Incidents of type '+str(j))
+#         #writeToJson(bcc_pred, nx,ny,j)
+#         writeImg("", j)
+#                 
+#         plotResults(nx, ny, bcc_mpr, sea_map, label='Incident Rate of type '+str(j))
+#         #writeToJson(combiner.mPr, nx,ny,j, label="_mpr_")
+#         writeImg("_mpr_",j)
+#         
+#         bcc_stdPred = combiner.getsd()
+#         plotResults(nx, ny, bcc_stdPred, sea_map, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+#         #writeToJson(stdPred, nx,ny,j, label="_sd_")
+#         writeImg("_sd_",j)
      
 #     #insert a trusted report at 18.5333 N, -72.3333 W     
 #     nx = 2000

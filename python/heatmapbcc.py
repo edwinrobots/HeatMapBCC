@@ -4,7 +4,6 @@ from gpgrid import GPGrid
 import numpy as np
 from scipy.special import psi, gammaln
 from scipy.sparse import coo_matrix
-from scipy.linalg import eigh 
 
 class  Heatmapbcc(ibcc.Ibcc):
     #Interpolating BCC (interBcc)
@@ -71,9 +70,7 @@ class  Heatmapbcc(ibcc.Ibcc):
         return self.ET
     
     def getmean(self, j=1):
-        #return np.exp(self.lnKappa[j,:,:])/np.sum(np.exp(self.lnKappa),axis=0)
         return self.mPr[j]
-        #return self.nu[j,:,:]
 
     def getsd(self, j=1):
         return self.sd_post_T[j]
@@ -127,7 +124,7 @@ class  Heatmapbcc(ibcc.Ibcc):
             self.lnKappa[j,:,:] = psi(self.nu0[j]) - psi(np.sum(self.nu0))      
             #start with a homogeneous grid     
             if j>0:  
-                self.heatGP[j] = GPGrid(self.nx, self.ny, self.nu0)
+                self.heatGP[j] = GPGrid(self.nx, self.ny)
                 self.f_pr[j], self.Cov_pr[j], _, _ = self.heatGP[j].train([], [], [])
 
     def kappa_moments_to_nu(self, mPr, sdPr):
@@ -202,13 +199,20 @@ class  Heatmapbcc(ibcc.Ibcc):
         return lnpCT
     
     def postLnKappa(self):
-        lnpKappa = gammaln(np.sum(self.nu0))-np.sum(gammaln(self.nu0)) + \
-                    np.sum( (self.nu0-1).reshape((self.nClasses,1,1))*self.lnKappa, 0)            
+        nObs = len(self.obsx)
+        lnKappa_obs = self.lnKappa[:,self.obsx,self.obsy]
+        nu0_obs = np.tile(self.nu0.reshape(self.nClasses,1), (1, nObs))
+        
+        lnpKappa = gammaln(np.sum(nu0_obs, 0))-np.sum(gammaln(nu0_obs), 0) + \
+                    np.sum( (nu0_obs-1)*lnKappa_obs, 0)            
         return np.sum(lnpKappa)
  
     def qLnKappa(self):
-        lnqKappa = gammaln(np.sum(self.nu))-np.sum(gammaln(self.nu)) + \
-                    np.sum( self.nu-1*self.lnKappa, 0)
+        nu_obs = self.nu[:, self.obsx, self.obsy]
+        lnKappa_obs = self.lnKappa[:,self.obsx,self.obsy]
+        
+        lnqKappa = gammaln(np.sum(nu_obs,0))-np.sum(gammaln(nu_obs), 0) + \
+                    np.sum( (nu_obs-1)*lnKappa_obs, 0)
         return np.sum(lnqKappa)
         
     def qLnT(self):
