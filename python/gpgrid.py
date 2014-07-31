@@ -2,6 +2,8 @@ import numpy as np
 from scipy.linalg import inv
 from scipy.sparse import coo_matrix
 
+import time
+
 def sigmoid(f,s):
     g = np.divide(1, 1+np.exp(-s*f))
     return g
@@ -39,6 +41,11 @@ class GPGrid(object):
     G = []
     partialK = []
     z = []
+      
+    gp = []
+    
+    K = []
+    Q = []    
         
     def __init__(self, nx, ny):
         self.nx = nx
@@ -68,16 +75,28 @@ class GPGrid(object):
             allresp = np.array(self.obs_points[:,1]).reshape(self.obs_points.shape[0],1)
             
         self.z = presp/allresp
-        self.z = self.z.reshape((self.z.size,1)) - 0.5
-            
-        return presp, allresp 
+        self.z = self.z.reshape((self.z.size,1)) - 0.5 
+
+        #Update to produce training matrices only over known points
+        ddx = np.float64(np.tile(self.obsx, (len(self.obsx),1)).T - np.tile(self.obsx, (len(self.obsx),1)))
+        ddy = np.float64(np.tile(self.obsy, (len(self.obsy),1)).T - np.tile(self.obsy, (len(self.obsy),1)))
     
-    def train( self, obsx, obsy, obs_points ):
+        Kx = np.exp( -ddx**2/self.ls )
+        Ky = np.exp( -ddy**2/self.ls )
+        K = Kx*Ky
+        self.K = K + 1e-6 * np.eye(len(K)) # jitter 
+            
+    
+        Pr_est = (presp+1)/(allresp+2)
+        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+2))
+    
+    def train( self, obsx, obsy, obs_points, new_points=False ):
         self.obsx = obsx
         self.obsy = obsy
         self.obs_points = obs_points
                 
-        presp, allresp = self.process_observations()
+        if self.z==[] or new_points:
+            self.process_observations()
         
         #print "gp grid starting training..."
         
@@ -88,26 +107,11 @@ class GPGrid(object):
             stdPr = 0.25       
             f = 0
             var = latentvariance(stdPr, mPr, self.s)
-            return f, var, mPr, stdPr
-        
-        #Update to produce training matrices only over known points
-        ddx = np.float64(np.tile(self.obsx, (len(self.obsx),1)).T - np.tile(self.obsx, (len(self.obsx),1)))
-        ddy = np.float64(np.tile(self.obsy, (len(self.obsy),1)).T - np.tile(self.obsy, (len(self.obsy),1)))
-        
-        #print "gp grid allocated dd"
-        
-        Kx = np.exp( -ddx**2/self.ls )
-        Ky = np.exp( -ddy**2/self.ls )
-        K = Kx*Ky
+            return f, var, mPr, stdPr      
     
         f = np.zeros(len(self.obsx))
-        K = K + 1e-6 * np.eye(len(K)) # jitter    
-        
-        Pr_est = (presp+1)/(allresp+2)
-        Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+2))
-        
-        #print "gp grid starting loop"
-        
+        #print "gp grid starting loop"        
+#         start = time.clock()        
         converged = False    
         nIt = 0
         while not converged and nIt<1000:
@@ -116,17 +120,20 @@ class GPGrid(object):
             mean_X = sigmoid(f,self.s)
             self.G = np.diagflat( self.s*mean_X*(1-mean_X) )
         
-            W = K.dot(self.G).dot( inv(self.G.dot(K).dot(self.G)+Q) )
+            W = self.K.dot(self.G).dot( inv(self.G.dot(self.K).dot(self.G) + self.Q) )
         
             f = W.dot(self.G).dot(self.z) 
-            C = K - W.dot(self.G).dot(K)
+            C = self.K - W.dot(self.G).dot(self.K)
         
             diff = np.max(np.abs(f-old_f))
             converged = diff<1e-3
             #print 'GPGRID diff = ' + str(diff)
             nIt += 1
+            
+#         fin = time.clock()
+#         print "train time: " + str(fin-start)            
            
-        self.partialK = self.G.dot(np.linalg.inv(self.G.dot(K).dot(self.G) + Q) );    
+        self.partialK = self.G.dot(np.linalg.inv(self.G.dot(self.K).dot(self.G) + self.Q) );    
         self.obs_f = f.reshape(-1)
         self.obs_C = C
         v = np.diag(C)
@@ -162,6 +169,8 @@ class GPGrid(object):
         j = np.arange(self.ny).reshape(self.ny,1)
         Ky = np.exp( -(j-ddy)**2/self.ls )
         
+#         start = time.clock()
+        
         for i in np.arange(self.nx):
             Kx = np.exp( -ddx**2/self.ls )
             Kpred = Kx*Ky
@@ -174,6 +183,9 @@ class GPGrid(object):
 
         mPr = sigmoid(f,self.s)
         stdPr = np.sqrt(target_var(f, self.s, C))
+        
+#         fin = time.clock()
+#         print "pred time: " + str(fin-start)
         
         return mPr, stdPr, f, C    
     

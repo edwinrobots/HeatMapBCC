@@ -11,6 +11,9 @@ from scipy.sparse import coo_matrix
 import time
 sea_map = []
 
+webdatadir = '../web'
+datadir = '../data'
+
 def runBCC(C,nx,ny,nReporters):
     nu0 = np.array([0.5, 0.5])#0.03
     
@@ -65,8 +68,8 @@ def removesea(sea_map, bcc_pred, nx, ny, maxlat, minlat, maxlon, minlon):
         return bcc_pred, sea_map
     
     from point_in_polygon import cn_PnPoly
-    poly1 = np.genfromtxt("./data/haiti_polygon_1.csv", usecols=[0,1], delimiter=',')
-    poly2 = np.genfromtxt("./data/haiti_polygon_2.csv", usecols=[0,1], delimiter=',')
+    poly1 = np.genfromtxt(datadir+"/haiti_polygon_1.csv", usecols=[0,1], delimiter=',')
+    poly2 = np.genfromtxt(datadir+"/haiti_polygon_2.csv", usecols=[0,1], delimiter=',')
 
     #translate
     poly1x, poly1y = translate_points_to_local(poly1[:,1],poly1[:,0],nx,ny)
@@ -167,7 +170,7 @@ def tranlate_points_to_original(x,y,nx,ny,maxlat,minlat,maxlon,minlon):
     return latdata,londata
     
 def loadUshData(nx,ny):
-    dataFile = './data/exported_ushahidi.csv'
+    dataFile = datadir+'/exported_ushahidi.csv'
     
     nreporters = 1
     
@@ -223,7 +226,7 @@ def writeToJson(bcc_pred, nx, ny, j, label=""):
      
 def writeCoordsToJson(minlat,maxlat,minlon,maxlon):
     import json
-    jsonFile = './web/mapdata/coords.json'
+    jsonFile = webdatadir+'/mapdata/coords.json'
     with open(jsonFile, 'w') as fp:
         json.dump([minlat,maxlat,minlon,maxlon], fp)    
         
@@ -238,7 +241,7 @@ def insertTrusted(nx,ny,C):
 #--------  MAIN --------------------------------------------------
 if __name__ == '__main__':
    
-    fileprefix = './web/mapdata/map_big_nosea_speed'
+    fileprefix = webdatadir+'/mapdata/map_big_nosea_speed'
    
     sea_map = []
    
@@ -263,7 +266,7 @@ if __name__ == '__main__':
 #         writeImg("_rep_intensity__sd_",j)   
     
     #Using BCC - lower res so it is tractable to interpolate
-    nx = 1002
+    nx = 1000
     ny = 1000
     _, C = loadUshData(nx,ny)       
     for j in range(1,2):
