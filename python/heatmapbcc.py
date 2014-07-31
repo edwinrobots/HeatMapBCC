@@ -190,12 +190,13 @@ class  Heatmapbcc(ibcc.Ibcc):
         for j in range(self.nClasses):
             for l in range(self.nScores):
                 counts = (self.C[:,3]==l).T.dot(self.ET[j,self.C[:,1],self.C[:,2]])
-                self.alpha[j,l,:] = self.alpha0[j,l] + counts
+                self.alpha[j,l,:] = self.alpha0[j,l,:] + counts
 
     def postLnJoint(self, lnjoint):
+        #not quite right if there are multiple observations at one point.
         ET = self.ET[:, self.obsx, self.obsy]
         lnjoint = lnjoint[:, self.obsx, self.obsy]
-        lnpCT = np.sum(np.sum(np.sum( np.multiply(lnjoint, ET) )))                        
+        lnpCT = np.sum(np.sum(np.sum( lnjoint*ET )))                        
         return lnpCT
     
     def postLnKappa(self):
