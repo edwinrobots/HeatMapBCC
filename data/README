@@ -1,0 +1,27 @@
+--- Artificial Phillipines Dataset ---
+
+For use with a simulation that generates random new tweets.
+
+tweet_templates.txt  -- templates for generating simulated tweets
+
+--- Ushahidi ---
+
+Probably best to use this:
+
+exported_ushahidi.csv -- ID,CATEGORY,DATE,TIME,LAT,LON,TITLE,VERIFIED. 3604 records.
+
+All files have 3603 records. Older/other files are:
+
+exported_ushahidi_titles.ods -- Full details of the messages. ID, Category, Date, Time, Lat, Lon, Title, Verified.
+ushahidi_titles.csv -- Titles of the messsages + shows whether they are verified or not. This is not complete information.
+exported_ushahidi_data.csv -- ID, APPROVED, CATEGORY, DATE, TIME, LAT, LON, TITLE, VERIFIED, LOCATION. 
+The extra "approved" category is yes for all but a handful of messages.
+
+--- Output Files ---
+
+output.txt -- outputs a JSON file with combined reports. Each combined report is a peak on the heatmap. 
+
+--- Unknown Random Stuff ---
+
+oldTweets.txt
+report0.txt

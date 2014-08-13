@@ -2,11 +2,15 @@ import numpy as np
 from scipy.linalg import inv
 from scipy.sparse import coo_matrix
 
-import time
+import time, logging
 
 def sigmoid(f,s):
-    g = np.divide(1, 1+np.exp(-s*f))
+    g = 1/(1+np.exp(-s*f))
     return g
+
+def logit(g, s):
+    f = -np.log(1/g - 1)/s
+    return f
 
 def target_var(f,s,v):
     mean = sigmoid(f,s)
@@ -16,21 +20,27 @@ def target_var(f,s,v):
 
 def latentvariance(std, mean,s):
     prec = 1/np.square(std)
-    topvariance = np.multiply(mean,(1-mean))
-    prec = prec - np.divide(1,topvariance)
-    var = np.divide(1,prec)
-    var = np.divide(var, np.square(topvariance))
-    var = np.divide(var, np.square(s))
+    topvariance = mean*(1-mean)
+    prec = prec - 1/topvariance
+    var = 1/prec
+    var = var/topvariance**2
+    var = var/s**2
     return var
 
 class GPGrid(object):
 
+    rawobsx = []
+    rawobsy = []
+    rawobs_points = []
+
     obsx = []
     obsy = []
     obs_points = []
+    grid_all = []
     
     obs_f = []
     obs_C = []
+    obs_W = []
     
     nx = 0
     ny = 0
@@ -45,72 +55,76 @@ class GPGrid(object):
     gp = []
     
     K = []
-    Q = []    
+    Q = []
+    
+    f = []
+    C = []
         
     def __init__(self, nx, ny):
         self.nx = nx
         self.ny = ny  
     
-    def process_observations( self ):
-        if self.obs_points==[]:
-            return [],[]
+    def process_observations(self, obsx, obsy, obs_points): 
+        
+        if obs_points==[]:
+            return [],[]        
+        
+        if self.z!=[] and obsx==self.rawobsx and obsy==self.rawobsy and obs_points==self.rawobs_points:
+            return
+        
+        self.rawobsx = obsx
+        self.rawobsy = obsy
+        self.rawobs_points = obs_points  
             
-        #print "GP grid processing " + str(len(self.obsx)) + " observations."
+        logging.debug("GP grid processing " + str(len(self.obsx)) + " observations.")
             
-        self.obsx = np.array(self.obsx)
-        self.obsy = np.array(self.obsy)
-        if len(self.obs_points.shape)==1 or self.obs_points.shape[1]==1:
+        self.obsx = np.array(obsx)
+        self.obsy = np.array(obsy)
+        if len(obs_points.shape)==1 or obs_points.shape[1]==1:
+            self.obs_points = np.array(obs_points).reshape(-1)
+
+            self.grid_all = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
+            grid_p = coo_matrix((self.obs_points, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
             
-            self.obs_points = np.array(self.obs_points).reshape(-1)
+            self.obsx, self.obsy = self.grid_all.nonzero()
+            presp = grid_p[self.obsx,self.obsy]
+            #allresp = self.grid_all[self.obsx,self.obsy]
             
-            grid_p = coo_matrix((self.obs_points, (self.obsx, self.obsy)), shape=(self.nx,self.ny))
-            grid_all = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny))
+        elif obs_points.shape[1]==2:
+            presp = np.array(obs_points[:,0]).reshape(obs_points.shape[0],1)
+            self.obs_points = presp
+            #allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
             
-            self.obsx, self.obsy = grid_all.nonzero()
-            presp = np.array(grid_p.todok().values())
-            allresp = np.array(grid_all.todok().values())
-            
-        elif self.obs_points.shape[1]==2:
-            presp = np.array(self.obs_points[:,0]).reshape(self.obs_points.shape[0],1)
-            allresp = np.array(self.obs_points[:,1]).reshape(self.obs_points.shape[0],1)
-            
-        self.z = presp/allresp
-        self.z = self.z.reshape((self.z.size,1)) - 0.5 
+#         self.z = presp/allresp
+#         self.z = self.z.reshape((self.z.size,1)) - 0.5 
+#!!! THis isn't right now!
+        self.z = presp.reshape((presp.size,1)) - 0.5
 
         #Update to produce training matrices only over known points
-        ddx = np.float64(np.tile(self.obsx, (len(self.obsx),1)).T - np.tile(self.obsx, (len(self.obsx),1)))
-        ddy = np.float64(np.tile(self.obsy, (len(self.obsy),1)).T - np.tile(self.obsy, (len(self.obsy),1)))
+        obsx_tiled = np.tile(self.obsx, (len(self.obsx),1))
+        obsy_tiled = np.tile(self.obsy, (len(self.obsy),1))
+        ddx = np.array(obsx_tiled.T - obsx_tiled, dtype=np.float64)
+        ddy = np.array(obsy_tiled.T - obsy_tiled, dtype=np.float64)
     
         Kx = np.exp( -ddx**2/self.ls )
         Ky = np.exp( -ddy**2/self.ls )
         K = Kx*Ky
         self.K = K + 1e-6 * np.eye(len(K)) # jitter 
-            
     
-        Pr_est = (presp+1)/(allresp+2)
-        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+2))
+        #Pr_est = (presp+1)/(allresp+2)
+#         self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+2))
+        self.Q = np.diagflat(presp*(1-presp))
     
     def train( self, obsx, obsy, obs_points, new_points=False ):
-        self.obsx = obsx
-        self.obsy = obsy
-        self.obs_points = obs_points
-                
-        if self.z==[] or new_points:
-            self.process_observations()
-        
-        #print "gp grid starting training..."
-        
+        self.process_observations(obsx, obsy, obs_points)
         if self.obsx==[]:
-            print "What is correct way to apply priors? Adding pseudo-counts will not apply to points that" + \
-            "are  not included in training."
+            #What is correct way to apply priors? 
+            #Adding pseudo-counts will not apply to points that are  not included in training.
             mPr = 0.5
             stdPr = 0.25       
-            f = 0
-            var = latentvariance(stdPr, mPr, self.s)
-            return f, var, mPr, stdPr      
-    
+            return mPr, stdPr      
+        logging.debug("gp grid starting training...")    
         f = np.zeros(len(self.obsx))
-        #print "gp grid starting loop"        
 #         start = time.clock()        
         converged = False    
         nIt = 0
@@ -127,7 +141,7 @@ class GPGrid(object):
         
             diff = np.max(np.abs(f-old_f))
             converged = diff<1e-3
-            #print 'GPGRID diff = ' + str(diff)
+            logging.debug('GPGRID diff = ' + str(diff))
             nIt += 1
             
 #         fin = time.clock()
@@ -140,9 +154,11 @@ class GPGrid(object):
         mPr_tr = sigmoid(self.obs_f, self.s)
         sdPr_tr = np.sqrt(target_var(self.obs_f, self.s, v))
         
-        #print "gp grid trained"
+        self.obs_W = W
         
-        return self.obs_f, C, mPr_tr, sdPr_tr
+        logging.debug("gp grid trained")
+        
+        return mPr_tr, sdPr_tr
 
     def post_peaks(self, f, C):     
         v = np.diag(C)
@@ -151,15 +167,130 @@ class GPGrid(object):
           
         return mPr, stdPr
     
+    def post_grid_fast(self):
+        #A fast approximation that updates only the areas that have 
+        #changed more than the specified amount
+        f_end = self.G.dot(self.z) 
+        
+        update_indicator = np.zeros((self.nx,self.ny), dtype=np.bool)
+        #f = np.zeros((self.nx,self.ny), dtype=np.float64)
+        #C = np.ones((self.nx,self.ny), dtype=np.float64)
+
+        update_indicator[self.obsx, self.obsy] = True
+        self.f[self.obsx,self.obsy] = self.obs_f
+        self.C[self.obsx, self.obsy] = np.diag(self.obs_C)
+        
+        nobs = len(self.obsx)
+        logging.info("GP grid predicting posterior given " + str(nobs) + " observations.")
+
+        for o in np.arange(nobs):
+            logging.debug("Post grid fast update observation " + str(o) + " out of " + str(nobs))
+            neighbour_x = 1
+            neighbour_y = 1
+            done = False
+            while not done:
+                nupdated = 0
+                diff = 0
+                for x in np.arange(neighbour_x+1):
+                    for y in np.arange(neighbour_y+1):
+                        #evaluate these points
+                        i = self.obsx[o] + x
+                        j = self.obsy[o] + y
+                           
+                        if i<self.nx and j<self.ny and not update_indicator[i,j]:
+                            f, C = self.post_grid_square(i, j, f_end)
+                            nupdated+=1
+                            diff += np.abs(self.f[i,j]-f)
+                            self.f[i,j] = f
+                            self.C[i,j] = C
+                            update_indicator[i,j] = True
+                                                
+                        i = self.obsx[o] - x
+                        j = self.obsy[o] - y
+                        if i<self.nx and j<self.ny and not update_indicator[i,j]:
+                            f, C = self.post_grid_square(i, j, f_end)
+                            nupdated+=1
+                            diff += np.abs(self.f[i,j]-f)
+                            self.f[i,j] = f
+                            self.C[i,j] = C
+                            update_indicator[i,j] = True                        
+                        
+                        i = self.obsx[o] + x
+                        j = self.obsy[o] - y
+                        if i<self.nx and j<self.ny and not update_indicator[i,j]:
+                            f, C = self.post_grid_square(i, j, f_end)
+                            nupdated+=1
+                            diff += np.abs(self.f[i,j]-f)
+                            self.f[i,j] = f
+                            self.C[i,j] = C
+                            update_indicator[i,j] = True                            
+                        
+                        i = self.obsx[o] - x
+                        j = self.obsy[o] + y
+                        if i<self.nx and j<self.ny and not update_indicator[i,j]:
+                            f, C = self.post_grid_square(i, j, f_end)
+                            nupdated+=1
+                            diff += np.abs(self.f[i,j]-f)
+                            self.f[i,j] = f
+                            self.C[i,j] = C
+                            update_indicator[i,j] = True                            
+                        
+                #calculate total difference
+                if nupdated>0:          
+                    diff = diff/nupdated
+                else:
+                    diff = 0
+                logging.debug("fast update " + str(diff))
+                
+                if (diff<0.05 or nupdated==0) and neighbour_x>2:
+                    done = True
+                    
+                neighbour_x += 1
+                neighbour_y += 1
+                    
+        mPr = sigmoid(self.f,self.s)
+        stdPr = np.sqrt(target_var(self.f, self.s, self.C))
+        
+        return mPr, stdPr 
+    
+    def post_grid_square(self, i, j, f_end):
+        
+        ddx = np.float64(i - self.obsx)
+        ddy = np.float64(j - self.obsy)
+        
+        
+        Kx = np.exp( -ddx**2/self.ls )
+        Ky = np.exp( -ddy**2/self.ls )
+        Kpred = Kx*Ky
+        
+        W = Kpred.dot(self.partialK)
+        
+        f = W.dot(f_end)
+        C = 1 - Kpred.dot(W.dot(self.G))
+        return f, C
+    
     def post_grid(self):
-#         return self.post_grid_noloops()
-        #return self.post_grid_loops()
-        return self.post_grid_oneloop()
+#         self.f = np.zeros((self.nx,self.ny), dtype=np.float64)
+#         self.C = np.ones((self.nx,self.ny), dtype=np.float64)
+#         f_end = self.G.dot(self.z) 
+#         for i in np.arange(self.nx):
+#             for j in np.arange(self.ny):
+#                 self.f[i,j], self.C[i,j] = self.post_grid_square(i, j, f_end)
+#         
+#         mPr = sigmoid(self.f,self.s)
+#         stdPr = np.sqrt(target_var(self.f, self.s, self.C))
+#         
+#         return mPr, stdPr         
+        
+        if self.f==[]:
+            return self.post_grid_oneloop()
+        else:
+            return self.post_grid_fast()
     
     def post_grid_oneloop(self):
         
-        ddx = np.float64(-self.obsx).reshape((1,len(self.obsx)))
-        ddy = np.tile(np.float64(-self.obsy), (self.ny,1))
+        ddx = np.array(-self.obsx, dtype=np.float64).reshape((1,len(self.obsx)))
+        ddy = np.tile(np.array(-self.obsy, dtype=np.float64), (self.ny,1))
         
         f_end = self.G.dot(self.z) 
         
@@ -167,10 +298,10 @@ class GPGrid(object):
         C = np.ones((self.nx,self.ny), dtype=np.float64)
 
         j = np.arange(self.ny).reshape(self.ny,1)
-        Ky = np.exp( -(j-ddy)**2/self.ls )
+        ddy = j + ddy
+        Ky = np.exp( -ddy**2/self.ls )
         
 #         start = time.clock()
-        
         for i in np.arange(self.nx):
             Kx = np.exp( -ddx**2/self.ls )
             Kpred = Kx*Ky
@@ -181,18 +312,21 @@ class GPGrid(object):
             C[i,:] -= np.sum(W.dot(self.G)*Kpred, axis=1).reshape(-1)
             ddx += 1
 
+        print 'This is an incorrect way of estimating the mean and variance -- look up better approximations'
         mPr = sigmoid(f,self.s)
         stdPr = np.sqrt(target_var(f, self.s, C))
-        
 #         fin = time.clock()
 #         print "pred time: " + str(fin-start)
         
-        return mPr, stdPr, f, C    
+        self.f = f
+        self.C = C
+        
+        return mPr, stdPr   
     
     def post_grid_loops(self):
         
-        ddx = np.float64(-self.obsx)
-        ddy = np.float64(-self.obsy)
+        ddx = np.array(-self.obsx, dtype=np.float64)
+        ddy = np.array(-self.obsy, dtype=np.float64)
         
         f_end = self.G.dot(self.z) 
         
@@ -216,8 +350,11 @@ class GPGrid(object):
 
         mPr = sigmoid(f,self.s)
         stdPr = np.sqrt(target_var(f, self.s, C))
+                
+        self.f = f
+        self.C = C
         
-        return mPr, stdPr, f, C
+        return mPr, stdPr
          
     def post_grid_noloops(self):           
         ddy = np.arange(self.ny,dtype=np.float64).reshape((self.ny,1)) - np.tile(self.obsy, (self.ny,1))
@@ -242,4 +379,7 @@ class GPGrid(object):
         mPr = sigmoid(f,self.s)
         stdPr = np.sqrt(target_var(f, self.s, C))
         
-        return mPr, stdPr, f, C
+        self.f = f
+        self.C = C        
+        
+        return mPr, stdPr

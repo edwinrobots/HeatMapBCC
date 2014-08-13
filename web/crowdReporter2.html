@@ -17,33 +17,67 @@
     <script src="events.js"></script-->
     <script type="text/javascript" src="heatmap.js"> </script>
     <script type="text/javascript">
-$(function(){
 
-    loadScript = function() {
-        
-        mapCentre = new google.maps.LatLng(18.55, -72.3) //52.953250, -1.187569)
+loadScript = function() {
+    
+    mapCentre = new google.maps.LatLng(18.55, -72.3) //52.953250, -1.187569)
 
-        var mapOptions = {
-            zoom: 12,
-            center: mapCentre,
-            mapTypeId: google.maps.MapTypeId.SATELLITE
-        };
-
-        map = new google.maps.Map(document.getElementById('map-canvas'),
-            mapOptions);
-
-        overlayOptions = {
-            opacity:0.5,
-            map: map,
-            clickable: true
-        };
-
-        setHeatMapLayer();
-        //set up timeouts to call loadpeaks periodically
+    var mapOptions = {
+        zoom: 12,
+        center: mapCentre,
+        mapTypeId: google.maps.MapTypeId.SATELLITE
     };
-});
+
+    map = new google.maps.Map(document.getElementById('map-canvas'),
+        mapOptions);
+
+    overlayOptions = {
+        opacity:0.5,
+        map: map,
+        clickable: true
+    };
+
+    setHeatMapLayer();
+    //set up timeouts to call loadpeaks periodically
+};
 $(document).ready(function(){
+
+    mapdatastr = "mapdata/map_big2_nosea"
+
     loadScript();
+    $("#submit").click(function(){
+        var c_val = $("input[name='c_val']:checked").val();
+        var type = $("input[name='type']:checked").val();
+        var lat = $("#lat").val();
+        var lon = $("#lon").val();
+        var rep_id = $("input[name='rep_id']:checked").val();
+        var reporter = $("#reporter").val();
+        var trust_acc = $("#trust_acc").val();
+        var trust_var = $("#trust_var").val();
+
+        // Returns successful data submission message when the entered information is stored in database.
+        var data = { c_val: c_val, type: type, lat: lat, lon:lon, rep_id:rep_id, reporter:reporter, 
+                trust_acc:trust_acc, trust_var:trust_var
+        };
+
+        var succ_callback = function(data) {
+            $('#crowd_report_form')[0].reset(); //To reset form fields
+            //alert("reloading map after update") //don't update now as it will take a while to reload anyway
+            //setHeatMapLayer();
+            alert("Submitted new report. Map update in progress, please wait for change to take effect...");
+        };
+
+        $.post("crowd_reports", data, succ_callback);
+    });
+
+//     setTimeout(function(){
+//         if (timeoutOverridden>0){
+//             timeoutOverridden -= 1;
+//             return;
+//         }
+//         setHeatMapLayer();
+//     }, 10000);
+
 });
     </script>
   </head>
@@ -51,7 +85,7 @@ $(document).ready(function(){
     <title> Crowd Reporter </title>
     <h1 style="">Crowdsourced Situation Awareness -- Emergencies in Haiti </h1>
 
-    <div id="panel" style="width: 300px; float: left;">
+    <div id="panel" style="width: 350px; float: left;">
 <!--        <form action="">
             <input type="radio" checked="true" name="layerSelect" value="Emergency" id="emergency">Emergency: medical, trapped/vulnerable people<br>
             <input type="radio" name="layerSelect" value="Vital Lines" id="vital">Vital lines: food, water, power, fuel, shelter<br>
@@ -65,7 +99,7 @@ $(document).ready(function(){
         <div style="float:left;padding-left:10px"><span><h3>Map type:</h3></span></div>
         <ul style="list-style-type:none;padding-left:10px">
             <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="pred" checked="true"><label for="pred" style="float:left;width: 90%;" ><span>Predictions: best estimates of current situation</span></label></li>
-            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 90%;" ><span>Uncertainty: highlights where we need more reports</span></label></li>
+            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 90%;" ><span>Uncertainty: where we need more reports</span></label></li>
         </ul>
         <div style="float:left;padding-left:10px"><span><h3>Map generation method:</h3></span></div>
         <ul style="list-style-type:none;padding-left:10px">
@@ -82,7 +116,55 @@ $(document).ready(function(){
             <input type="radio" checked="true" name="meanstd" id="mean">Predicted Incidents</input><br>
             <input type="radio" name="meanstd" id="std">Uncertainty</input>
         </form>-->
-        <div style="float:left;padding-left:10px" ><span class="filename_disp" id="filename_disp">Map File</span></div>
+        <br/><hr>
+        <div style="float:left;padding-left:10px" >Map file displayed: <span class="filename_disp" id="filename_disp">Map File</span></div>
+
+        <div style="float:left;padding-left:10px;padding-right:5px">
+        <hr>
+        <span><h3>Submit a new report</h3></span>
+        <form action="crowd_reports" method="post" id="crowd_report_form">
+            <input type="radio" name="c_val" checked="true" id="pos" value="1"/>
+            <label for="pos"><span>Positive: confirm observation of event/target.</span><br/></label>
+            <input type="radio" name="c_val" id="neg" value="0"/>
+            <label for="neg"><span>Negative: there is no event or target at this location</span><br/></label>
+            
+            <div style="padding-bottom:5px; padding-top:5px">
+            <div style="float:left;width:330px; padding-right:10px"><b>Type</b></div>
+            <div style="text-align:left;float:left;width:330px; padding-bottom:10px">
+            <input type="radio" name="type" checked="true" id="Emergency" value="1"/>
+            <label for="Emergency"><span>Emergency (other types will be added later)</span><br/></label>
+            </div>  </div>
+
+            <div style="padding-bottom:5px;padding-top:5px">
+            <div style="float:left;width:85px;height:30px"><b>Location</b></div>
+            <div style="text-align:left;float:right;width:255px;height:30px">
+            <label for="lat"><span>Lat:</span></label>
+            <input style="width:60px" type="number" step="0.01" name="lat" id="lat" value="18.55"/>
+            <label for="lon"><span>Long:</span></label>
+            <input style="width:60px" type="number" step="0.01" name="lng" id="lon" value="-72.3"/>
+            </div> </div>
+                         
+            <div style="padding-bottom:5px;padding-top:5px">
+            <div style="float:left;width:85px;height:40px"><b>Reporter ID</b></div>
+            <div style="text-align:left;float:right;width:255px;height:40px">
+            <input type="radio" name="rep_id" id="rep_id_new" checked="true" value="-1"/><label for="rep_id_new">
+            <span>New</span></label>
+            <input type="radio" name="rep_id" id="rep_id_no" value="0"/><label for="rep_id_no">
+            <span>Existing ID</span></label>
+            <input type="text" name="reporter" id="reporter" style="width:60px"/>
+            </div>  </div>
+
+            <div style="padding-bottom:5px;padding-top:5px">
+            <div style="float:left;width:85px;height:40px"><b>Trust</b></div>
+            <div style="text-align:left;float:right;width:255px;height:40px">
+            <label for="trust_acc">Accuracy: </label>
+            <input type="number" style="width:50px" name="trust_acc" id="trust_acc" value="0.8" step="0.01"/>
+            <label for="trust_var">Certainty: </label>
+            <input type="number" style="width:50px" name="trust_var" id="trust_var" value="2" step="0.5"/>
+            </div> </div>
+
+            <input style="float:right" type="button" value="Post New Report" name="submit" id="submit"/>
+        </form></div>
     </div>
     <div id="map-canvas"/>
   </body>

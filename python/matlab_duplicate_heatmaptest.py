@@ -116,7 +116,7 @@ def runGPDirectly(C,nx,ny):
     
     return mPr
 
-def plotResults():
+def plotresults():
     
     ax = fig.add_subplot(2, 2, 3, projection='3d')    
     ax.plot_surface(gridx, gridy, bcc_pred, cstride=1, rstride=1, cmap=plt.get_cmap('spectral'))
@@ -139,4 +139,4 @@ if __name__ == '__main__':
 
     nsirran, C, gridx, gridy, pop_grid, fig = genSimData()
     bcc_pred = runGPDirectly(C,nx,ny)#runBCC(C,nx,ny,nsirran)
-    plotResults()
+    plotresults()
