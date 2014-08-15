@@ -3,12 +3,12 @@ Created on 23 Jun 2014
 
 @author: edwin
 '''
-import heatmapbcc, time, logging, threading
+import heatmapbcc, time, logging, json
 import numpy as np
 import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
-from memory_profiler import profile
+#from memory_profiler import profile
 
 class Heatmap(object):
 
@@ -85,6 +85,50 @@ class Heatmap(object):
         bcc_pred = self.runBCC_up_to_time(j,t)
         return bcc_pred   
 
+    def calculate_targets(self, pgrid, theta=0.8):
+        #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
+        #representing the most likely events. 
+        
+        #find points > theta
+        bgrid = np.array(pgrid>theta, dtype=np.int8)
+        
+        for x in np.arange(bgrid.shape[0]):
+            for y in np.arange(bgrid.shape[1]):
+                if bgrid[x,y]==0:
+                    continue
+                
+                #check neighbours on one side
+                if pgrid[x,y] <= pgrid[x+1,y]:
+                    bgrid[x,y] = 0
+                else:
+                    bgrid[x+1,y] = 0
+                    
+                if pgrid[x,y] <= pgrid[x,y+1]:
+                    bgrid[x,y] = 0
+                else:
+                    bgrid[x,y+1] = 0
+                
+                if pgrid[x,y] <= pgrid[x-1,y]:
+                    bgrid[x,y] = 0
+                    
+                if pgrid[x,y] <= pgrid[x,y-1]:
+                    bgrid[x,y] = 0
+               
+        target_list = np.argwhere(bgrid)
+        target_list_x = target_list[:,0]
+        target_list_y = target_list[:,1]
+        p_list = pgrid[target_list_x,target_list_y]     
+        target_list_x, target_list_y = self.tranlate_points_to_original(target_list_x, target_list_y)
+        return target_list_x, target_list_y, p_list, bgrid
+              
+    def enlarge_target_blobs(self, target_grid, nsize=10):
+        #make neighbouring points also one
+        pospoints = np.argwhere(target_grid)
+        for row in pospoints:
+            xblob = np.arange(row[0]-nsize,row[0]+nsize)
+            yblob = np.arange(row[1]-nsize,row[1]+nsize)
+            target_grid[xblob, yblob]
+                    
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
         
@@ -117,6 +161,11 @@ class Heatmap(object):
             
             self.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
             self.write_img("_rep_intensity__sd_",j)   
+            
+            target_list_x, target_list_y, p_list, target_grid = self.calculate_targets(bcc_pred)
+            self.plotresults(target_grid, 'Predicted target points of type ' + str(j))
+            self.write_img("_targets_", j)
+            self.write_targets_json(target_list_x, target_list_y, p_list)
             
             plt.close("all")
             
@@ -362,7 +411,6 @@ class Heatmap(object):
                     pad_inches=0, transparent=True, dpi=96)
     
     def write_json(self, bcc_pred, j, label=""):
-        import json
         jsonFile = self.fileprefix + label + str(j) + '.json'
         bcc_pred = bcc_pred
         bcc_pred = bcc_pred.tolist()
@@ -370,10 +418,16 @@ class Heatmap(object):
             json.dump(bcc_pred, fp)
          
     def write_coords_json(self):
-        import json
         jsonFile = self.webdatadir+'/mapdata/coords.json'
         with open(jsonFile, 'w') as fp:
             json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)    
+        
+    def write_targets_json(self, targets_list_x, targets_list_y, p_list,j=1):
+        jsonfile = self.webdatadir+'/mapdata/targets_'+str(j)+'.json'
+        obj = np.concatenate((targets_list_x[:,np.newaxis], targets_list_y[:,np.newaxis], p_list[:,np.newaxis]), axis=1)
+        obj = obj.tolist()
+        with open(jsonfile, 'w') as fp:
+            json.dump(obj, fp)
         
 #--------  MAIN TEST PROGRAM--------------------------------------------------
 if __name__ == '__main__':
