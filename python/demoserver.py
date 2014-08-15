@@ -79,7 +79,11 @@ def run_web_server():
             print serr
             port += 1    
     print "Using port " + str(port)
-    httpd.serve_forever()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print('^C received, shutting down server')
+        httpd.socket.close()
     
 def web_server_restarter():
     #restart the web server thread if it crashes
