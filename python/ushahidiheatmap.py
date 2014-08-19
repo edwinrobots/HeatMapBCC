@@ -19,10 +19,12 @@ class Heatmap(object):
     datadir = './data'
     fileprefix = '/mapdata/map_test'
     
-    minlat = 18.0
-    maxlat = 20.0
-    minlon = -73.8
-    maxlon = -71.7   
+    minlat = 18.2#18.0
+    maxlat = 18.8#19.4
+    minlon = -72.6#-73.1
+    maxlon = -72.0#-71.7   
+    
+    target_threshold = 0.775
     
     nx = 100
     ny = 100
@@ -31,7 +33,7 @@ class Heatmap(object):
     K = 1
     rep_ids = []
     
-    timestep = 579#20
+    timestep = 20#579#20
     
     running = True
     
@@ -89,11 +91,15 @@ class Heatmap(object):
         bcc_pred = self.runBCC_up_to_time(j,t)
         return bcc_pred   
 
-    def calculate_targets(self, pgrid, theta=0.9):
+    def calculate_targets(self, pgrid, theta=0):
         #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
         #representing the most likely events. 
         
         #find points > theta
+        
+        if theta==0:
+            theta = np.max(pgrid) - 0.12
+        
         bgrid = np.array(pgrid>theta, dtype=np.int8)
         
         for x in np.arange(bgrid.shape[0]):
@@ -143,8 +149,14 @@ class Heatmap(object):
         
         #Call this in a new thread that can be updated by POST to the web server. 
         #When a new report is received by POST to web server, the server can kill this thread, call insert_trusted and then restart this method in a new thread
-        stepsize = 30.0
+        stepsize = 9.0
         nupdates = self.C[j].shape[0]
+        
+        
+        print "!!! Breaking the gradual update so we skip to final update loop"
+        self.timestep = nupdates
+        
+        
         while self.timestep<=nupdates:
             logging.info("timed_update_loop timestep " + str(self.timestep))
             starttime = time.time()
@@ -169,7 +181,7 @@ class Heatmap(object):
             self.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
             self.write_img("_rep_intensity__sd_",j)   
             
-            target_list_x, target_list_y, p_list, target_grid = self.calculate_targets(bcc_pred)
+            target_list_x, target_list_y, p_list, target_grid = self.calculate_targets(bcc_pred, self.target_threshold)
             self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
             self.write_img("_targets_", j)
             self.write_targets_json(target_list_x, target_list_y, p_list)
@@ -224,7 +236,9 @@ class Heatmap(object):
         fname = self.datadir + "/seamap.csv"
         if self.sea_map==[]:        
             try:
-                self.sea_map = np.genfromtxt(fname)                
+                self.sea_map = np.genfromtxt(fname)
+                if self.sea_map.shape[0] != bcc_pred.shape[0] or self.sea_map.shape[1] != bcc_pred.shape[1]:
+                    self.sea_map = [] #reload it as shape has changed               
             except Exception:
                 logging.info('Will recreate sea map matrix')
                         

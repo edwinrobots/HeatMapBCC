@@ -62,7 +62,7 @@ def kill_map_thread():
 def start_new_map_thread():
     logging.info("Starting heatmap updater thread")
     global heatmap
-    heatmap = Heatmap(1000,1000, compose_demo_reports=True)
+    heatmap = Heatmap(map_nx,map_ny, compose_demo_reports=True)
     map_thr = threading.Thread(target=heatmap.timed_update_loop)
     map_thr.start()
     logging.info("Started heatmap updater thread")
@@ -100,5 +100,9 @@ def web_server_restarter():
 thr_server_maintainer = threading.Thread(target=web_server_restarter)
 thr_server_maintainer.start()
 global heatmap
-heatmap = Heatmap(1000,1000, compose_demo_reports=True)
+global map_nx
+global map_ny
+map_nx = 500
+map_ny = 500
+heatmap = Heatmap(map_nx,map_ny, compose_demo_reports=True)
 heatmap.timed_update_loop()    
