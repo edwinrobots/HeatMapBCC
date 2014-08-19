@@ -66,6 +66,9 @@ class GPGrid(object):
     
     def process_observations(self, obsx, obsy, obs_points): 
         
+        #this can be passed in from the priors in future?
+        nu0 = np.array([1, 1],dtype=np.float)
+        
         if obs_points==[]:
             return [],[]        
         
@@ -88,17 +91,15 @@ class GPGrid(object):
             
             self.obsx, self.obsy = self.grid_all.nonzero()
             presp = grid_p[self.obsx,self.obsy]
-            #allresp = self.grid_all[self.obsx,self.obsy]
+            allresp = self.grid_all[self.obsx,self.obsy]
             
         elif obs_points.shape[1]==2:
             presp = np.array(obs_points[:,0]).reshape(obs_points.shape[0],1)
             self.obs_points = presp
-            #allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
+            allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
             
-#         self.z = presp/allresp
-#         self.z = self.z.reshape((self.z.size,1)) - 0.5 
-#!!! THis isn't right now!
-        self.z = presp.reshape((presp.size,1)) - 0.5
+        self.z = presp/allresp
+        self.z = self.z.reshape((self.z.size,1)) - 0.5 
 
         #Update to produce training matrices only over known points
         obsx_tiled = np.tile(self.obsx, (len(self.obsx),1))
@@ -111,9 +112,8 @@ class GPGrid(object):
         K = Kx*Ky
         self.K = K + 1e-6 * np.eye(len(K)) # jitter 
     
-        #Pr_est = (presp+1)/(allresp+2)
-#         self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+2))
-        self.Q = np.diagflat(presp*(1-presp))
+        Pr_est = (presp+nu0[1])/(allresp+np.sum(nu0))
+        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)))
     
     def train( self, obsx, obsy, obs_points, new_points=False ):
         self.process_observations(obsx, obsy, obs_points)
@@ -151,6 +151,9 @@ class GPGrid(object):
         self.obs_f = f.reshape(-1)
         self.obs_C = C
         v = np.diag(C)
+        if np.argwhere(v<0).size != 0:
+            logging.warning("Variance was negative in GPGrid train()")
+            v[v<0] = 0
         mPr_tr = sigmoid(self.obs_f, self.s)
         sdPr_tr = np.sqrt(target_var(self.obs_f, self.s, v))
         

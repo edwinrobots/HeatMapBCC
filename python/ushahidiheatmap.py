@@ -31,14 +31,16 @@ class Heatmap(object):
     K = 1
     rep_ids = []
     
-    timestep = 20
+    timestep = 579#20
     
     running = True
     
     alpha0 = []
     nu0 = []
     
-    def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None):
+    combine_cat_three_and_one = False
+    
+    def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None, compose_demo_reports=False):
         self.nx = nx
         self.ny = ny
         if minlat != None:
@@ -58,6 +60,8 @@ class Heatmap(object):
         self.alpha0 = np.array([[2.0, 1.0], [1.0, 2.0]])
         self.nu0 = np.array([1,1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
+        
+        self.combine_cat_three_and_one = compose_demo_reports
         
     def runBCC(self, j):
         C = self.C[j]
@@ -85,7 +89,7 @@ class Heatmap(object):
         bcc_pred = self.runBCC_up_to_time(j,t)
         return bcc_pred   
 
-    def calculate_targets(self, pgrid, theta=0.8):
+    def calculate_targets(self, pgrid, theta=0.9):
         #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
         #representing the most likely events. 
         
@@ -102,7 +106,7 @@ class Heatmap(object):
                     bgrid[x,y] = 0
                 else:
                     bgrid[x+1,y] = 0
-                    
+                     
                 if pgrid[x,y] <= pgrid[x,y+1]:
                     bgrid[x,y] = 0
                 else:
@@ -113,21 +117,23 @@ class Heatmap(object):
                     
                 if pgrid[x,y] <= pgrid[x,y-1]:
                     bgrid[x,y] = 0
-               
+          
         target_list = np.argwhere(bgrid)
         target_list_x = target_list[:,0]
         target_list_y = target_list[:,1]
         p_list = pgrid[target_list_x,target_list_y]     
         target_list_x, target_list_y = self.tranlate_points_to_original(target_list_x, target_list_y)
-        return target_list_x, target_list_y, p_list, bgrid
+        return target_list_x, target_list_y, np.around(p_list,2), bgrid
               
-    def enlarge_target_blobs(self, target_grid, nsize=10):
+    def enlarge_target_blobs(self, target_grid, nsize=5):
         #make neighbouring points also one
         pospoints = np.argwhere(target_grid)
         for row in pospoints:
             xblob = np.arange(row[0]-nsize,row[0]+nsize)
             yblob = np.arange(row[1]-nsize,row[1]+nsize)
-            target_grid[xblob, yblob]
+            for x in xblob:
+                target_grid[x, yblob] = 1
+        return target_grid
                     
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
@@ -137,20 +143,21 @@ class Heatmap(object):
         
         #Call this in a new thread that can be updated by POST to the web server. 
         #When a new report is received by POST to web server, the server can kill this thread, call insert_trusted and then restart this method in a new thread
+        stepsize = 30.0
         nupdates = self.C[j].shape[0]
-        while self.timestep<nupdates:
+        while self.timestep<=nupdates:
             logging.info("timed_update_loop timestep " + str(self.timestep))
             starttime = time.time()
-            
+
             bcc_pred = self.loop_iteration(j, self.timestep)
-            
+
             if not self.running:
                 logging.info("Stopping update loop for the heatmap")
-                break                    
-            
+                break
+
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
-            self.write_img("", j)           
-#                      
+            self.write_img("", j)
+  
             bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#self.combiner[j].getsd()
             self.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
             self.write_img("_sd_",j)
@@ -163,7 +170,7 @@ class Heatmap(object):
             self.write_img("_rep_intensity__sd_",j)   
             
             target_list_x, target_list_y, p_list, target_grid = self.calculate_targets(bcc_pred)
-            self.plotresults(target_grid, 'Predicted target points of type ' + str(j))
+            self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
             self.write_img("_targets_", j)
             self.write_targets_json(target_list_x, target_list_y, p_list)
             
@@ -178,7 +185,7 @@ class Heatmap(object):
             logging.info("Update loop took " + str(endtime-starttime) + " seconds.")
             
             #once complete, update the current time step
-            self.timestep += 1
+            self.timestep += stepsize
             
     def kill_combiners(self):
         self.running = False
@@ -341,6 +348,8 @@ class Heatmap(object):
                 try:
                     typeID = int(maintype)
                     #print "Type ID found: " + str(typeID)
+                    if typeID==3 and self.combine_cat_three_and_one:
+                        typeID = 1
                 except ValueError:
                     logging.warning('Not a report category: ' + typestring)
                     continue
@@ -360,6 +369,7 @@ class Heatmap(object):
                     C[typeID] = np.concatenate((C[typeID], Crow.reshape(1,4)), axis=0)      
         self.C = C
         self.combiner = {} #reset as we have reloaded the data
+        print "Number of type one reports: " + str(self.C[1].shape[0])
   
     def insert_trusted(self, j, x, y, v, rep_id=-1, trust_acc=0, trust_var=0):
         #add a new reporter ID if necessary
@@ -422,9 +432,15 @@ class Heatmap(object):
         with open(jsonFile, 'w') as fp:
             json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)    
         
-    def write_targets_json(self, targets_list_x, targets_list_y, p_list,j=1):
-        jsonfile = self.webdatadir+'/mapdata/targets_'+str(j)+'.json'
-        obj = np.concatenate((targets_list_x[:,np.newaxis], targets_list_y[:,np.newaxis], p_list[:,np.newaxis]), axis=1)
+    def write_targets_json(self, targets_list_x, targets_list_y, p_list,j=1,targettypes=None):
+        jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
+        #for now we will randomly assign some target types!
+        if targettypes==None:
+            targettypes = np.random.randint(0,4,(targets_list_x.size,1))
+            
+        target_ids = np.arange(0,targets_list_x.size)    
+            
+        obj = np.concatenate((target_ids[:,np.newaxis], targets_list_x[:,np.newaxis], targets_list_y[:,np.newaxis], targettypes), axis=1)
         obj = obj.tolist()
         with open(jsonfile, 'w') as fp:
             json.dump(obj, fp)
