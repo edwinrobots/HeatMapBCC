@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
+from copy import deepcopy
 #from memory_profiler import profile
 
 class Heatmap(object):
@@ -91,45 +92,119 @@ class Heatmap(object):
         bcc_pred = self.runBCC_up_to_time(j,t)
         return bcc_pred   
 
-    def calculate_targets(self, pgrid, theta=0):
+    def move_reps(self, rgrid, x, y, newx, newy):
+        if rgrid[x,y] == None:
+            return rgrid
+        
+        if rgrid[newx,newy]==None:
+            rgrid[newx,newy] = []
+        elif len(rgrid[newx,newy])>10:
+            rgrid[newx,newy] = rgrid[newx,newy][0:10]
+            
+        for i in range(len(rgrid[x,y])):
+            if len(rgrid[newx,newy])<10:
+                rgrid[newx, newy].append(rgrid[x,y][i])
+        rgrid[x,y] = []
+        return rgrid    
+
+    def calculate_targets(self, pgrid, rep_id_grid, theta=0):
         #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
         #representing the most likely events. 
         
         #find points > theta
         
         if theta==0:
-            theta = np.max(pgrid) - 0.12
+            theta = np.max(pgrid) - 0.15
         
         bgrid = np.array(pgrid>theta, dtype=np.int8)
+        
+        rgrid = deepcopy(rep_id_grid)
         
         for x in np.arange(bgrid.shape[0]):
             for y in np.arange(bgrid.shape[1]):
                 if bgrid[x,y]==0:
                     continue
                 
-                #check neighbours on one side
-                if pgrid[x,y] <= pgrid[x+1,y]:
-                    bgrid[x,y] = 0
-                else:
-                    bgrid[x+1,y] = 0
-                     
-                if pgrid[x,y] <= pgrid[x,y+1]:
-                    bgrid[x,y] = 0
-                else:
-                    bgrid[x,y+1] = 0
+                #move reports from discarded neighbours
+                if bgrid[x+1,y]==0:
+                    rgrid = self.move_reps(rgrid, x+1, y, x, y)
+                if bgrid[x-1,y]==0:
+                    rgrid = self.move_reps(rgrid, x-1, y, x, y)
+                if bgrid[x,y+1]==0:
+                    rgrid = self.move_reps(rgrid, x, y+1, x, y)                                    
+                if bgrid[x,y-1]==0:
+                    rgrid = self.move_reps(rgrid, x, y-1, x, y)
+                if bgrid[x+1,y+1]==0:
+                    rgrid = self.move_reps(rgrid, x+1, y+1, x, y)
+                if bgrid[x-1,y-1]==0:
+                    rgrid = self.move_reps(rgrid, x-1, y-1, x, y)
+                if bgrid[x-1,y+1]==0:
+                    rgrid = self.move_reps(rgrid, x-1, y+1, x, y)                                    
+                if bgrid[x+1,y-1]==0:
+                    rgrid = self.move_reps(rgrid, x+1, y-1, x, y)     
                 
-                if pgrid[x,y] <= pgrid[x-1,y]:
-                    bgrid[x,y] = 0
+                #find highest neighbour
+                highestx = x
+                highesty = y
+                highestp = pgrid[x,y]
+                
+                if highestp <= pgrid[x+1,y]:
+                    highestx = x+1
+                    highesty = y
+                    highestp = pgrid[x+1, y]
                     
-                if pgrid[x,y] <= pgrid[x,y-1]:
-                    bgrid[x,y] = 0
-          
+                if highestp <= pgrid[x-1,y]:
+                    highestx = x-1
+                    highesty = y
+                    highestp = pgrid[x-1, y]   
+ 
+                if highestp <= pgrid[x,y-1]:
+                    highestx = x
+                    highesty = y-1
+                    highestp = pgrid[x, y-1]  
+                    
+                if highestp <= pgrid[x,y+1]:
+                    highestx = x
+                    highesty = y+1
+                    highestp = pgrid[x, y+1]
+                    
+                if highestp <= pgrid[x+1,y+1]:
+                    highestx = x+1
+                    highesty = y+1
+                    highestp = pgrid[x+1, y+1]
+                    
+                if highestp <= pgrid[x-1,y-1]:
+                    highestx = x-1
+                    highesty = y-1
+                    highestp = pgrid[x-1, y-1]   
+ 
+                if highestp <= pgrid[x+1,y-1]:
+                    highestx = x+1
+                    highesty = y-1
+                    highestp = pgrid[x+1, y-1]  
+                    
+                if highestp <= pgrid[x-1,y+1]:
+                    highestx = x-1
+                    highesty = y+1
+                    highestp = pgrid[x-1, y+1]                    
+                    
+                if highestx!=x or highesty!=y:
+                    bgrid[x,y] = -1
+                    rgrid = self.move_reps(rgrid, x, y, highestx, highesty)
+                else:
+                    logging.info("target found at " + str(x) + ", " + str(y))
+                                   
+        bgrid[bgrid==-1] = 0
+                                        
         target_list = np.argwhere(bgrid)
         target_list_x = target_list[:,0]
         target_list_y = target_list[:,1]
+        
+        target_rep_ids = rgrid[target_list_x, target_list_y]
+        
         p_list = pgrid[target_list_x,target_list_y]     
         target_list_x, target_list_y = self.tranlate_points_to_original(target_list_x, target_list_y)
-        return target_list_x, target_list_y, np.around(p_list,2), bgrid
+        return target_list_x, target_list_y, np.around(p_list,2), bgrid, target_rep_ids
               
     def enlarge_target_blobs(self, target_grid, nsize=5):
         #make neighbouring points also one
@@ -144,7 +219,7 @@ class Heatmap(object):
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
         
-        self.load_ush_data() 
+        rep_id_grid, rep_list = self.load_ush_data() 
         self.write_coords_json()
         
         #Call this in a new thread that can be updated by POST to the web server. 
@@ -181,10 +256,11 @@ class Heatmap(object):
             self.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
             self.write_img("_rep_intensity__sd_",j)   
             
-            target_list_x, target_list_y, p_list, target_grid = self.calculate_targets(bcc_pred, self.target_threshold)
+            target_list_x, target_list_y, p_list, target_grid, target_rep_ids = \
+                self.calculate_targets(bcc_pred, rep_id_grid[j], self.target_threshold)
             self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
             self.write_img("_targets_", j)
-            self.write_targets_json(target_list_x, target_list_y, p_list)
+            self.write_targets_json(target_list_x, target_list_y, p_list, target_rep_ids, rep_list)
             
             plt.close("all")
             
@@ -351,8 +427,10 @@ class Heatmap(object):
         latdata = np.genfromtxt(dataFile, np.float64, delimiter=',', skip_header=True, usecols=[4])
         londata = np.genfromtxt(dataFile, np.float64, delimiter=',', skip_header=True, usecols=[5])
         reptypedata = np.genfromtxt(dataFile, np.str, delimiter=',', skip_header=True, usecols=[1])
+        rep_list = np.genfromtxt(dataFile, np.str, delimiter=',', skip_header=True, usecols=[6])
         latdata,londata = self.translate_points_to_local(latdata,londata)
-             
+        rep_id_grid = {}
+
         C = {}            
         for i, reptypetext in enumerate(reptypedata):        
             typetoks = reptypetext.split('.')
@@ -379,11 +457,19 @@ class Heatmap(object):
                     logging.error('ValueError creating a row of the crowdsourced data matrix.!')        
                 if C=={} or typeID not in C:
                     C[typeID] = Crow.reshape((1,4))
+                    rep_id_grid[typeID] = np.empty((self.nx, self.ny), dtype=np.object)
                 else:
-                    C[typeID] = np.concatenate((C[typeID], Crow.reshape(1,4)), axis=0)      
+                    C[typeID] = np.concatenate((C[typeID], Crow.reshape(1,4)), axis=0)
+                    
+                if rep_id_grid[typeID][repx, repy] == None:
+                    rep_id_grid[typeID][repx, repy] = []
+                rep_id_grid[typeID][repx, repy].append(i)               
+                     
         self.C = C
         self.combiner = {} #reset as we have reloaded the data
         print "Number of type one reports: " + str(self.C[1].shape[0])
+        
+        return rep_id_grid, rep_list
   
     def insert_trusted(self, j, x, y, v, rep_id=-1, trust_acc=0, trust_var=0):
         #add a new reporter ID if necessary
@@ -446,7 +532,7 @@ class Heatmap(object):
         with open(jsonFile, 'w') as fp:
             json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)    
         
-    def write_targets_json(self, targets_list_x, targets_list_y, p_list,j=1,targettypes=None):
+    def write_targets_json(self, targets_list_x, targets_list_y, p_list, target_rep_ids, target_list, j=1, targettypes=None):
         jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
         #for now we will randomly assign some target types!
         if targettypes==None:
@@ -456,6 +542,18 @@ class Heatmap(object):
             
         obj = np.concatenate((target_ids[:,np.newaxis], targets_list_x[:,np.newaxis], targets_list_y[:,np.newaxis], targettypes), axis=1)
         obj = obj.tolist()
+               
+        for i in range(len(obj)):
+            target_reports = [] 
+            rep_ids_i = target_rep_ids[i]
+            if rep_ids_i==None:
+                logging.warning("no reports associated with this target")
+            else:
+                for idx in rep_ids_i:
+                    target_reports.append(str(target_list[idx]))
+
+            obj[i].append(target_reports)
+            
         with open(jsonfile, 'w') as fp:
             json.dump(obj, fp)
         

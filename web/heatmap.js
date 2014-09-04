@@ -13,6 +13,13 @@ var maptypestr = "_rep_intensity_";
 
 var overlayOptions = [];
 
+var markers = {};
+var openWindows = {}
+
+var layerId = 1;
+
+var repList = {};
+
 function loadOverlayImage(restartTimer, layerName){    
     var peaksx = [];
     var peaksy = [];
@@ -63,19 +70,73 @@ function loadOverlayImage(restartTimer, layerName){
     }, mapReloadTime);
 }
 
-function setHeatMapLayer(restartTimer) {
+function addReportInfo(infoBox, reps){
+    for (var i=0; i<reps.length && i<10; i++){
+        infoBox.content = infoBox.content + "</br>" + reps[i];   
+    }
+}
+
+function drawTargetMarker(tid, locx, locy, img){
+            //create a google maps marker
+        markers[tid] = new google.maps.Marker({
+            position: new google.maps.LatLng(locx, locy),
+            map: overlayOptions.map,
+            title: 'Target',
+            icon: img
+        }); 
         
+        google.maps.event.addListener(markers[tid], 'click', function() {
+                        
+            var infoWindow = new google.maps.InfoWindow({
+                content: '<b>Associated Reports:</b>'
+            });
+            addReportInfo(infoWindow, repList[tid])         
+            
+            infoWindow.open(map,markers[tid]);
+            for (var i in openWindows){
+                    
+                openWindows[i].close();
+                delete openWindows[i];
+            }
+            openWindows[tid] = infoWindow;
+        });
+}
+
+function plotTargets(targetData){
+    for (var i=0; i<targetData.length; i++){
+        target = targetData[i];
+        
+        //extract the location
+        tid = target[0];
+        locx = target[1];
+        locy = target[2];
+        typeid = target[3];
+        repList[tid] = target[4]; //strongly associated reports
+        
+        img = "http://maps.google.com/mapfiles/kml/shapes/caution.png";
+        
+        drawTargetMarker(tid, locx, locy, img);
+    }        
+}
+
+function setHeatMapLayer(restartTimer, plotTargetsFlag) {
     //val = $("input[name='layerSelect']:checked").attr("id")
     //layerName = val;
-    
     $.getJSON("mapdata/coords.json",  function(data){
         coords = data;
         
         bounds = new google.maps.LatLngBounds(
             new google.maps.LatLng(coords[0],coords[2]),
             new google.maps.LatLng(coords[1],coords[3]));
-                
-        loadOverlayImage(restartTimer, layerName);
+        if (!plotTargetsFlag){
+            loadOverlayImage(restartTimer, layerName);
+        }else{
+            //load the targets
+            $.getJSON("targets_"+layerId+".json",  function(data){
+                plotTargets(data);
+                loadOverlayImage(restartTimer, layerName);
+            });
+        }
     });
 }
 
@@ -84,11 +145,16 @@ function switchOverlay(restartTimer){
     method = $("input[name='method']:checked").attr("id");
     reportsource = $("input[name='reportsource']:checked").attr("id");
         
+    plotTargetsFlag = false;
+    
     if (method=="reports"){
         maptypestr = "_rep_intensity_";
     } else if (method=="bcc"){
         maptypestr = ""; //add nothing
-    } 
+    } else if (method=="targets"){
+        maptypestr = "";
+        plotTargetsFlag = true
+    }
     
     if (maptype=="pred"){
         //do nothing
@@ -102,9 +168,9 @@ function switchOverlay(restartTimer){
         maptypestr += "_expert_";
     }
     if (restartTimer===undefined){
-        setHeatMapLayer(false);
+        setHeatMapLayer(false, plotTargetsFlag);
     }else{
-        setHeatMapLayer(restartTimer);
+        setHeatMapLayer(restartTimer, plotTargetsFlag);
     }
 }
 
