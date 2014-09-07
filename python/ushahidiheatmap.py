@@ -107,14 +107,79 @@ class Heatmap(object):
         rgrid[x,y] = []
         return rgrid    
 
+    #storing target info
+    targetsx = []
+    targetsy = []
+    targetids = []
+    targetversions = []
+
     def calculate_targets(self, pgrid, rep_id_grid, theta=0):
+        targetsx, targetsy, plist,bgrid,rep_ids = self.find_peaks(pgrid, rep_id_grid, theta)
+        
+        dist = np.zeros((len(targetsx),len(self.targetsx)))
+        
+        newtargetids = np.zeros(targetsx.shape)-1
+        newtargetversions = np.zeros(targetsx.shape)
+        
+        if len(self.targetids)<1:
+            self.targetsx = targetsx
+            self.targetsy = targetsy
+            self.targetids = np.arange(len(targetsx))
+            self.targetversions = np.zeros(self.targetids.shape)
+            return plist, bgrid, rep_ids
+        
+        #see if the peaks are close matches to existing targets
+        for t in range(len(targetsx)):
+            x = targetsx[t]
+            y = targetsy[t]
+            
+            #calculate distances to old targets
+            dist_t = np.sqrt((x-self.targetsx)**2 + (y-self.targetsy)**2)
+            dist[t,:] = dist_t
+            
+        #go through looking for most similar peaks first
+        
+        nIterations = len(targetsx)
+        num_new_ids = 0
+        if nIterations>len(self.targetsx):
+            num_new_ids = nIterations-len(self.targetsx)
+            nIterations = len(self.targetsx)
+            
+        for _ in range(nIterations):
+            closest_old_to_new = np.argmin(dist,axis=1)
+            mindist_old_to_new = np.min(dist,axis=1)
+        
+            least_moved_new = np.argmin(mindist_old_to_new)
+            least_moved_old = closest_old_to_new[least_moved_new]
+            newtargetids[least_moved_new] = self.targetids[least_moved_old]
+            
+            if targetsx[least_moved_new]==self.targetsx[least_moved_old] \
+                and targetsy[least_moved_new]==self.targetsy[least_moved_old]:
+                newtargetversions[least_moved_new] = self.targetversions[least_moved_old]
+            else:
+                newtargetversions[least_moved_new] = self.targetversions[least_moved_old]+1
+            dist[:,least_moved_old] = np.Inf
+            
+        if num_new_ids>0:
+            missingid_idxs = np.argwhere(newtargetids<0)
+            missingids = range(nIterations,nIterations+num_new_ids)
+            newtargetids[missingid_idxs] = missingids
+            
+        self.targetids = newtargetids
+        self.targetversions = newtargetversions
+        self.targetsx = targetsx
+        self.targetsy = targetsy        
+        
+        logging.info("Maximimum target ID is " + str(np.max(self.targetids)))
+        
+        return plist, bgrid, rep_ids
+
+    def find_peaks(self, pgrid, rep_id_grid, theta=0):
         #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
         #representing the most likely events. 
-        
-        #find points > theta
-        
+        #find points > theta        
         if theta==0:
-            theta = np.max(pgrid) - 0.15
+            theta = np.max(pgrid) - 0.12
         
         bgrid = np.array(pgrid>theta, dtype=np.int8)
         
@@ -197,14 +262,14 @@ class Heatmap(object):
         bgrid[bgrid==-1] = 0
                                         
         target_list = np.argwhere(bgrid)
-        target_list_x = target_list[:,0]
-        target_list_y = target_list[:,1]
+        targetsx = target_list[:,0]
+        targetsy = target_list[:,1]
         
-        target_rep_ids = rgrid[target_list_x, target_list_y]
+        target_rep_ids = rgrid[targetsx, targetsy]
         
-        p_list = pgrid[target_list_x,target_list_y]     
-        target_list_x, target_list_y = self.tranlate_points_to_original(target_list_x, target_list_y)
-        return target_list_x, target_list_y, np.around(p_list,2), bgrid, target_rep_ids
+        p_list = pgrid[targetsx,targetsy]     
+        targetsx, targetsy = self.tranlate_points_to_original(targetsx, targetsy)
+        return targetsx, targetsy, np.around(p_list,2), bgrid, target_rep_ids
               
     def enlarge_target_blobs(self, target_grid, nsize=5):
         #make neighbouring points also one
@@ -227,10 +292,8 @@ class Heatmap(object):
         stepsize = 9.0
         nupdates = self.C[j].shape[0]
         
-        
-        print "!!! Breaking the gradual update so we skip to final update loop"
-        self.timestep = nupdates
-        
+        #print "!!! Breaking the gradual update so we skip to final update loop"
+        #self.timestep = nupdates
         
         while self.timestep<=nupdates:
             logging.info("timed_update_loop timestep " + str(self.timestep))
@@ -256,11 +319,12 @@ class Heatmap(object):
             self.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
             self.write_img("_rep_intensity__sd_",j)   
             
-            target_list_x, target_list_y, p_list, target_grid, target_rep_ids = \
+            p_list, target_grid, target_rep_ids = \
                 self.calculate_targets(bcc_pred, rep_id_grid[j], self.target_threshold)
             self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
             self.write_img("_targets_", j)
-            self.write_targets_json(target_list_x, target_list_y, p_list, target_rep_ids, rep_list)
+            expec_pi = self.combiner[j].alpha / np.sum(self.combiner[j].alpha, 1)
+            self.write_targets_json(p_list, target_rep_ids, rep_list[j], pi=expec_pi)
             
             plt.close("all")
             
@@ -427,10 +491,11 @@ class Heatmap(object):
         latdata = np.genfromtxt(dataFile, np.float64, delimiter=',', skip_header=True, usecols=[4])
         londata = np.genfromtxt(dataFile, np.float64, delimiter=',', skip_header=True, usecols=[5])
         reptypedata = np.genfromtxt(dataFile, np.str, delimiter=',', skip_header=True, usecols=[1])
-        rep_list = np.genfromtxt(dataFile, np.str, delimiter=',', skip_header=True, usecols=[6])
+        rep_list_all = np.genfromtxt(dataFile, np.str, delimiter=',', skip_header=True, usecols=[6])
         latdata,londata = self.translate_points_to_local(latdata,londata)
         rep_id_grid = {}
 
+        rep_list = {}
         C = {}            
         for i, reptypetext in enumerate(reptypedata):        
             typetoks = reptypetext.split('.')
@@ -458,12 +523,14 @@ class Heatmap(object):
                 if C=={} or typeID not in C:
                     C[typeID] = Crow.reshape((1,4))
                     rep_id_grid[typeID] = np.empty((self.nx, self.ny), dtype=np.object)
+                    rep_list[typeID] = [rep_list_all[i]]
                 else:
                     C[typeID] = np.concatenate((C[typeID], Crow.reshape(1,4)), axis=0)
+                    rep_list[typeID].append(rep_list_all[i])
                     
                 if rep_id_grid[typeID][repx, repy] == None:
                     rep_id_grid[typeID][repx, repy] = []
-                rep_id_grid[typeID][repx, repy].append(i)               
+                rep_id_grid[typeID][repx, repy].append(len(rep_list[typeID])-1)               
                      
         self.C = C
         self.combiner = {} #reset as we have reloaded the data
@@ -532,30 +599,42 @@ class Heatmap(object):
         with open(jsonFile, 'w') as fp:
             json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)    
         
-    def write_targets_json(self, targets_list_x, targets_list_y, p_list, target_rep_ids, target_list, j=1, targettypes=None):
+    def write_targets_json(self, p_list, target_rep_ids, target_list, j=1, targettypes=None, pi=None):
         jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
         #for now we will randomly assign some target types!
         if targettypes==None:
-            targettypes = np.random.randint(0,4,(targets_list_x.size,1))
+            targettypes = np.random.randint(0,4,(self.targetsx.size,1))
             
-        target_ids = np.arange(0,targets_list_x.size)    
+        targetids = self.targetids#np.arange(0,self.targetsx.size)    
             
-        obj = np.concatenate((target_ids[:,np.newaxis], targets_list_x[:,np.newaxis], targets_list_y[:,np.newaxis], targettypes), axis=1)
+        obj = np.concatenate((targetids[:,np.newaxis], self.targetsx[:,np.newaxis], self.targetsy[:,np.newaxis], targettypes), axis=1)
         obj = obj.tolist()
                
+        #add list of associated targets
         for i in range(len(obj)):
             target_reports = [] 
+            pi_list = []
             rep_ids_i = target_rep_ids[i]
             if rep_ids_i==None:
                 logging.warning("no reports associated with this target")
             else:
                 for idx in rep_ids_i:
                     target_reports.append(str(target_list[idx]))
+                    agentid = self.C[j][idx,0]
+                    if pi==None:
+                        continue
+                    pi_list.append(pi[:,:,agentid].tolist())
 
             obj[i].append(target_reports)
+            #for each report, get a trust value
+            obj[i].append(pi_list)
+            obj[i].append(self.targetversions[i])
+            
             
         with open(jsonfile, 'w') as fp:
             json.dump(obj, fp)
+            
+        return obj
         
 #--------  MAIN TEST PROGRAM--------------------------------------------------
 if __name__ == '__main__':

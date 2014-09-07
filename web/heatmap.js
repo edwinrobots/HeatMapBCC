@@ -72,7 +72,8 @@ function loadOverlayImage(restartTimer, layerName){
 
 function addReportInfo(infoBox, reps){
     for (var i=0; i<reps.length && i<10; i++){
-        infoBox.content = infoBox.content + "</br>" + reps[i];   
+        pi_display = "put html string for conf matrix here"
+        infoBox.content = infoBox.content + "<tr><td>" + reps[i] + "</td><td>" + pi_display + "</td></tr>";   
     }
 }
 
@@ -88,9 +89,10 @@ function drawTargetMarker(tid, locx, locy, img){
         google.maps.event.addListener(markers[tid], 'click', function() {
                         
             var infoWindow = new google.maps.InfoWindow({
-                content: '<b>Associated Reports:</b>'
+                content: "<b>Target ID: " + tid + "</b><table border='1'>"
             });
-            addReportInfo(infoWindow, repList[tid])         
+            addReportInfo(infoWindow, repList[tid])       
+            infoWindow.content = infoWindow.content + "</table>"
             
             infoWindow.open(map,markers[tid]);
             for (var i in openWindows){
@@ -112,6 +114,7 @@ function plotTargets(targetData){
         locy = target[2];
         typeid = target[3];
         repList[tid] = target[4]; //strongly associated reports
+        //piList[tid] = target[
         
         img = "http://maps.google.com/mapfiles/kml/shapes/caution.png";
         
