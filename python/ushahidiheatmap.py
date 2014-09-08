@@ -10,8 +10,9 @@ import matplotlib.pyplot as plt
 from scipy.sparse import coo_matrix
 from copy import deepcopy
 #from memory_profiler import profile
-from prov.model import ProvDocument, Namespace, ProvBundle
+from prov.model import ProvDocument, Namespace
 from provstore.api import Api
+import os.path
 
 class Heatmap(object):
 
@@ -48,6 +49,7 @@ class Heatmap(object):
     provdoc = None
     provbundle = None
     provdoc_id = -1
+    provfilelist = []
     
     def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None, compose_demo_reports=False):
         self.nx = nx
@@ -609,10 +611,11 @@ class Heatmap(object):
         #write to prov store
         api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
         ao = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
+        
         self.provdoc = ProvDocument()
         self.provdoc.add_namespace(ao)
         self.provdoc.set_default_namespace('https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/')
-            
+                    
         self.provbundle = self.provdoc.bundle('crowd_scanner')#:'+str(bundle_id))
         b = self.provbundle    
 #         d = self.provdoc
@@ -626,24 +629,34 @@ class Heatmap(object):
             v = int(tdata[6])
             
             target = b.entity('target/'+str(tid))
-            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), {'ao:lon': str(x), 'ao:lat': str(y)})
+            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), {'ao:longitude': str(x), 'ao:latitude': str(y)})
             target_v0.specializationOf(target)
             for r in rep_ids[i]:
                 if r not in rep_entities:
                     Crow = C[r,:]
                     x = Crow[1]
                     y = Crow[2]
-                    rep_entities[r] = b.entity('crowdreport/'+str(r), {'ao:lon':str(x), 'ao:lat':str(y)})
+                    rep_entities[r] = b.entity('crowdreport/'+str(r), {'ao:longitude':str(x), 'ao:latitude':str(y)})
                 target_v0.wasDerivedFrom(rep_entities[r])
             target_v0.wasAttributedTo(cs)
         
-#         provstore_document.add_bundle(self.provdoc,'crowd_scanner:'+str(bundle_id))
-        # Submit the document to ProvStore##
-        provstore_document = api.document.create(self.provdoc, name='cs-targets', public=True)        
-        self.provdoc_id = provstore_document.id
+        provstore_document = api.document.create(self.provdoc, name='cs-targets', public=True)
+        self.provdoc_id = provstore_document.id        
+        #provstore_document = api.document.get(self.provdoc_id)
+        #provstore_document.add_bundle(self.provdoc,'crowd_scanner:'+str(bundle_id))                
+        #self.provdoc_id = provstore_document.id
         document_uri = provstore_document.url
         logging.info("prov doc URI: " + str(document_uri))
-        return provstore_document
+        self.provfilelist.append(self.provdoc_id)
+
+        jsonfile = self.datadir+"/provfilelist.json"
+        if self.provfilelist==[] and os.path.isfile(jsonfile):
+            with open(jsonfile,'r') as fp:
+                self.provfilelist = json.load(fp)
+        
+        with open(jsonfile, 'w') as fp:
+            json.dump(self.provfilelist, fp)
+        
         
     def write_targets_json(self, p_list, target_rep_ids, rep_list, update_number, j=1, targettypes=None, pi=None):
         jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
