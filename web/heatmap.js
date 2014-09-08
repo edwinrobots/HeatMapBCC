@@ -78,7 +78,12 @@ function addReportInfo(infoBox, reps){
 }
 
 function drawTargetMarker(tid, locx, locy, img){
-            //create a google maps marker
+        //create a google maps marker
+    
+        if (typeof markers[tid] !== 'undefined'){
+            markers[tid].setMap(null);
+        }
+    
         markers[tid] = new google.maps.Marker({
             position: new google.maps.LatLng(locx, locy),
             map: overlayOptions.map,
@@ -143,12 +148,24 @@ function setHeatMapLayer(restartTimer, plotTargetsFlag) {
     });
 }
 
+function removeReports(){
+    for (key in markers){
+        markers[key].setMap(null);
+    }    
+    for (key in openWindows){
+        openWindows[key].close();
+        openWindows[key] = null;
+    }
+}
+
 function switchOverlay(restartTimer){
     maptype = $("input[name='maptype']:checked").attr("id");
     method = $("input[name='method']:checked").attr("id");
     reportsource = $("input[name='reportsource']:checked").attr("id");
         
     plotTargetsFlag = false;
+    
+    removeReports();
     
     if (method=="reports"){
         maptypestr = "_rep_intensity_";

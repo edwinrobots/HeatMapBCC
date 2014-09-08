@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 from scipy.sparse import coo_matrix
 from copy import deepcopy
 #from memory_profiler import profile
+from prov.model import ProvDocument, Namespace, ProvBundle
+from provstore.api import Api
 
 class Heatmap(object):
 
@@ -42,6 +44,10 @@ class Heatmap(object):
     nu0 = []
     
     combine_cat_three_and_one = False
+    
+    provdoc = None
+    provbundle = None
+    provdoc_id = -1
     
     def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None, compose_demo_reports=False):
         self.nx = nx
@@ -324,7 +330,7 @@ class Heatmap(object):
             self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
             self.write_img("_targets_", j)
             expec_pi = self.combiner[j].alpha / np.sum(self.combiner[j].alpha, 1)
-            self.write_targets_json(p_list, target_rep_ids, rep_list[j], pi=expec_pi)
+            self.write_targets_json(p_list, target_rep_ids, rep_list[j], self.timestep, pi=expec_pi)
             
             plt.close("all")
             
@@ -599,7 +605,47 @@ class Heatmap(object):
         with open(jsonFile, 'w') as fp:
             json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)    
         
-    def write_targets_json(self, p_list, target_rep_ids, target_list, j=1, targettypes=None, pi=None):
+    def write_targets_prov(self, tlist, rep_ids, C, bundle_id):
+        #write to prov store
+        api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
+        ao = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
+        self.provdoc = ProvDocument()
+        self.provdoc.add_namespace(ao)
+        self.provdoc.set_default_namespace('https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/')
+            
+        self.provbundle = self.provdoc.bundle('crowd_scanner')#:'+str(bundle_id))
+        b = self.provbundle    
+#         d = self.provdoc
+        cs = b.agent('CrowdScanner')
+
+        rep_entities = {}             
+        for i, tdata in enumerate(tlist):
+            tid = int(tdata[0])
+            x = tdata[1]
+            y = tdata[2]
+            v = int(tdata[6])
+            
+            target = b.entity('target/'+str(tid))
+            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), {'ao:lon': str(x), 'ao:lat': str(y)})
+            target_v0.specializationOf(target)
+            for r in rep_ids[i]:
+                if r not in rep_entities:
+                    Crow = C[r,:]
+                    x = Crow[1]
+                    y = Crow[2]
+                    rep_entities[r] = b.entity('crowdreport/'+str(r), {'ao:lon':str(x), 'ao:lat':str(y)})
+                target_v0.wasDerivedFrom(rep_entities[r])
+            target_v0.wasAttributedTo(cs)
+        
+#         provstore_document.add_bundle(self.provdoc,'crowd_scanner:'+str(bundle_id))
+        # Submit the document to ProvStore##
+        provstore_document = api.document.create(self.provdoc, name='cs-targets', public=True)        
+        self.provdoc_id = provstore_document.id
+        document_uri = provstore_document.url
+        logging.info("prov doc URI: " + str(document_uri))
+        return provstore_document
+        
+    def write_targets_json(self, p_list, target_rep_ids, rep_list, update_number, j=1, targettypes=None, pi=None):
         jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
         #for now we will randomly assign some target types!
         if targettypes==None:
@@ -619,7 +665,7 @@ class Heatmap(object):
                 logging.warning("no reports associated with this target")
             else:
                 for idx in rep_ids_i:
-                    target_reports.append(str(target_list[idx]))
+                    target_reports.append(str(rep_list[idx]))
                     agentid = self.C[j][idx,0]
                     if pi==None:
                         continue
@@ -630,6 +676,8 @@ class Heatmap(object):
             obj[i].append(pi_list)
             obj[i].append(self.targetversions[i])
             
+            
+        self.write_targets_prov(obj, target_rep_ids, self.C[j], update_number)
             
         with open(jsonfile, 'w') as fp:
             json.dump(obj, fp)
