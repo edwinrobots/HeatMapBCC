@@ -19,8 +19,9 @@ var openWindows = {}
 var layerId = 1;
 
 var repList = {};
+var piList = {};
 
-function loadOverlayImage(restartTimer, layerName){    
+function loadOverlayImage(restartTimer, layerName, plotTargetsFlag){    
     var peaksx = [];
     var peaksy = [];
     var peaksval = [];    
@@ -54,25 +55,33 @@ function loadOverlayImage(restartTimer, layerName){
         //alert("cleared that shit");
     }
     //alert("About to set new heatmap: " + filename);
-    try{
-        heatmapLayer = new google.maps.GroundOverlay(filename, bounds, overlayOptions); 
+    try{           
+        $.getJSON("mapdata/coords.json",  function(data){
+            coords = data;
+            bounds = new google.maps.LatLngBounds(
+                new google.maps.LatLng(coords[0],coords[2]),
+                new google.maps.LatLng(coords[1],coords[3]));
+                
+            heatmapLayer = new google.maps.GroundOverlay(filename, bounds, overlayOptions); 
+            
+            if (!restartTimer){
+                return
+            }
+    
+            setTimeout(function(){
+                layerName = getLayerName();
+                setHeatMapLayer(true, plotTargetsFlag);
+            }, mapReloadTime);
+        });
     } catch (e) {
         alert("Loading map failed. " + e.msg);
     }
-    
-    if (!restartTimer){
-        return
-    }
-    
-    setTimeout(function(){
-        layerName = getLayerName();
-        loadOverlayImage(true, layerName);
-    }, mapReloadTime);
 }
 
-function addReportInfo(infoBox, reps){
+function addReportInfo(infoBox, reps, pis){
     for (var i=0; i<reps.length && i<10; i++){
-        pi_display = "put html string for conf matrix here"
+        trust = pis[i][1][1]/(pis[i][0][1]+pis[i][1][1]) ;
+        pi_display = '<div style="width:56px;height:25px"><div style="float:left;border:1px solid #304888; width:25px;height:25px"><div style="float:left; width:25px; height:' + trust*25 + 'px; background-color:green"></div></div><div style="float:right;width:25px;height:25px">'+Math.round(trust*100)/100+'</div></div>';
         infoBox.content = infoBox.content + "<tr><td>" + reps[i] + "</td><td>" + pi_display + "</td></tr>";   
     }
 }
@@ -94,12 +103,13 @@ function drawTargetMarker(tid, locx, locy, img){
         google.maps.event.addListener(markers[tid], 'click', function() {
                         
             var infoWindow = new google.maps.InfoWindow({
-                content: "<b>Target ID: " + tid + "</b><table border='1'>"
+                content: "<table border='1'><tr><td><b>Target ID: " + tid + "</b></td><td>Trust</td></tr>",
+                position: new google.maps.LatLng(locx,locy)
             });
-            addReportInfo(infoWindow, repList[tid])       
+            addReportInfo(infoWindow, repList[tid], piList[tid])       
             infoWindow.content = infoWindow.content + "</table>"
             
-            infoWindow.open(map,markers[tid]);
+            infoWindow.open(map);
             for (var i in openWindows){
                     
                 openWindows[i].close();
@@ -110,6 +120,7 @@ function drawTargetMarker(tid, locx, locy, img){
 }
 
 function plotTargets(targetData){
+    removeReports();
     for (var i=0; i<targetData.length; i++){
         target = targetData[i];
         
@@ -119,7 +130,7 @@ function plotTargets(targetData){
         locy = target[2];
         typeid = target[3];
         repList[tid] = target[4]; //strongly associated reports
-        //piList[tid] = target[
+        piList[tid] = target[5];
         
         img = "http://maps.google.com/mapfiles/kml/shapes/caution.png";
         
@@ -130,32 +141,21 @@ function plotTargets(targetData){
 function setHeatMapLayer(restartTimer, plotTargetsFlag) {
     //val = $("input[name='layerSelect']:checked").attr("id")
     //layerName = val;
-    $.getJSON("mapdata/coords.json",  function(data){
-        coords = data;
-        
-        bounds = new google.maps.LatLngBounds(
-            new google.maps.LatLng(coords[0],coords[2]),
-            new google.maps.LatLng(coords[1],coords[3]));
-        if (!plotTargetsFlag){
-            loadOverlayImage(restartTimer, layerName);
-        }else{
-            //load the targets
-            $.getJSON("targets_"+layerId+".json",  function(data){
-                plotTargets(data);
-                loadOverlayImage(restartTimer, layerName);
-            });
-        }
-    });
+    if (!plotTargetsFlag){
+        loadOverlayImage(restartTimer, layerName);
+    }else{
+        //load the targets
+        $.getJSON("targets_"+layerId+".json?" + new Date().getTime(),  function(data){
+            plotTargets(data);
+            loadOverlayImage(restartTimer, layerName, true);
+        });
+    }
 }
 
 function removeReports(){
     for (key in markers){
         markers[key].setMap(null);
-    }    
-    for (key in openWindows){
-        openWindows[key].close();
-        openWindows[key] = null;
-    }
+    }      
 }
 
 function switchOverlay(restartTimer){
@@ -169,17 +169,22 @@ function switchOverlay(restartTimer){
     
     if (method=="reports"){
         maptypestr = "_rep_intensity_";
+        methoddisp = "Reports";
     } else if (method=="bcc"){
         maptypestr = ""; //add nothing
+        methoddisp = "Bayesian Heatmap";
     } else if (method=="targets"){
         maptypestr = "";
         plotTargetsFlag = true
+        methoddisp = "UAV Targets with Heatmap"
     }
     
     if (maptype=="pred"){
         //do nothing
+        maptypedisp = " of Emergencies";
     } else if (maptype=="unc"){    
         maptypestr += "_sd_";
+        maptypedisp = ": Uncertainty";
     }
     
     if (reportsource=="crowdonly"){
@@ -192,6 +197,7 @@ function switchOverlay(restartTimer){
     }else{
         setHeatMapLayer(restartTimer, plotTargetsFlag);
     }
+    $("span[id='statustext']").text(methoddisp + maptypedisp)
 }
 
 function getLayerName(){

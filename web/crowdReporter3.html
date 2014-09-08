@@ -32,7 +32,7 @@ loadScript = function() {
         mapOptions);
 
     overlayOptions = {
-        opacity:0.5,
+        opacity:1,
         map: map,
         clickable: true
     };
@@ -80,11 +80,15 @@ $(document).ready(function(){
 
 });
     </script>
+    <title> Crowd Scanner </title>
   </head>
-  <body>
-    <title> Crowd Reporter </title>
-    <h1 style="">Crowdsourced Situation Awareness -- Emergencies in Haiti </h1>
-    <div id="panel" style="width: 350px; float: left;">
+  <body style="background-color:#233462; font-family: sans-serif">
+    <div style="height:50px; background:linear-gradient(#304888, #233462); padding-top:10px; color:white">         
+        <div style="float:left;padding-left:10px; width:330px"><h2 style="margin:0" id="titletext"> Haiti CrowdScanner</h2></div>
+        <div align="center"> <h2 id="titletext" style="margin:0" > <span class="statustext" id="statustext" >Haiti CrowdScanner</span></h2></div>
+    </div>
+    <div id="panel" style="width: 350px; float: left; background-color:#FFFFFF; border:1px solid #304888; padding-bottom:10px">
+        
 <!--        <form action="">
             <input type="radio" checked="true" name="layerSelect" value="Emergency" id="emergency">Emergency: medical, trapped/vulnerable people<br>
             <input type="radio" name="layerSelect" value="Vital Lines" id="vital">Vital lines: food, water, power, fuel, shelter<br>
@@ -95,14 +99,14 @@ $(document).ready(function(){
             <input type="radio" name="layerSelect" value="Services" id="services">Services Available: hostpicals, food distribution, aid distribution<br>
             <input type="radio" name="layerSelect" value="People" id="people">People: person news, search and rescue operations, displaced people gathering.<br>
         </form>-->
-        <div style="float:left;padding-left:10px"><span><h3>Map type:</h3></span></div>
+        <div style="float:left;padding-left:10px"><span><h3>Map type</h3></span></div>
         <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="pred" checked="true"><label for="pred" style="float:left;width: 90%;" ><span>Predictions: best estimates of current situation</span></label></li>
-            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 90%;" ><span>Uncertainty in event rate: where we need more reports</span></label></li>
+            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="pred" checked="true"><label for="pred" style="float:left;width: 90%;" ><span>Predictions of current situation</span></label></li>
+            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 90%;" ><span>Uncertainty in predictions: where we need more reports</span></label></li>
         </ul>
-        <div style="float:left;padding-left:10px"><span><h3>Map generation method:</h3></span></div>
+        <div style="float:left;padding-left:10px"><span><h3>Map generation method</h3></span></div>
         <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both"><input style="float:left;" type="radio" name="method" id="reports" checked="true" ><label for="reports" style="float:left;width: 90%;" ><span>Crowd reports only (no statistical modelling)</span></label></li>
+            <li style="clear:both"><input style="float:left;" type="radio" name="method" id="reports" checked="true" ><label for="reports" style="float:left;width: 90%;" ><span>Crowd reports only: no statistical modelling</span></label></li>
             <li style="clear:both"><input style="float:left;" type="radio" name="method" id="bcc"><label for="bcc" style="float:left;width: 90%;" ><span>Bayesian Heatmap: interpolate between reports</span></label></li>
             <li style="clear:both"><input style="float:left;" type="radio" name="method" id="targets"><label for="targets" style="float:left;width: 90%;" ><span>UAV Targets proposed from heatmap</span></label></li>
         </ul>
@@ -163,7 +167,9 @@ $(document).ready(function(){
             <div style="float:left;padding-right:10px;width:330px" ><hr>Map file displayed: <span class="filename_disp" id="filename_disp">Map File</span></div>
         </form></div>
     </div>
-    <div id="map-canvas"/>
+    <div style="height:100%">
+        <div id="map-canvas"/>
+    </div>
   </body>
   <script>
 $("input[name='maptype']").change(function(){

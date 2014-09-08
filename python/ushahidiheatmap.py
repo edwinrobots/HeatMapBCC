@@ -28,7 +28,7 @@ class Heatmap(object):
     minlon = -72.6#-73.1
     maxlon = -72.0#-71.7   
     
-    target_threshold = 0.775
+    target_threshold = 0.75#0.775
     
     nx = 100
     ny = 100
@@ -38,6 +38,8 @@ class Heatmap(object):
     rep_ids = []
     
     timestep = 20#579#20
+    finalsnapshot = True
+    lookforupdates = True
     
     running = True
     
@@ -121,7 +123,7 @@ class Heatmap(object):
     targetids = []
     targetversions = []
 
-    def calculate_targets(self, pgrid, rep_id_grid, theta=0):
+    def calculate_targets(self, pgrid, rep_id_grid, theta=0.8):
         targetsx, targetsy, plist,bgrid,rep_ids = self.find_peaks(pgrid, rep_id_grid, theta)
         
         dist = np.zeros((len(targetsx),len(self.targetsx)))
@@ -182,7 +184,7 @@ class Heatmap(object):
         
         return plist, bgrid, rep_ids
 
-    def find_peaks(self, pgrid, rep_id_grid, theta=0):
+    def find_peaks(self, pgrid, rep_id_grid, theta=0.6):
         #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
         #representing the most likely events. 
         #find points > theta        
@@ -190,7 +192,6 @@ class Heatmap(object):
             theta = np.max(pgrid) - 0.12
         
         bgrid = np.array(pgrid>theta, dtype=np.int8)
-        
         rgrid = deepcopy(rep_id_grid)
         
         for x in np.arange(bgrid.shape[0]):
@@ -220,46 +221,46 @@ class Heatmap(object):
                 highestx = x
                 highesty = y
                 highestp = pgrid[x,y]
+            
+                radius = 20
                 
-                if highestp <= pgrid[x+1,y]:
-                    highestx = x+1
-                    highesty = y
-                    highestp = pgrid[x+1, y]
-                    
-                if highestp <= pgrid[x-1,y]:
-                    highestx = x-1
-                    highesty = y
-                    highestp = pgrid[x-1, y]   
- 
-                if highestp <= pgrid[x,y-1]:
-                    highestx = x
-                    highesty = y-1
-                    highestp = pgrid[x, y-1]  
-                    
-                if highestp <= pgrid[x,y+1]:
-                    highestx = x
-                    highesty = y+1
-                    highestp = pgrid[x, y+1]
-                    
-                if highestp <= pgrid[x+1,y+1]:
-                    highestx = x+1
-                    highesty = y+1
-                    highestp = pgrid[x+1, y+1]
-                    
-                if highestp <= pgrid[x-1,y-1]:
-                    highestx = x-1
-                    highesty = y-1
-                    highestp = pgrid[x-1, y-1]   
- 
-                if highestp <= pgrid[x+1,y-1]:
-                    highestx = x+1
-                    highesty = y-1
-                    highestp = pgrid[x+1, y-1]  
-                    
-                if highestp <= pgrid[x-1,y+1]:
-                    highestx = x-1
-                    highesty = y+1
-                    highestp = pgrid[x-1, y+1]                    
+                for i in range(1,radius):
+                    for j in range(1,radius):        
+                        if highestp <= pgrid[x+i,y] and bgrid[x+i,y]>-1:
+                            highestx = x+i
+                            highesty = y
+                            highestp = pgrid[x+i, y]
+                        elif highestp <= pgrid[x-i,y] and bgrid[x-i,y]>-1:
+                            highestx = x-i
+                            highesty = y
+                            highestp = pgrid[x-i, y]   
+                        elif highestp <= pgrid[x,y-j] and bgrid[x,y-j]>-1:
+                            highestx = x
+                            highesty = y-j
+                            highestp = pgrid[x, y-j]  
+                        elif highestp <= pgrid[x,y+j] and bgrid[x,y+j]>-1:
+                            highestx = x
+                            highesty = y+j
+                            highestp = pgrid[x, y+j]
+                        elif highestp <= pgrid[x+i,y+j] and bgrid[x+i,y+j]>-1:
+                            highestx = x+i
+                            highesty = y+j
+                            highestp = pgrid[x+i, y+j]
+                        elif highestp <= pgrid[x-i,y-j] and bgrid[x-i,y-j]>-1:
+                            highestx = x-i
+                            highesty = y-j
+                            highestp = pgrid[x-i, y-j]   
+                        elif highestp <= pgrid[x+i,y-j] and bgrid[x+i,y-j]>-1:
+                            highestx = x+i
+                            highesty = y-j
+                            highestp = pgrid[x+i, y-j]  
+                        elif highestp <= pgrid[x-i,y+j] and bgrid[x-i,y+j]>-1:
+                            highestx = x-i
+                            highesty = y+j
+                            highestp = pgrid[x-i, y+j]  
+                            
+                        if highestx!=x or highesty!=y:
+                            break                      
                     
                 if highestx!=x or highesty!=y:
                     bgrid[x,y] = -1
@@ -268,13 +269,18 @@ class Heatmap(object):
                     logging.info("target found at " + str(x) + ", " + str(y))
                                    
         bgrid[bgrid==-1] = 0
-                                        
-        target_list = np.argwhere(bgrid)
+                                      
+        hasreports = np.argwhere(rgrid)
+        hasreportsgrid = np.zeros(bgrid.shape)
+        hasreportsgrid[hasreports[:,0],hasreports[:,1]] = 1
+        bgrid = bgrid * hasreportsgrid
+        
+        target_list = np.argwhere(bgrid>0)
         targetsx = target_list[:,0]
         targetsy = target_list[:,1]
         
         target_rep_ids = rgrid[targetsx, targetsy]
-        
+                
         p_list = pgrid[targetsx,targetsy]     
         targetsx, targetsy = self.tranlate_points_to_original(targetsx, targetsy)
         return targetsx, targetsy, np.around(p_list,2), bgrid, target_rep_ids
@@ -300,10 +306,11 @@ class Heatmap(object):
         stepsize = 9.0
         nupdates = self.C[j].shape[0]
         
-        #print "!!! Breaking the gradual update so we skip to final update loop"
-        #self.timestep = nupdates
+        if self.finalsnapshot:
+            self.timestep = nupdates
+            logging.warning("Breaking the gradual update so we skip to final update loop")
         
-        while self.timestep<=nupdates:
+        while self.lookforupdates:
             logging.info("timed_update_loop timestep " + str(self.timestep))
             starttime = time.time()
 
@@ -316,23 +323,35 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#self.combiner[j].getsd()
-            self.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+            bcc_stdPred = self.combiner[j].getsd()
+            #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
+            #normalise it
+            maxunc = np.max(bcc_stdPred)
+            minunc = np.min(bcc_stdPred)
+            bcc_stdPred = (bcc_stdPred-minunc)/(maxunc-minunc)
+            lab = 'Uncertainty (S.D.) in Pr(incident) of type '+str(j)
+            self.plotresults(bcc_stdPred, label=lab, removesea=True)
             self.write_img("_sd_",j)
             
             rep_pred, rep_std = self.reportintensity(j, self.timestep)
             self.plotresults(rep_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("_rep_intensity_", j)
             
-            self.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+            maxunc = np.max(rep_std)
+            minunc = np.min(rep_std)
+            rep_std = (rep_std-minunc)/(maxunc-minunc)
+            lab = 'Uncertainty (S.D.) in Pr(incident) of type '+str(j)
+            self.plotresults(rep_std, label=lab, removesea=True)
             self.write_img("_rep_intensity__sd_",j)   
             
             p_list, target_grid, target_rep_ids = \
                 self.calculate_targets(bcc_pred, rep_id_grid[j], self.target_threshold)
             self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
             self.write_img("_targets_", j)
-            expec_pi = self.combiner[j].alpha / np.sum(self.combiner[j].alpha, 1)
-            self.write_targets_json(p_list, target_rep_ids, rep_list[j], self.timestep, pi=expec_pi)
+            expec_pi = self.combiner[j].alpha / \
+                np.sum(self.combiner[j].alpha, axis=1).reshape((2,1,self.combiner[j].alpha.shape[2]))
+            self.write_targets_json(p_list, target_rep_ids, rep_list[j], \
+                                    self.timestep, pi=expec_pi)
             
             plt.close("all")
             
@@ -434,8 +453,9 @@ class Heatmap(object):
         
         return bcc_pred
 
-    def plotresults(self, bcc_pred, label='no idea', interp='none', imgmax=1, imgmin=0):
-        bcc_pred = self.removesea(bcc_pred)
+    def plotresults(self, bcc_pred, label='no idea', interp='none', imgmax=1, imgmin=0, removesea=False):
+        if removesea:
+            bcc_pred = self.removesea(bcc_pred)
                 
         dpi = 96
         if self.nx>=500:
@@ -455,8 +475,26 @@ class Heatmap(object):
         #Can also try interpolation=nearest or none
         ax = fig.add_subplot(111)
         ax.set_axis_off()    
+                
+        cmap = plt.get_cmap('jet')                
+        cmap._init()
         
-        plt.imshow(bcc_pred, cmap=plt.get_cmap('jet'), aspect=None, origin='lower', \
+        prior = self.nu0/float(np.sum(self.nu0))
+        prior = prior[0]
+        
+        changepoint = prior*cmap.N + 3
+        
+        if removesea:
+            alphas = np.linspace(0, 0.75, cmap.N+3)
+        else:
+            alphas1 = np.linspace(1, 0.6, changepoint-20)
+            alphas2 = np.linspace(0.6, 0, 20)
+            alphas3 = np.linspace(0, 0.6, 20)
+            alphas4 = np.linspace(0.6, 1, changepoint - 23)
+            alphas = np.concatenate((alphas1, alphas2, alphas3, alphas4))
+        cmap._lut[:,-1] = alphas        
+        
+        plt.imshow(bcc_pred, cmap=cmap, aspect=None, origin='lower', \
                    vmin=imgmin, vmax=imgmax, interpolation=interp, filterrad=0.01)
     
         fig.tight_layout(pad=0,w_pad=0,h_pad=0)
@@ -658,7 +696,8 @@ class Heatmap(object):
             json.dump(self.provfilelist, fp)
         
         
-    def write_targets_json(self, p_list, target_rep_ids, rep_list, update_number, j=1, targettypes=None, pi=None):
+    def write_targets_json(self, p_list, target_rep_ids, rep_list, update_number, \
+                           j=1, targettypes=None, pi=None):
         jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
         #for now we will randomly assign some target types!
         if targettypes==None:
@@ -666,7 +705,8 @@ class Heatmap(object):
             
         targetids = self.targetids#np.arange(0,self.targetsx.size)    
             
-        obj = np.concatenate((targetids[:,np.newaxis], self.targetsx[:,np.newaxis], self.targetsy[:,np.newaxis], targettypes), axis=1)
+        obj = np.concatenate((targetids[:,np.newaxis], self.targetsx[:,np.newaxis], \
+                              self.targetsy[:,np.newaxis], targettypes), axis=1)
         obj = obj.tolist()
                
         #add list of associated targets

@@ -84,6 +84,7 @@ def run_web_server():
     except KeyboardInterrupt:
         print('^C received, shutting down server')
         httpd.socket.close()
+        heatmap.lookforupdates = False
     
 def web_server_restarter():
     #restart the web server thread if it crashes
