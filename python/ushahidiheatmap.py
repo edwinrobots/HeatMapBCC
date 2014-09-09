@@ -3,16 +3,12 @@ Created on 23 Jun 2014
 
 @author: edwin
 '''
-import heatmapbcc, time, logging, json
+import heatmapbcc, maptargets, time, logging, json
 import numpy as np
 import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
-from copy import deepcopy
 #from memory_profiler import profile
-from prov.model import ProvDocument, Namespace
-from provstore.api import Api
-import os.path
 
 class Heatmap(object):
 
@@ -27,9 +23,7 @@ class Heatmap(object):
     maxlat = 18.8#19.4
     minlon = -72.6#-73.1
     maxlon = -72.0#-71.7   
-    
-    target_threshold = 0.75#0.775
-    
+        
     nx = 100
     ny = 100
     
@@ -47,12 +41,9 @@ class Heatmap(object):
     nu0 = []
     
     combine_cat_three_and_one = False
-    
-    provdoc = None
-    provbundle = None
-    provdoc_id = -1
-    provfilelist = []
-    
+
+    targetextractor = None
+        
     def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None, compose_demo_reports=False):
         self.nx = nx
         self.ny = ny
@@ -75,6 +66,8 @@ class Heatmap(object):
         self.rep_ids.append(0)
         
         self.combine_cat_three_and_one = compose_demo_reports
+        
+        self.targetextractor = maptargets.MapTargets(self)
         
     def runBCC(self, j):
         C = self.C[j]
@@ -100,190 +93,7 @@ class Heatmap(object):
     #@profile
     def loop_iteration(self, j, t):
         bcc_pred = self.runBCC_up_to_time(j,t)
-        return bcc_pred   
-
-    def move_reps(self, rgrid, x, y, newx, newy):
-        if rgrid[x,y] == None:
-            return rgrid
-        
-        if rgrid[newx,newy]==None:
-            rgrid[newx,newy] = []
-        elif len(rgrid[newx,newy])>10:
-            rgrid[newx,newy] = rgrid[newx,newy][0:10]
-            
-        for i in range(len(rgrid[x,y])):
-            if len(rgrid[newx,newy])<10:
-                rgrid[newx, newy].append(rgrid[x,y][i])
-        rgrid[x,y] = []
-        return rgrid    
-
-    #storing target info
-    targetsx = []
-    targetsy = []
-    targetids = []
-    targetversions = []
-
-    def calculate_targets(self, pgrid, rep_id_grid, theta=0.8):
-        targetsx, targetsy, plist,bgrid,rep_ids = self.find_peaks(pgrid, rep_id_grid, theta)
-        
-        dist = np.zeros((len(targetsx),len(self.targetsx)))
-        
-        newtargetids = np.zeros(targetsx.shape)-1
-        newtargetversions = np.zeros(targetsx.shape)
-        
-        if len(self.targetids)<1:
-            self.targetsx = targetsx
-            self.targetsy = targetsy
-            self.targetids = np.arange(len(targetsx))
-            self.targetversions = np.zeros(self.targetids.shape)
-            return plist, bgrid, rep_ids
-        
-        #see if the peaks are close matches to existing targets
-        for t in range(len(targetsx)):
-            x = targetsx[t]
-            y = targetsy[t]
-            
-            #calculate distances to old targets
-            dist_t = np.sqrt((x-self.targetsx)**2 + (y-self.targetsy)**2)
-            dist[t,:] = dist_t
-            
-        #go through looking for most similar peaks first
-        
-        nIterations = len(targetsx)
-        num_new_ids = 0
-        if nIterations>len(self.targetsx):
-            num_new_ids = nIterations-len(self.targetsx)
-            nIterations = len(self.targetsx)
-            
-        for _ in range(nIterations):
-            closest_old_to_new = np.argmin(dist,axis=1)
-            mindist_old_to_new = np.min(dist,axis=1)
-        
-            least_moved_new = np.argmin(mindist_old_to_new)
-            least_moved_old = closest_old_to_new[least_moved_new]
-            newtargetids[least_moved_new] = self.targetids[least_moved_old]
-            
-            if targetsx[least_moved_new]==self.targetsx[least_moved_old] \
-                and targetsy[least_moved_new]==self.targetsy[least_moved_old]:
-                newtargetversions[least_moved_new] = self.targetversions[least_moved_old]
-            else:
-                newtargetversions[least_moved_new] = self.targetversions[least_moved_old]+1
-            dist[:,least_moved_old] = np.Inf
-            
-        if num_new_ids>0:
-            missingid_idxs = np.argwhere(newtargetids<0)
-            missingids = range(nIterations,nIterations+num_new_ids)
-            newtargetids[missingid_idxs] = missingids
-            
-        self.targetids = newtargetids
-        self.targetversions = newtargetversions
-        self.targetsx = targetsx
-        self.targetsy = targetsy        
-        
-        logging.info("Maximimum target ID is " + str(np.max(self.targetids)))
-        
-        return plist, bgrid, rep_ids
-
-    def find_peaks(self, pgrid, rep_id_grid, theta=0.6):
-        #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
-        #representing the most likely events. 
-        #find points > theta        
-        if theta==0:
-            theta = np.max(pgrid) - 0.12
-        
-        bgrid = np.array(pgrid>theta, dtype=np.int8)
-        rgrid = deepcopy(rep_id_grid)
-        
-        for x in np.arange(bgrid.shape[0]):
-            for y in np.arange(bgrid.shape[1]):
-                if bgrid[x,y]==0:
-                    continue
-                
-                #move reports from discarded neighbours
-                if bgrid[x+1,y]==0:
-                    rgrid = self.move_reps(rgrid, x+1, y, x, y)
-                if bgrid[x-1,y]==0:
-                    rgrid = self.move_reps(rgrid, x-1, y, x, y)
-                if bgrid[x,y+1]==0:
-                    rgrid = self.move_reps(rgrid, x, y+1, x, y)                                    
-                if bgrid[x,y-1]==0:
-                    rgrid = self.move_reps(rgrid, x, y-1, x, y)
-                if bgrid[x+1,y+1]==0:
-                    rgrid = self.move_reps(rgrid, x+1, y+1, x, y)
-                if bgrid[x-1,y-1]==0:
-                    rgrid = self.move_reps(rgrid, x-1, y-1, x, y)
-                if bgrid[x-1,y+1]==0:
-                    rgrid = self.move_reps(rgrid, x-1, y+1, x, y)                                    
-                if bgrid[x+1,y-1]==0:
-                    rgrid = self.move_reps(rgrid, x+1, y-1, x, y)     
-                
-                #find highest neighbour
-                highestx = x
-                highesty = y
-                highestp = pgrid[x,y]
-            
-                radius = 20
-                
-                for i in range(1,radius):
-                    for j in range(1,radius):        
-                        if highestp <= pgrid[x+i,y] and bgrid[x+i,y]>-1:
-                            highestx = x+i
-                            highesty = y
-                            highestp = pgrid[x+i, y]
-                        elif highestp <= pgrid[x-i,y] and bgrid[x-i,y]>-1:
-                            highestx = x-i
-                            highesty = y
-                            highestp = pgrid[x-i, y]   
-                        elif highestp <= pgrid[x,y-j] and bgrid[x,y-j]>-1:
-                            highestx = x
-                            highesty = y-j
-                            highestp = pgrid[x, y-j]  
-                        elif highestp <= pgrid[x,y+j] and bgrid[x,y+j]>-1:
-                            highestx = x
-                            highesty = y+j
-                            highestp = pgrid[x, y+j]
-                        elif highestp <= pgrid[x+i,y+j] and bgrid[x+i,y+j]>-1:
-                            highestx = x+i
-                            highesty = y+j
-                            highestp = pgrid[x+i, y+j]
-                        elif highestp <= pgrid[x-i,y-j] and bgrid[x-i,y-j]>-1:
-                            highestx = x-i
-                            highesty = y-j
-                            highestp = pgrid[x-i, y-j]   
-                        elif highestp <= pgrid[x+i,y-j] and bgrid[x+i,y-j]>-1:
-                            highestx = x+i
-                            highesty = y-j
-                            highestp = pgrid[x+i, y-j]  
-                        elif highestp <= pgrid[x-i,y+j] and bgrid[x-i,y+j]>-1:
-                            highestx = x-i
-                            highesty = y+j
-                            highestp = pgrid[x-i, y+j]  
-                            
-                        if highestx!=x or highesty!=y:
-                            break                      
-                    
-                if highestx!=x or highesty!=y:
-                    bgrid[x,y] = -1
-                    rgrid = self.move_reps(rgrid, x, y, highestx, highesty)
-                else:
-                    logging.info("target found at " + str(x) + ", " + str(y))
-                                   
-        bgrid[bgrid==-1] = 0
-                                      
-        hasreports = np.argwhere(rgrid)
-        hasreportsgrid = np.zeros(bgrid.shape)
-        hasreportsgrid[hasreports[:,0],hasreports[:,1]] = 1
-        bgrid = bgrid * hasreportsgrid
-        
-        target_list = np.argwhere(bgrid>0)
-        targetsx = target_list[:,0]
-        targetsy = target_list[:,1]
-        
-        target_rep_ids = rgrid[targetsx, targetsy]
-                
-        p_list = pgrid[targetsx,targetsy]     
-        targetsx, targetsy = self.tranlate_points_to_original(targetsx, targetsy)
-        return targetsx, targetsy, np.around(p_list,2), bgrid, target_rep_ids
+        return bcc_pred
               
     def enlarge_target_blobs(self, target_grid, nsize=5):
         #make neighbouring points also one
@@ -298,7 +108,7 @@ class Heatmap(object):
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
         
-        rep_id_grid, rep_list = self.load_ush_data() 
+        self.load_ush_data() 
         self.write_coords_json()
         
         #Call this in a new thread that can be updated by POST to the web server. 
@@ -343,15 +153,12 @@ class Heatmap(object):
             lab = 'Uncertainty (S.D.) in Pr(incident) of type '+str(j)
             self.plotresults(rep_std, label=lab, removesea=True)
             self.write_img("_rep_intensity__sd_",j)   
-            
-            p_list, target_grid, target_rep_ids = \
-                self.calculate_targets(bcc_pred, rep_id_grid[j], self.target_threshold)
-            self.plotresults(self.enlarge_target_blobs(target_grid), 'Predicted target points of type ' + str(j))
+                        
+            target_grid = self.targetextractor.calculate_targets(bcc_pred)
+            lab = 'Predicted target points of type ' + str(j)
+            self.plotresults(self.enlarge_target_blobs(target_grid), lab)
             self.write_img("_targets_", j)
-            expec_pi = self.combiner[j].alpha / \
-                np.sum(self.combiner[j].alpha, axis=1).reshape((2,1,self.combiner[j].alpha.shape[2]))
-            self.write_targets_json(p_list, target_rep_ids, rep_list[j], \
-                                    self.timestep, pi=expec_pi)
+            self.targetextractor.write_targets_json(self.timestep, self.combiner[j].alpha, self.C[j])
             
             plt.close("all")
             
@@ -582,7 +389,8 @@ class Heatmap(object):
         self.combiner = {} #reset as we have reloaded the data
         print "Number of type one reports: " + str(self.C[1].shape[0])
         
-        return rep_id_grid, rep_list
+        self.targetextractor.rep_list = rep_list
+        self.targetextractor.rep_id_grid = rep_id_grid
   
     def insert_trusted(self, j, x, y, v, rep_id=-1, trust_acc=0, trust_var=0):
         #add a new reporter ID if necessary
@@ -643,99 +451,7 @@ class Heatmap(object):
     def write_coords_json(self):
         jsonFile = self.webdatadir+'/mapdata/coords.json'
         with open(jsonFile, 'w') as fp:
-            json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)    
-        
-    def write_targets_prov(self, tlist, rep_ids, C, bundle_id):
-        #write to prov store
-        api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
-        ao = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
-        
-        self.provdoc = ProvDocument()
-        self.provdoc.add_namespace(ao)
-        self.provdoc.set_default_namespace('https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/')
-                    
-        self.provbundle = self.provdoc.bundle('crowd_scanner')#:'+str(bundle_id))
-        b = self.provbundle    
-#         d = self.provdoc
-        cs = b.agent('CrowdScanner')
-
-        rep_entities = {}             
-        for i, tdata in enumerate(tlist):
-            tid = int(tdata[0])
-            x = tdata[1]
-            y = tdata[2]
-            v = int(tdata[6])
-            
-            target = b.entity('target/'+str(tid))
-            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), {'ao:longitude': str(x), 'ao:latitude': str(y)})
-            target_v0.specializationOf(target)
-            for r in rep_ids[i]:
-                if r not in rep_entities:
-                    Crow = C[r,:]
-                    x = Crow[1]
-                    y = Crow[2]
-                    rep_entities[r] = b.entity('crowdreport/'+str(r), {'ao:longitude':str(x), 'ao:latitude':str(y)})
-                target_v0.wasDerivedFrom(rep_entities[r])
-            target_v0.wasAttributedTo(cs)
-        
-        provstore_document = api.document.create(self.provdoc, name='cs-targets', public=True)
-        self.provdoc_id = provstore_document.id        
-        #provstore_document = api.document.get(self.provdoc_id)
-        #provstore_document.add_bundle(self.provdoc,'crowd_scanner:'+str(bundle_id))                
-        #self.provdoc_id = provstore_document.id
-        document_uri = provstore_document.url
-        logging.info("prov doc URI: " + str(document_uri))
-        self.provfilelist.append(self.provdoc_id)
-
-        jsonfile = self.datadir+"/provfilelist.json"
-        if self.provfilelist==[] and os.path.isfile(jsonfile):
-            with open(jsonfile,'r') as fp:
-                self.provfilelist = json.load(fp)
-        
-        with open(jsonfile, 'w') as fp:
-            json.dump(self.provfilelist, fp)
-        
-        
-    def write_targets_json(self, p_list, target_rep_ids, rep_list, update_number, \
-                           j=1, targettypes=None, pi=None):
-        jsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
-        #for now we will randomly assign some target types!
-        if targettypes==None:
-            targettypes = np.random.randint(0,4,(self.targetsx.size,1))
-            
-        targetids = self.targetids#np.arange(0,self.targetsx.size)    
-            
-        obj = np.concatenate((targetids[:,np.newaxis], self.targetsx[:,np.newaxis], \
-                              self.targetsy[:,np.newaxis], targettypes), axis=1)
-        obj = obj.tolist()
-               
-        #add list of associated targets
-        for i in range(len(obj)):
-            target_reports = [] 
-            pi_list = []
-            rep_ids_i = target_rep_ids[i]
-            if rep_ids_i==None:
-                logging.warning("no reports associated with this target")
-            else:
-                for idx in rep_ids_i:
-                    target_reports.append(str(rep_list[idx]))
-                    agentid = self.C[j][idx,0]
-                    if pi==None:
-                        continue
-                    pi_list.append(pi[:,:,agentid].tolist())
-
-            obj[i].append(target_reports)
-            #for each report, get a trust value
-            obj[i].append(pi_list)
-            obj[i].append(self.targetversions[i])
-            
-            
-        self.write_targets_prov(obj, target_rep_ids, self.C[j], update_number)
-            
-        with open(jsonfile, 'w') as fp:
-            json.dump(obj, fp)
-            
-        return obj
+            json.dump([self.minlat, self.maxlat, self.minlon, self.maxlon], fp)
         
 #--------  MAIN TEST PROGRAM--------------------------------------------------
 if __name__ == '__main__':
