@@ -22,21 +22,24 @@ class MapTargets(object):
     targetsy = []
     targetids = []
     targetversions = []
-    
-    provdoc = None
-    provbundle = None
-    provdoc_id = -1
-    provfilelist = []    
-    
+        
     plist = []
     target_rep_ids = []
     rep_list = None
     rep_id_grid = None
     
     heatmap = None
-
+    
+    provfilelist = []  
+    postedreports = {} #reports that have already been posted to provenance server  
+    api = None
+    namespace = None
+    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/'
+    
     def __init__(self, heatmap):
         self.heatmap = heatmap
+        self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
+        self.namespace = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
         
     def calculate_targets(self, pgrid, j=1):
         targetsx, targetsy, bgrid = self.find_peaks(pgrid, j)
@@ -220,80 +223,86 @@ class MapTargets(object):
         return targetsx, targetsy, bgrid
         
     def write_targets_prov(self, tlist, C, bundle_id):
-        #write to prov store
-        api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
-        ao = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
-        
-        self.provdoc = ProvDocument()
-        self.provdoc.add_namespace(ao)
-        self.provdoc.set_default_namespace('https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/')
-                    
-        self.provbundle = self.provdoc.bundle('crowd_scanner')#:'+str(bundle_id))
-        b = self.provbundle    
-#         d = self.provdoc
+        #Initialisation
+        provdoc = ProvDocument()
+        provdoc.add_namespace(self.namespace)
+        provdoc.set_default_namespace(self.defaultns)
+        b = provdoc.bundle('crowd_scanner')
         cs = b.agent('CrowdScanner')
 
-        rep_entities = {}             
+        #Add target and report entities
         for i, tdata in enumerate(tlist):
+            #Target entity for target i
             tid = int(tdata[0])
             x = tdata[1]
             y = tdata[2]
+            targettype = tdata[3]
             v = int(tdata[6])
             
-            target = b.entity('target/'+str(tid))
-            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), {'ao:longitude': str(x), 'ao:latitude': str(y)})
+            #Post the root report if this is the first version
+            if v==0:
+                target = b.entity('target/'+str(tid))
+            
+            targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), \
+                                 'ao:asset_type':str(targettype)}
+            
+            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)
             target_v0.specializationOf(target)
-            for r in self.target_rep_ids[i]:
-                if r not in rep_entities:
+            target_v0.wasAttributedTo(cs)
+            
+            #Report entities for origins of target i
+            for j, r in enumerate(self.target_rep_ids[i]):
+                if r not in self.postedreports:
                     Crow = C[r,:]
                     x = Crow[1]
                     y = Crow[2]
-                    rep_entities[r] = b.entity('crowdreport/'+str(r), {'ao:longitude':str(x), 'ao:latitude':str(y)})
-                target_v0.wasDerivedFrom(rep_entities[r])
-            target_v0.wasAttributedTo(cs)
+                    reptext = tdata[4][j]
+                    
+                    reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), \
+                                        'ao:report': reptext}
+                    
+                    self.postedreports[r] = b.entity('crowdreport/'+str(r), reportattributes)
+                target_v0.wasDerivedFrom(self.postedreports[r])
         
-        provstore_document = api.document.create(self.provdoc, name='cs-targets', public=True)
-        self.provdoc_id = provstore_document.id        
-        #provstore_document = api.document.get(self.provdoc_id)
-        #provstore_document.add_bundle(self.provdoc,'crowd_scanner:'+str(bundle_id))                
-        #self.provdoc_id = provstore_document.id
+        #Post the document to the server
+        provstore_document = self.api.document.create(provdoc, name='cs-targets', public=True)
         document_uri = provstore_document.url
         logging.info("prov doc URI: " + str(document_uri))
-        self.provfilelist.append(self.provdoc_id)
-
+        self.provfilelist.append(provstore_document.id)
+        self.savelocalrecord()
+        
+    def savelocalrecord(self):
         jsonfile = self.heatmap.datadir+"/provfilelist.json"
         if self.provfilelist==[] and os.path.isfile(jsonfile):
             with open(jsonfile,'r') as fp:
                 self.provfilelist = json.load(fp)
-        
-        with open(jsonfile, 'w') as fp:
-            json.dump(self.provfilelist, fp)
+        else:
+            with open(jsonfile, 'w') as fp:
+                json.dump(self.provfilelist, fp)
         
         
     def write_targets_json(self, update_number, alpha, C, j=1, targettypes=None):
-        
-        rep_list = self.rep_list[j]
-        
-        pi = alpha / np.sum(alpha, axis=1).reshape((2,1,alpha.shape[2]))
- 
         jsonfile = self.heatmap.webdatadir+'/targets_'+str(j)+'.json'
+        
+        #get the data ready
+        rep_list = self.rep_list[j]        
+        pi = alpha / np.sum(alpha, axis=1).reshape((2,1,alpha.shape[2]))
         #for now we will randomly assign some target types!
         if targettypes==None:
             targettypes = np.random.randint(0,4,(self.targetsx.size,1))
             
-        targetids = self.targetids#np.arange(0,self.targetsx.size)    
-            
-        obj = np.concatenate((targetids[:,np.newaxis], self.targetsx[:,np.newaxis], \
+        #Create the list object with basic attributes: Columns 0 to 3
+        listobj = np.concatenate((self.targetids[:,np.newaxis], self.targetsx[:,np.newaxis], \
                               self.targetsy[:,np.newaxis], targettypes), axis=1)
-        obj = obj.tolist()
+        listobj = listobj.tolist()
                
-        #add list of associated targets
-        for i in range(len(obj)):
+        #Add lists of associated reports and confusion matrices
+        for i in range(len(listobj)):
             target_reports = [] 
             pi_list = []
             rep_ids_i = self.target_rep_ids[i]
             if rep_ids_i==None:
-                logging.warning("no reports associated with this target")
+                logging.warning("No reports associated with target " + str(i))
             else:
                 for idx in rep_ids_i:
                     target_reports.append(str(rep_list[idx]))
@@ -302,15 +311,12 @@ class MapTargets(object):
                         continue
                     pi_list.append(pi[:,:,agentid].tolist())
 
-            obj[i].append(target_reports)
-            #for each report, get a trust value
-            obj[i].append(pi_list)
-            obj[i].append(self.targetversions[i])
+            listobj[i].append(target_reports) # Column 4
+            listobj[i].append(pi_list) # Column 5
+            #Include the version number as final entry in the list
+            listobj[i].append(self.targetversions[i]) #Column 6            
             
-            
-        self.write_targets_prov(obj, C, update_number)
-            
+        #Write the provenance and save the json
+        self.write_targets_prov(listobj, C, update_number)
         with open(jsonfile, 'w') as fp:
-            json.dump(obj, fp)
-            
-        return obj    
+            json.dump(listobj, fp)
