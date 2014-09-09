@@ -256,7 +256,7 @@ class MapTargets(object):
                     Crow = C[r,:]
                     x = Crow[1]
                     y = Crow[2]
-                    reptext = tdata[4][j]
+                    reptext = tdata[4][j].decode('utf8')
                     
                     reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), \
                                         'ao:report': reptext}
