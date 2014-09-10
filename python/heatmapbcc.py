@@ -181,7 +181,10 @@ class Heatmapbcc(ibcc.Ibcc):
     def postAlpha(self):#Posterior Hyperparams
         for j in range(self.nClasses):
             for l in range(self.nScores):
-                counts = (self.C[:,3]==l).T.dot(self.ET[j,self.C[:,1],self.C[:,2]])
+                sepcounts = (self.C[:,3]==l)*(self.ET[j,self.C[:,1],self.C[:,2]])
+                counts = np.zeros((self.K, self.C.shape[0]))
+                counts[self.C[:,0], range(self.C.shape[0])] = sepcounts
+                counts = np.sum(counts, axis=1).reshape(-1)
                 self.alpha[j,l,:] = self.alpha0[j,l,:] + counts
 
     def postLnJoint(self, lnjoint):

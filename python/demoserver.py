@@ -22,6 +22,12 @@ class Demoserver(SimpleHTTPServer.SimpleHTTPRequestHandler):
         logging.info("======= Post started =======")
         logging.info(self.headers)
         logging.info(self.path)
+        
+        if "start_heatmap" in self.path:
+            logging.info("Starting the timed update loop")
+            start_new_map_thread()
+            return
+        
         logging.info("======= Processing POST values =======")
         # Parse the form data posted
         form = cgi.FieldStorage(
@@ -53,7 +59,7 @@ class Demoserver(SimpleHTTPServer.SimpleHTTPRequestHandler):
         self.send_response(201, "New report added")
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write("Post completed: new report added")
+        self.wfile.write("Post completed: new report added") 
 
 def kill_map_thread():
     heatmap.kill_combiners()
@@ -62,10 +68,13 @@ def kill_map_thread():
 def start_new_map_thread():
     logging.info("Starting heatmap updater thread")
     global heatmap
-    heatmap = Heatmap(map_nx,map_ny, compose_demo_reports=True)
-    map_thr = threading.Thread(target=heatmap.timed_update_loop)
-    map_thr.start()
-    logging.info("Started heatmap updater thread")
+    #heatmap = Heatmap(map_nx,map_ny)
+    if heatmap.running == False:
+        map_thr = threading.Thread(target=heatmap.timed_update_loop)
+        map_thr.start()
+        logging.info("Started heatmap updater thread")
+    else:
+        logging.info("Heatmap was already running so no new thread started.")
 
 def run_web_server():
     logging.debug("Running the web server thread...")
@@ -105,5 +114,4 @@ global map_nx
 global map_ny
 map_nx = 500
 map_ny = 500
-heatmap = Heatmap(map_nx,map_ny, compose_demo_reports=True)
-heatmap.timed_update_loop()    
+heatmap = Heatmap(map_nx,map_ny)

@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
+import os
 #from memory_profiler import profile
 
 class Heatmap(object):
@@ -31,20 +32,23 @@ class Heatmap(object):
     K = 1
     rep_ids = []
     
-    timestep = 20#579#20
-    finalsnapshot = True
+    timestep = 65 #max is likely to be 765
+    stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
+    finalsnapshot = False
     lookforupdates = True
     
-    running = True
+    running = False
     
     alpha0 = []
     nu0 = []
     
-    combine_cat_three_and_one = False
+    #Dictionary defining how we map original categories 
+    #to class IDs, using original categories as keys:
+    categorymap = {1:1, 3:1,5:{'a':1},6:{'a':1,'b':1}} 
 
     targetextractor = None
         
-    def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None, compose_demo_reports=False):
+    def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None):
         self.nx = nx
         self.ny = ny
         if minlat != None:
@@ -64,10 +68,10 @@ class Heatmap(object):
         self.alpha0 = np.array([[2.0, 1.0], [1.0, 2.0]])
         self.nu0 = np.array([1,1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
-        
-        self.combine_cat_three_and_one = compose_demo_reports
-        
         self.targetextractor = maptargets.MapTargets(self)
+        self.initial_cleanup()
+        self.load_ush_data() 
+        self.write_coords_json()        
         
     def runBCC(self, j):
         C = self.C[j]
@@ -80,12 +84,13 @@ class Heatmap(object):
         return bcc_pred
             
     def runBCC_subset(self, C, j=1):
-        if j not in self.combiner or self.combiner[j]==None:
+        if j not in self.combiner or self.combiner[j]==None or self.combiner[j].K<self.K:
             self.combiner[j] = heatmapbcc.Heatmapbcc(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
             self.combiner[j].minNoIts = 5
             self.combiner[j].maxNoIts = 200
             self.combiner[j].convThreshold = 0.1
-                
+            self.combiner[j].useLowerBound = False
+
         bcc_pred = self.combiner[j].combineClassifications(C)
         bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
         return bcc_pred, self.combiner[j]
@@ -104,16 +109,22 @@ class Heatmap(object):
             for x in xblob:
                 target_grid[x, yblob] = 1
         return target_grid
+          
+    def initial_cleanup(self, j=1):
+        self.rem_img("", j)
+        self.rem_img("_sd_", j)
+        self.rem_img("_rep_intensity_", j)
+        self.rem_img("_rep_intensity__sd_", j)
+        self.rem_img("_targets_", j)
                     
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
         
-        self.load_ush_data() 
-        self.write_coords_json()
-        
+        #Intially, we are running. If this flag is changed by another thread, we'll stop.
+        self.running = True 
+
         #Call this in a new thread that can be updated by POST to the web server. 
         #When a new report is received by POST to web server, the server can kill this thread, call insert_trusted and then restart this method in a new thread
-        stepsize = 9.0
         nupdates = self.C[j].shape[0]
         
         if self.finalsnapshot:
@@ -171,7 +182,9 @@ class Heatmap(object):
             logging.info("Update loop took " + str(endtime-starttime) + " seconds.")
             
             #once complete, update the current time step
-            self.timestep += stepsize
+            self.timestep += self.stepsize
+            
+        self.running = False
             
     def kill_combiners(self):
         self.running = False
@@ -350,40 +363,104 @@ class Heatmap(object):
 
         rep_list = {}
         C = {}            
+        instantiatedagents = []
+
         for i, reptypetext in enumerate(reptypedata):        
             typetoks = reptypetext.split('.')
             typetoks = typetoks[0].split(',')
-            for typestring in typetoks:
-                maintype = typestring[0] #first character should be a number
-                try:
-                    typeID = int(maintype)
-                    #print "Type ID found: " + str(typeID)
-                    if typeID==3 and self.combine_cat_three_and_one:
-                        typeID = 1
-                except ValueError:
-                    logging.warning('Not a report category: ' + typestring)
-                    continue
-                repx = latdata[i]
-                repy = londata[i]
+            
+            if "1a." in reptypetext:
+                agentID = 0
+                maintype = 1
+            elif "1b." in reptypetext:
+                agentID = 1
+                maintype = 1
+            elif "1c." in reptypetext:
+                agentID = 2
+                maintype = 1
+            elif "1d." in reptypetext:
+                agentID = 3
+                maintype = 1
+            elif "3a." in reptypetext:
+                agentID = 4
+                maintype = 1
+            elif "3b." in reptypetext:
+                agentID = 5
+                maintype = 1
+            elif "3c." in reptypetext:
+                agentID = 6
+                maintype = 1
+            elif "3d." in reptypetext:
+                agentID = 7
+                maintype = 1
+            elif "3e." in reptypetext:
+                agentID = 8
+                maintype = 1
+            elif "5a." in reptypetext:
+                agentID = 9
+                maintype = 1
+            elif "6a." in reptypetext:
+                agentID = 10
+                maintype = 1
+            elif "6b." in reptypetext:
+                agentID = 11
+                maintype = 1
+            elif "1." in reptypetext:
+                agentID = 12
+                maintype = 1
+            elif "3." in reptypetext:
+                agentID = 13
+                maintype = 1  
+            else: #we don't care about these categories in the demo anyway, but can add them easily here
+                agentID = 14
+                for typestring in typetoks:
+                    if len(typestring)>1:
+                        sectype = typestring[1] # second character should be a letter is available
+                    else:
+                        sectype = 0
+                    try:
+                        maintype = int(typestring[0]) #first character should be a number
+                    except ValueError:
+                        logging.warning('Not a report category: ' + typestring)
+                        continue                   
+                    if maintype in self.categorymap:
+                        mappedID = self.categorymap[maintype]
+                        if type(mappedID) is dict:
+                            if sectype in mappedID:
+                                maintype = mappedID[sectype]
+                        else:
+                            maintype = mappedID
+
+            repx = latdata[i]
+            repy = londata[i]
+            if repx>=self.nx or repx<0 or repy>=self.ny or repy<0:
+                continue
+            
+            try:
+                Crow = np.array([agentID, repx, repy, 1]) # all report values are 1 since we only have confirmations of an incident, not confirmations of nothing happening
+            except ValueError:
+                logging.error('ValueError creating a row of the crowdsourced data matrix.!')        
+
+            if C=={} or maintype not in C:
+                C[maintype] = Crow.reshape((1,4))
+                rep_id_grid[maintype] = np.empty((self.nx, self.ny), dtype=np.object)
+                rep_list[maintype] = [rep_list_all[i]]
+            else:
+                C[maintype] = np.concatenate((C[maintype], Crow.reshape(1,4)), axis=0)
+                rep_list[maintype].append(rep_list_all[i])
                 
-                if repx>=self.nx or repx<0 or repy>=self.ny or repy<0:
-                    continue
+            if rep_id_grid[maintype][repx, repy] == None:
+                rep_id_grid[maintype][repx, repy] = []
+            rep_id_grid[maintype][repx, repy].append(len(rep_list[maintype])-1)               
+            
+            if agentID not in instantiatedagents:
+                instantiatedagents.append(agentID)
                 
-                try:
-                    Crow = np.array([0, repx, repy, 1]) # all report values are 1 since we only have confirmations of an incident, not confirmations of nothing happening
-                except ValueError:
-                    logging.error('ValueError creating a row of the crowdsourced data matrix.!')        
-                if C=={} or typeID not in C:
-                    C[typeID] = Crow.reshape((1,4))
-                    rep_id_grid[typeID] = np.empty((self.nx, self.ny), dtype=np.object)
-                    rep_list[typeID] = [rep_list_all[i]]
-                else:
-                    C[typeID] = np.concatenate((C[typeID], Crow.reshape(1,4)), axis=0)
-                    rep_list[typeID].append(rep_list_all[i])
-                    
-                if rep_id_grid[typeID][repx, repy] == None:
-                    rep_id_grid[typeID][repx, repy] = []
-                rep_id_grid[typeID][repx, repy].append(len(rep_list[typeID])-1)               
+        instantiatedagents = np.array(instantiatedagents)
+        for j in C.keys():
+            for r in range(C[j].shape[0]):
+                C[j][r,0] = np.argwhere(instantiatedagents==C[j][r,0])[0,0]
+        self.K = len(instantiatedagents)
                      
         self.C = C
         self.combiner = {} #reset as we have reloaded the data
@@ -394,11 +471,12 @@ class Heatmap(object):
   
     def insert_trusted(self, j, x, y, v, rep_id=-1, trust_acc=0, trust_var=0):
         #add a new reporter ID if necessary
-        if rep_id == -1:
+        if rep_id == -1 or rep_id>=self.K:
+            if len(self.alpha0.shape)<3:
+                self.alpha0 = np.tile(self.alpha0.reshape((2,2,1)),(1,1,self.K))            
+            
             rep_id = self.K
             self.K += 1
-            
-        if rep_id not in self.rep_ids:
             self.rep_ids.append(rep_id)
             alpha0new = np.zeros((2,2,1))
             if trust_acc ==0 and trust_var==0:
@@ -411,8 +489,7 @@ class Heatmap(object):
                 logging.info("alpha: " + str(alpha_correct) + ", " + str(alpha_wrong))
                 alpha0new[[0,1],[0,1],0] = alpha_correct
                 alpha0new[[0,1],[1,0],0] = alpha_wrong
-            if len(self.alpha0.shape)<3:
-                self.alpha0 = self.alpha0.reshape((2,2,1))
+    
             self.alpha0 = np.concatenate((self.alpha0, alpha0new), axis=2)
                   
         #add a trusted report to self.C, inserting it at the current self.timestep        
@@ -420,7 +497,16 @@ class Heatmap(object):
         Crow = np.array([rep_id, x, y, v]).reshape((1,4))
         C = np.concatenate((self.C[j][0:self.timestep, :], Crow), axis=0)
         C = np.concatenate((C, self.C[j][self.timestep:, :]), axis=0)
-        self.C[j] = C         
+        self.C[j] = C
+        
+        if v==1:
+            self.targetextractor.rep_list.append("Aid agency confirms emergency")
+        else:
+            self.targetextractor.rep_list[j].append("Aid agency reports that there are no emergencies in this area.")
+             
+        if self.targetextractor.rep_id_grid[j][x, y] == None:
+            self.targetextractor.rep_id_grid[j][x, y] = []
+        self.targetextractor.rep_id_grid[j][x, y].append(len(self.targetextractor.rep_list[j])-1)           
             
     def insert_trusted_prescripted(self, j):
         x,y = self.translate_points_to_local(18.52,-72.284)
@@ -436,6 +522,13 @@ class Heatmap(object):
         self.insert_trusted(1, x-1, y-1, 0, 1, 0.9, 0.01)
         self.insert_trusted(1, x+2, y-1, 0, 1, 0.9, 0.01)
         self.insert_trusted(1, x+3, y+1, 0, 1, 0.9, 0.01)
+    
+    def rem_img(self, label, j):
+        try:
+            os.remove(self.fileprefix+label+str(j)+'.png')
+        except OSError as ose:
+            logging.info("no file to delete: " + label)
+            return 
     
     def write_img(self, label,j):
         plt.savefig(self.fileprefix+label+str(j)+'.png', bbox_inches='tight', \

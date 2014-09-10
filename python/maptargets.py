@@ -22,6 +22,7 @@ class MapTargets(object):
     targetsy = []
     targetids = []
     targetversions = []
+    changedtargets = []
         
     plist = []
     target_rep_ids = []
@@ -35,6 +36,9 @@ class MapTargets(object):
     api = None
     namespace = None
     defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/'
+    targets = {}
+    targetversions = {} #the latest version entity for each target id
+    targetversion_nos = None
     
     def __init__(self, heatmap):
         self.heatmap = heatmap
@@ -48,12 +52,13 @@ class MapTargets(object):
         
         newtargetids = np.zeros(targetsx.shape)-1
         newtargetversions = np.zeros(targetsx.shape)
+        self.changedtargets = np.ones(targetsx.shape)
         
         if len(self.targetids)<1:
             self.targetsx = targetsx
             self.targetsy = targetsy
             self.targetids = np.arange(len(targetsx))
-            self.targetversions = np.zeros(self.targetids.shape)
+            self.targetversion_nos = np.zeros(self.targetids.shape)
             return bgrid
         
         #see if the peaks are close matches to existing targets
@@ -83,18 +88,22 @@ class MapTargets(object):
             
             if targetsx[least_moved_new]==self.targetsx[least_moved_old] \
                 and targetsy[least_moved_new]==self.targetsy[least_moved_old]:
-                newtargetversions[least_moved_new] = self.targetversions[least_moved_old]
+                newtargetversions[least_moved_new] = self.targetversion_nos[least_moved_old]
             else:
-                newtargetversions[least_moved_new] = self.targetversions[least_moved_old]+1
+                newtargetversions[least_moved_new] = self.targetversion_nos[least_moved_old]+1
+                self.changedtargets[least_moved_new] = 1
             dist[:,least_moved_old] = np.Inf
+            dist[least_moved_new,:] = np.Inf
             
         if num_new_ids>0:
             missingid_idxs = np.argwhere(newtargetids<0)
             missingids = range(nIterations,nIterations+num_new_ids)
             newtargetids[missingid_idxs] = missingids
+            self.changedtargets[missingid_idxs] = 1
             
         self.targetids = newtargetids
-        self.targetversions = newtargetversions
+        self.targetversion_nos = newtargetversions
+                
         self.targetsx = targetsx
         self.targetsy = targetsy        
         
@@ -232,22 +241,30 @@ class MapTargets(object):
 
         #Add target and report entities
         for i, tdata in enumerate(tlist):
+            if self.changedtargets[i]==0:
+                continue
+            
             #Target entity for target i
             tid = int(tdata[0])
             x = tdata[1]
             y = tdata[2]
             targettype = tdata[3]
             v = int(tdata[6])
-            
-            #Post the root report if this is the first version
-            if v==0:
-                target = b.entity('target/'+str(tid))
+            agentids = tdata[7]
             
             targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), \
                                  'ao:asset_type':str(targettype)}
-            
-            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)
-            target_v0.specializationOf(target)
+            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)            
+            #Post the root report if this is the first version
+            if v==0:
+                self.targets[tid] = b.entity('target/'+str(tid))
+            else:
+                try:
+                    target_v0.wasDerivedFrom(self.targetversions[tid])
+                except KeyError:
+                    logging.error("Got a key error for key " + str(tid) + ', which is supposed to be version' + str(v))
+            self.targetversions[tid] = target_v0                    
+            target_v0.specializationOf(self.targets[tid])
             target_v0.wasAttributedTo(cs)
             
             #Report entities for origins of target i
@@ -257,9 +274,10 @@ class MapTargets(object):
                     x = Crow[1]
                     y = Crow[2]
                     reptext = tdata[4][j].decode('utf8')
+                    agentid = agentids[j]
                     
                     reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), \
-                                        'ao:report': reptext}
+                                        'ao:report': reptext, 'ao:name':'crowdreporter_'+str(agentid)}
                     
                     self.postedreports[r] = b.entity('crowdreport/'+str(r), reportattributes)
                 target_v0.wasDerivedFrom(self.postedreports[r])
@@ -301,20 +319,27 @@ class MapTargets(object):
             target_reports = [] 
             pi_list = []
             rep_ids_i = self.target_rep_ids[i]
+            agentids = []
             if rep_ids_i==None:
                 logging.warning("No reports associated with target " + str(i))
             else:
                 for idx in rep_ids_i:
                     target_reports.append(str(rep_list[idx]))
                     agentid = C[idx,0]
+                    #logging.info("reporter:  " + str(agentid))
                     if pi==None:
                         continue
-                    pi_list.append(pi[:,:,agentid].tolist())
+                    if agentid < pi.shape[2]:
+                        pi_list.append(pi[:,:,agentid].tolist())
+                    else:
+                        pi_list.append(self.heatmap.alpha0[:,:,0].tolist())
+                    agentids.append(agentid)
 
             listobj[i].append(target_reports) # Column 4
             listobj[i].append(pi_list) # Column 5
             #Include the version number as final entry in the list
-            listobj[i].append(self.targetversions[i]) #Column 6            
+            listobj[i].append(self.targetversion_nos[i]) #Column 6  
+            listobj[i].append(agentids) # column 7          
             
         #Write the provenance and save the json
         self.write_targets_prov(listobj, C, update_number)
