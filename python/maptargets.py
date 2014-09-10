@@ -97,7 +97,8 @@ class MapTargets(object):
             
         if num_new_ids>0:
             missingid_idxs = np.argwhere(newtargetids<0)
-            missingids = range(nIterations,nIterations+num_new_ids)
+            max_id_so_far = np.max(self.targets.keys())
+            missingids = range(max_id_so_far+1,max_id_so_far+num_new_ids+1)
             newtargetids[missingid_idxs] = missingids
             self.changedtargets[missingid_idxs] = 1
             

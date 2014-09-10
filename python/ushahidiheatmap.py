@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
 import os
+import provcleanup
 #from memory_profiler import profile
 
 class Heatmap(object):
@@ -31,7 +32,8 @@ class Heatmap(object):
     C = []
     K = 1
     rep_ids = []
-    
+        
+    startclean = True #if true, will delete all previous maps before running
     timestep = 65 #max is likely to be 765
     stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
@@ -69,7 +71,8 @@ class Heatmap(object):
         self.nu0 = np.array([1,1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         self.targetextractor = maptargets.MapTargets(self)
-        self.initial_cleanup()
+        if self.startclean:
+            self.initial_cleanup()
         self.load_ush_data() 
         self.write_coords_json()        
         
@@ -116,6 +119,11 @@ class Heatmap(object):
         self.rem_img("_rep_intensity_", j)
         self.rem_img("_rep_intensity__sd_", j)
         self.rem_img("_targets_", j)
+        
+        targetsjsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
+        self.del_data_file(targetsjsonfile)
+        
+        provcleanup.cleanup()
                     
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
@@ -279,7 +287,7 @@ class Heatmap(object):
                 
         dpi = 96
         if self.nx>=500:
-            fig = plt.figure(frameon=False, figsize=(self.nx/dpi,self.ny/dpi))
+            fig = plt.figure(frameon=False, figsize=(float(self.nx)/dpi,float(self.ny)/dpi))
         else:
             fig = plt.figure(frameon=False)
         plt.autoscale(tight=True)
@@ -303,7 +311,7 @@ class Heatmap(object):
         prior = prior[0]
         
         changepoint = prior*cmap.N + 3
-        
+                
         if removesea:
             alphas = np.linspace(0, 0.75, cmap.N+3)
         else:
@@ -497,6 +505,7 @@ class Heatmap(object):
         Crow = np.array([rep_id, x, y, v]).reshape((1,4))
         C = np.concatenate((self.C[j][0:self.timestep, :], Crow), axis=0)
         C = np.concatenate((C, self.C[j][self.timestep:, :]), axis=0)
+        self.timestep += 1
         self.C[j] = C
         
         if v==1:
@@ -524,10 +533,13 @@ class Heatmap(object):
         self.insert_trusted(1, x+3, y+1, 0, 1, 0.9, 0.01)
     
     def rem_img(self, label, j):
+        self.del_data_file(self.fileprefix+label+str(j)+'.png')
+        
+    def del_data_file(self, filename):
         try:
-            os.remove(self.fileprefix+label+str(j)+'.png')
-        except OSError as ose:
-            logging.info("no file to delete: " + label)
+            os.remove(filename)
+        except OSError:
+            logging.info("no file to delete: " + filename)
             return 
     
     def write_img(self, label,j):
