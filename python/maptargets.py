@@ -16,7 +16,7 @@ class MapTargets(object):
     '''
 
     target_threshold = 0.75#0.775
-    radius = 10 #radius in which to look for peaks
+    radius = 5 #radius in which to look for peaks
     
     #storing target info
     targetsx = []
