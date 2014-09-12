@@ -16,6 +16,7 @@ class MapTargets(object):
     '''
 
     target_threshold = 0.75#0.775
+    radius = 10 #radius in which to look for peaks
     
     #storing target info
     targetsx = []
@@ -168,8 +169,7 @@ class MapTargets(object):
                 highesty = y
                 highestp = pgrid[x,y]
             
-                radius = 20
-                
+                radius = self.radius                
                 for i in range(1,radius):
                     for j in range(1,radius):        
                         if highestp <= pgrid[x+i,y] and bgrid[x+i,y]>-1:
