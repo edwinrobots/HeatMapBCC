@@ -51,7 +51,7 @@ $(document).ready(function(){
 
     $("#submit").click(function(){
         var c_val = $("input[name='c_val']:checked").val();
-        var type = $("input[name='type']:checked").val();
+        var type = $("input[name='type']").val();
         var lat = $("#lat").val();
         var lon = $("#lon").val();
         var rep_id = $("input[name='rep_id']:checked").val();
@@ -103,75 +103,79 @@ $(document).ready(function(){
             <input type="radio" name="layerSelect" value="Services" id="services">Services Available: hostpicals, food distribution, aid distribution<br>
             <input type="radio" name="layerSelect" value="People" id="people">People: person news, search and rescue operations, displaced people gathering.<br>
         </form>-->
+        <div style="float:left;padding-left:10px"><span><h3>Predictions or Uncertainty</h3></span></div>
+        <ul style="list-style-type:none;padding-left:10px">
+            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;padding:5px" type="radio" name="maptype" id="pred" checked="true"><label for="pred" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Mean probability</span></label></li>
+            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;padding:5px" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Uncertainty</span></label></li>
+        </ul><br/>
         <div style="float:left;padding-left:10px"><span><h3>Map type</h3></span></div>
         <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="pred" checked="true"><label for="pred" style="float:left;width: 90%;" ><span>Predictions of current situation</span></label></li>
-            <li style="clear:both"><input style="float:left;" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 90%;" ><span>Uncertainty in predictions: where we need more reports</span></label></li>
-        </ul>
-        <div style="float:left;padding-left:10px"><span><h3>Map generation method</h3></span></div>
-        <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both"><input style="float:left;" type="radio" name="method" id="reports" checked="true" ><label for="reports" style="float:left;width: 90%;" ><span>Crowd reports only: no statistical modelling</span></label></li>
-            <li style="clear:both"><input style="float:left;" type="radio" name="method" id="bcc"><label for="bcc" style="float:left;width: 90%;" ><span>Bayesian Heatmap: interpolate between reports</span></label></li>
-            <li style="clear:both"><input style="float:left;" type="radio" name="method" id="targets"><label for="targets" style="float:left;width: 90%;" ><span>UAV Targets proposed from heatmap</span></label></li>
+            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;" type="radio" name="method" id="reports" checked="true" ><label for="reports" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Crowd reports only</span></label></li>
+            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;" type="radio" name="method" id="bcc"><label for="bcc" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Bayesian heatmap</span></label></li>
+            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;" type="radio" name="method" id="targets"><label for="targets" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>UAV targets</span></label></li>
         </ul>
 
         <br/>
         <div style="float:left;padding-left:10px;padding-right:5px">
         <div style="float:left;width:330px"><hr>
-        <span><h3>Submit a new report</h3></span></div>
+        <span><h3>Submit report</h3></span></div>
         <form action="crowd_reports" method="post" id="crowd_report_form">
-            <div style="padding-bottom:5px; padding-top:5px;float:left;width:350px">
+            <div style="padding-bottom:5px; padding-top:5px; padding-bottom:10px;float:left;width:350px">
             <input type="radio" name="c_val" id="pos" value="1"/>
-            <label for="pos"><span>Positive: confirm event/target</span><br/></label>
+            <label for="pos"><span>Positive: confirm target</span><br/></label>
             <input type="radio" name="c_val" checked="true" id="neg" value="0"/>
-            <label for="neg"><span>Negative: no event or target here</span><br/></label>
+            <label for="neg"><span>Negative: no target here</span><br/></label>
             </div>
 
-            <div style="padding-bottom:5px; padding-top:5px;float:right">
+            <!--<div style="padding-bottom:5px; padding-top:5px;float:right">
             <div style="float:left;width:85px; padding-right:10px"><b>Type</b></div>
-            <div style="text-align:left;float:right;width:255px; padding-bottom:10px">
-            <input type="radio" name="type" checked="true" id="Emergency" value="1"/>
-            <label for="Emergency"><span>Emergency</span><br/></label>
-            </div>  </div>
+            <div style="text-align:left;float:right;width:255px; padding-bottom:10px"> -->
+            <input type="hidden" name="type" id="Emergency" value="1"/>
+            <!-- <label for="Emergency"><span>Emergency</span><br/></label>
+            </div>  </div> -->
 
-            <div style="padding-bottom:5px;padding-top:5px;width:350px;float:right">
+            <div style="padding-bottom:5px;padding-top:10px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Location</b></div>
-            <div style="text-align:left;float:right;width:255px;height:30px">
-            <label for="lat"><span>Lat:</span></label>
-            <input style="width:60px" type="number" step="0.001" name="lat" id="lat" value="18.545"/>
-            <label for="lon"><span>Lon:</span></label>
-            <input style="width:60px" type="number" step="0.001" name="lng" id="lon" value="-72.295"/>
+            <div style="text-align:left;float:right;width:210px;height:30px">
+            <label for="lat"><span>Latitude:</span></label>
+            <input style="width:60px;float:right" type="number" step="0.001" name="lat" id="lat" value="18.545"/>
+			</div>
+			<div style="text-align:left;float:right;width:210px;height:30px">
+			<label for="lon"><span>Longitude:</span></label>
+            <input style="width:60px;float:right" type="number" step="0.001" name="lng" id="lon" value="-72.295"/>
             </div> </div>
                          
-            <div style="padding-bottom:5px;padding-top:5px;width:350px;float:right">
+            <div style="padding-bottom:10px;padding-top:5px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Reporter ID</b></div>
-            <div style="text-align:left;float:right;width:255px;height:40px">
+            <div style="text-align:left;float:right;width:210px;padding-top:5px">
             <input type="radio" name="rep_id" id="rep_id_new" checked="true" value="-1"/><label for="rep_id_new">
             <span>New</span></label>
-            </div><div style="text-align:left;float:right;width:255px;height:40px">
+            </div><div style="text-align:left;float:right;width:210px;padding-top:5px">
             <input type="radio" name="rep_id" id="rep_id_no" value="0"/>
             <label for="rep_id_no"><span>Existing ID</span></label>
-            <input type="number" step="1" name="reporter" id="reporter" style="width:40px" value="15"/>
+            <input type="number" step="1" name="reporter" id="reporter" style="width:40px;float:right;vertical-align:middle;margin-top:5px" value="15"/>
             </div>  </div>
 
-            <div style="padding-bottom:5px;padding-top:5px;width:350px;float:right">
+            <div style="padding-bottom:10px;padding-top:10px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Trust</b></div>
-            <div style="text-align:left;float:right;width:255px;height:40px">
+            <div style="text-align:left;float:right;width:210px;padding-top:5px;padding-bottom:5px">
             <label for="trust_acc">Accuracy: </label>
-            <input type="number" style="width:40px" name="trust_acc" id="trust_acc" value="0.8" step="0.01"/>
-            </div><div style="text-align:left;float:right;width:255px;height:40px">
-            <label for="trust_var">Certainty (precision): </label>
-            <input type="number" style="width:40px" name="trust_var" id="trust_var" value="200" step="0.5"/>
+            <input type="number" style="width:40px;float:right" name="trust_acc" id="trust_acc" value="0.8" step="0.01"/>
+            </div><div style="text-align:left;float:right;width:210px;padding-top:5px">
+            <label for="trust_var">Confidence in prior: </label>
+            <input type="number" style="width:40px;float:right" name="trust_var" id="trust_var" value="200" step="0.5"/>
             </div> </div>
 
-            <div style="width:350px;float:right;padding-bottom:20px;">
-            <input style="width:200px; height:30px" type="button" value="Post New Report" name="submit" id="submit"/>
+            <div style="width:330px;float:left;padding-bottom:10px;">
+            <input style="width:100%; height:30px" type="button" value="Post New Report" name="submit" id="submit"/>
             </div>
 
-            <div style="float:left;padding-right:10px;width:330px" ><hr>Map file displayed: <span class="filename_disp" id="filename_disp">Map File</span></div>
-            
-            <div style="float:left; padding-top:10px; padding-bottom:10px"><form action="start_heatmap" method="post" id="starter_form">
-                <input style="width:200px; height:30px" type="button" value="Start Gathering Reports" name="starter" id="starter"/>
+            <div style="float:left;padding-right:10px;width:330px;display:none" ><hr>Map file displayed: <span class="filename_disp" id="filename_disp">Map File</span></div>
+			
+			<div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><hr></div>
+
+            <div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><form action="start_heatmap" method="post" id="starter_form">
+            <input style="width:100%; height:30px" type="button" value="Gather Reports" name="starter" id="starter"/>
             </form></div>
 
         </form></div>
