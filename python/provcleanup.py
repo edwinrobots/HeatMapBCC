@@ -6,7 +6,7 @@ Created on 5 Sep 2014
 from provstore.api import Api
 import json, logging
 
-if __name__ == '__main__':
+def cleanup():
     logging.basicConfig(level=logging.INFO)
     
     api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
@@ -27,3 +27,6 @@ if __name__ == '__main__':
 
     logging.info("completed cleanup of old provenance docs.")
 
+if __name__ == '__main__':
+    cleanup()
+    
