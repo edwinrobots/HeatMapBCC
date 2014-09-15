@@ -104,28 +104,57 @@ $(document).ready(function(){
             <input type="radio" name="layerSelect" value="People" id="people">People: person news, search and rescue operations, displaced people gathering.<br>
         </form>-->
         <div style="float:left;padding-left:10px"><span><h3>Predictions or Uncertainty</h3></span></div>
-        <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;padding:5px" type="radio" name="maptype" id="pred" checked="true"><label for="pred" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Mean probability</span></label></li>
-            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;padding:5px" type="radio" name="maptype" id="unc"><label for="unc" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Uncertainty</span></label></li>
+        <ul style="clear:both;list-style-type:none;padding-left:10px">
+            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="maptype" id="pred" checked="true">
+                <label for="pred">
+                    <span>Mean probability</span>
+                </label>
+            </li>
+            <li style="padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="maptype" id="unc">
+                <label for="unc">
+                    <span>Uncertainty</span>
+                </label>
+            </li>
         </ul><br/>
         <div style="float:left;padding-left:10px"><span><h3>Map type</h3></span></div>
         <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;" type="radio" name="method" id="reports" checked="true" ><label for="reports" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Crowd reports only</span></label></li>
-            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;" type="radio" name="method" id="bcc"><label for="bcc" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>Bayesian heatmap</span></label></li>
-            <li style="clear:both"><input style="margin-top: -1px; vertical-align: middle;float:left;" type="radio" name="method" id="targets"><label for="targets" style="float:left;width: 85%;padding-bottom:5px;padding-left:5px" ><span>UAV targets</span></label></li>
+            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="method" id="reports" checked="true" >
+                <label for="reports">
+                    <span>Crowd reports only</span>
+                </label>
+            </li>
+            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="method" id="bcc">
+                <label for="bcc">
+                    <span>Bayesian heatmap</span>
+                </label>
+            </li>
+            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="method" id="targets">
+                <label for="targets">
+                    <span>UAV targets</span>
+                </label>
+            </li>
         </ul>
 
         <br/>
         <div style="float:left;padding-left:10px;padding-right:5px">
-        <div style="float:left;width:330px"><hr>
+        <div style="float:left;width:350px"><hr>
         <span><h3>Submit report</h3></span></div>
         <form action="crowd_reports" method="post" id="crowd_report_form">
-            <div style="padding-bottom:5px; padding-top:5px; padding-bottom:10px;float:left;width:350px">
-            <input type="radio" name="c_val" id="pos" value="1"/>
-            <label for="pos"><span>Positive: confirm target</span><br/></label>
-            <input type="radio" name="c_val" checked="true" id="neg" value="0"/>
-            <label for="neg"><span>Negative: no target here</span><br/></label>
-            </div>
+            <ul style="clear:both;list-style-type:none;padding-left:0px">
+                <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                    <input type="radio" name="c_val" id="pos" value="1"/>
+                    <label for="pos"><span>Positive: confirm target</span><br/></label>
+                </li>
+                <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                    <input type="radio" name="c_val" checked="true" id="neg" value="0"/>
+                    <label for="neg"><span>Negative: no target here</span><br/></label>
+                </li>
+            </ul>
 
             <!--<div style="padding-bottom:5px; padding-top:5px;float:right">
             <div style="float:left;width:85px; padding-right:10px"><b>Type</b></div>
@@ -134,7 +163,7 @@ $(document).ready(function(){
             <!-- <label for="Emergency"><span>Emergency</span><br/></label>
             </div>  </div> -->
 
-            <div style="padding-bottom:5px;padding-top:10px;width:330px;float:left">
+            <div style="padding-bottom:5px;padding-top:15px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Location</b></div>
             <div style="text-align:left;float:right;width:210px;height:30px">
             <label for="lat"><span>Latitude:</span></label>

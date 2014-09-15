@@ -36,7 +36,7 @@ class Heatmap(object):
     startclean = True #if true, will delete all previous maps before running
     timestep = 65 #max is likely to be 765
     stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
-    finalsnapshot = True
+    finalsnapshot = False
     lookforupdates = True
     
     running = False
