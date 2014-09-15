@@ -36,7 +36,7 @@ class MapTargets(object):
     postedreports = {} #reports that have already been posted to provenance server  
     api = None
     namespace = None
-    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/1/'
+    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/9/'
     targets = {}
     targetversions = {} #the latest version entity for each target id
     targetversion_nos = None
@@ -59,7 +59,7 @@ class MapTargets(object):
             self.targetsx = targetsx
             self.targetsy = targetsy
             self.targetids = np.arange(len(targetsx))
-            self.targetversion_nos = np.zeros(self.targetids.shape)
+            self.targetversion_nos = np.zeros(self.targetids.shape, dtype=np.int)
             return bgrid
         
         #see if the peaks are close matches to existing targets
@@ -253,8 +253,8 @@ class MapTargets(object):
             v = int(tdata[6])
             agentids = tdata[7]
             
-            targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), \
-                                 'ao:asset_type':str(targettype)}
+            targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), }
+            #'ao:asset_type':str(targettype)}
             target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)            
             #Post the root report if this is the first version
             if v==0:
@@ -297,7 +297,7 @@ class MapTargets(object):
                 self.provfilelist = json.load(fp)
         else:
             with open(jsonfile, 'w') as fp:
-                json.dump(self.provfilelist, fp)
+                json.dump(self.provfilelist, fp, indent=2)
         
         
     def write_targets_json(self, update_number, alpha, C, j=1, targettypes=None):
@@ -313,10 +313,13 @@ class MapTargets(object):
         #Create the list object with basic attributes: Columns 0 to 3
         listobj = np.concatenate((self.targetids[:,np.newaxis], self.targetsx[:,np.newaxis], \
                               self.targetsy[:,np.newaxis], targettypes), axis=1)
-        listobj = listobj.tolist()
+        listobj = listobj.tolist()               
                
         #Add lists of associated reports and confusion matrices
         for i in range(len(listobj)):
+            listobj[i][0] = int(listobj[i][0])
+            listobj[i][3] = int(listobj[i][3])
+            
             target_reports = [] 
             pi_list = []
             rep_ids_i = self.target_rep_ids[i]
@@ -345,4 +348,4 @@ class MapTargets(object):
         #Write the provenance and save the json
         self.write_targets_prov(listobj, C, update_number)
         with open(jsonfile, 'w') as fp:
-            json.dump(listobj, fp)
+            json.dump(listobj, fp, indent=2)
