@@ -15,7 +15,7 @@ class MapTargets(object):
     classdocs
     '''
 
-    target_threshold = 0.75#0.775
+    target_threshold = 0.85#0.775
     radius = 5 #radius in which to look for peaks
     
     #storing target info
@@ -110,6 +110,7 @@ class MapTargets(object):
         self.targetsy = targetsy        
         
         logging.info("Maximimum target ID is " + str(np.max(self.targetids)))
+        logging.info("Number of targets found: " + str(len(self.targetids)))
                 
         return bgrid
 
@@ -212,7 +213,7 @@ class MapTargets(object):
                     bgrid[x,y] = -1
                     rgrid = self.move_reps(rgrid, x, y, highestx, highesty)
                 else:
-                    logging.info("target found at " + str(x) + ", " + str(y))
+                    logging.debug("target found at " + str(x) + ", " + str(y))
                                    
         bgrid[bgrid==-1] = 0
                                       
