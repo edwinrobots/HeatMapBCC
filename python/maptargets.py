@@ -250,8 +250,8 @@ class MapTargets(object):
             tid = int(tdata[0])
             x = tdata[1]
             y = tdata[2]
-            targettype = tdata[3]
-            v = int(tdata[6])
+#             targettype = tdata[3] #don't record here, it will be revealed and recorded by UAVs
+            v = int(tdata[4])
             agentids = tdata[7]
             
             targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), }
@@ -275,7 +275,7 @@ class MapTargets(object):
                     Crow = C[r,:]
                     x = Crow[1]
                     y = Crow[2]
-                    reptext = tdata[4][j].decode('utf8')
+                    reptext = tdata[5][j].decode('utf8')
                     agentid = agentids[j]
                     
                     reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), \
@@ -320,7 +320,8 @@ class MapTargets(object):
         for i in range(len(listobj)):
             listobj[i][0] = int(listobj[i][0])
             listobj[i][3] = int(listobj[i][3])
-            
+            listobj[i].append(int(self.targetversion_nos[i])) #Column 4
+              
             target_reports = [] 
             pi_list = []
             rep_ids_i = self.target_rep_ids[i]
@@ -338,12 +339,11 @@ class MapTargets(object):
                         pi_list.append(pi[:,:,agentid].tolist())
                     else:
                         pi_list.append(self.heatmap.alpha0[:,:,0].tolist())
-                    agentids.append(agentid)
+                    agentids.append(int(agentid))
 
-            listobj[i].append(target_reports) # Column 4
-            listobj[i].append(pi_list) # Column 5
+            listobj[i].append(target_reports) # Column 6
+            listobj[i].append(pi_list) # Column 6
             #Include the version number as final entry in the list
-            listobj[i].append(self.targetversion_nos[i]) #Column 6  
             listobj[i].append(agentids) # column 7          
             
         #Write the provenance and save the json
