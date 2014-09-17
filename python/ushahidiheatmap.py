@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scipy.sparse import coo_matrix
 import os
 import provcleanup
+import shutil
 #from memory_profiler import profile
 
 class Heatmap(object):
@@ -37,7 +38,10 @@ class Heatmap(object):
     timestep = 65 #max is likely to be 765
     stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
-    lookforupdates = True
+
+    #If run_script_only is set to true, it will run the update loop when called until all scripted reports have been included.
+    #If any subsequent reports arrive, it will run only one update to include them.
+    run_script_only=False 
     
     running = False
     
@@ -50,7 +54,7 @@ class Heatmap(object):
 
     targetextractor = None
         
-    def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None):
+    def __init__(self, nx,ny, run_script_only=False, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None):
         self.nx = nx
         self.ny = ny
         if minlat != None:
@@ -74,7 +78,9 @@ class Heatmap(object):
         if self.startclean:
             self.initial_cleanup()
         self.load_ush_data() 
-        self.write_coords_json()        
+        self.write_coords_json()     
+        
+        self.run_script_only = run_script_only   
         
     def runBCC(self, j):
         C = self.C[j]
@@ -122,6 +128,8 @@ class Heatmap(object):
         
         targetsjsonfile = self.webdatadir+'/targets_'+str(j)+'.json'
         self.del_data_file(targetsjsonfile)
+        with open(targetsjsonfile, 'w') as fp:
+            json.dump([], fp)
         
         provcleanup.cleanup()
                     
@@ -139,7 +147,7 @@ class Heatmap(object):
             self.timestep = nupdates
             logging.warning("Breaking the gradual update so we skip to final update loop")
         
-        while self.lookforupdates:
+        while self.running:
             logging.info("timed_update_loop timestep " + str(self.timestep))
             starttime = time.time()
 
@@ -191,7 +199,11 @@ class Heatmap(object):
             
             #once complete, update the current time step
             self.timestep += self.stepsize
-            
+            nupdates = self.C[j].shape[0]
+            if self.timestep > nupdates:
+                self.timestep = nupdates
+                if self.run_script_only:
+                    self.running = False
         self.running = False
             
     def kill_combiners(self):
@@ -515,7 +527,7 @@ class Heatmap(object):
              
         if self.targetextractor.rep_id_grid[j][x, y] == None:
             self.targetextractor.rep_id_grid[j][x, y] = []
-        self.targetextractor.rep_id_grid[j][x, y].append(len(self.targetextractor.rep_list[j])-1)           
+        self.targetextractor.rep_id_grid[j][x, y].append(len(self.targetextractor.rep_list[j])-1)                  
             
     def insert_trusted_prescripted(self, j):
         x,y = self.translate_points_to_local(18.52,-72.284)
@@ -533,7 +545,9 @@ class Heatmap(object):
         self.insert_trusted(1, x+3, y+1, 0, 1, 0.9, 0.01)
     
     def rem_img(self, label, j):
-        self.del_data_file(self.fileprefix+label+str(j)+'.png')
+        filename = self.fileprefix+label+str(j)+'.png'
+        self.del_data_file(filename)
+        shutil.copyfile(self.fileprefix+"_blank.png", filename)
         
     def del_data_file(self, filename):
         try:

@@ -24,6 +24,7 @@ class MapTargets(object):
     targetids = []
     targetversions = []
     changedtargets = []
+    targets_to_invalidate = [] # invalid targets that have not been invalidated on the prov store
         
     plist = []
     target_rep_ids = []
@@ -36,10 +37,11 @@ class MapTargets(object):
     postedreports = {} #reports that have already been posted to provenance server  
     api = None
     namespace = None
-    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/9/'
+    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/12/'
     targets = {}
     targetversions = {} #the latest version entity for each target id
     targetversion_nos = None
+    targets_to_invalidate_version_nos = [] #version numbers of targets waiting to be invalidated
     
     def __init__(self, heatmap):
         self.heatmap = heatmap
@@ -51,8 +53,8 @@ class MapTargets(object):
         
         dist = np.zeros((len(targetsx),len(self.targetsx)))
         
-        newtargetids = np.zeros(targetsx.shape)-1
-        newtargetversions = np.zeros(targetsx.shape)
+        newtargetids = np.zeros(targetsx.shape, dtype=np.int)-1
+        newtargetversions = np.zeros(targetsx.shape, dtype=np.int)
         self.changedtargets = np.ones(targetsx.shape)
         
         if len(self.targetids)<1:
@@ -102,6 +104,13 @@ class MapTargets(object):
             missingids = range(max_id_so_far+1,max_id_so_far+num_new_ids+1)
             newtargetids[missingid_idxs] = missingids
             self.changedtargets[missingid_idxs] = 1
+            
+        self.targets_to_invalidate = []
+        self.targets_to_invalidate_version_nos = []
+        for i, tid in enumerate(self.targetids):
+            if tid not in newtargetids:
+                self.targets_to_invalidate.append(tid)
+                self.targets_to_invalidate_version_nos.append(self.targetversion_nos[i]+1)
             
         self.targetids = newtargetids
         self.targetversion_nos = newtargetversions
@@ -284,6 +293,16 @@ class MapTargets(object):
                     self.postedreports[r] = b.entity('crowdreport/'+str(r), reportattributes)
                 target_v0.wasDerivedFrom(self.postedreports[r])
         
+        #Invalidate old targets no longer in use
+        for i,tid in enumerate(self.targets_to_invalidate):
+            v = self.targets_to_invalidate_version_nos[i]
+            targettype = -1 #invalid target type 
+            targetattributes = {'ao:asset_type':str(targettype)}
+            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)            
+            target_v0.wasDerivedFrom(self.targetversions[tid])
+            target_v0.specializationOf(self.targets[tid])
+            target_v0.wasAttributedTo(cs)
+            
         #Post the document to the server
         provstore_document = self.api.document.create(provdoc, name='cs-targets', public=True)
         document_uri = provstore_document.url

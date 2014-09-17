@@ -129,8 +129,8 @@ function plotTargets(targetData){
         locx = target[1];
         locy = target[2];
         typeid = target[3];
-        repList[tid] = target[4]; //strongly associated reports
-        piList[tid] = target[5];
+        repList[tid] = target[5]; //strongly associated reports
+        piList[tid] = target[6];
         
         img = "http://maps.google.com/mapfiles/kml/shapes/caution.png";
         

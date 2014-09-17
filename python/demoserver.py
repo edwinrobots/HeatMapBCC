@@ -56,6 +56,9 @@ class Demoserver(SimpleHTTPServer.SimpleHTTPRequestHandler):
             heatmap.insert_trusted(typeid, x, y, v, rep_id, trust_acc, 1.0/trust_var)
         else:
             heatmap.insert_trusted(typeid, x, y, v)
+        
+        start_new_map_thread()
+            
         self.send_response(201, "New report added")
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
@@ -93,7 +96,7 @@ def run_web_server():
     except KeyboardInterrupt:
         print('^C received, shutting down server')
         httpd.socket.close()
-        heatmap.lookforupdates = False
+        heatmap.running = False
     
 def web_server_restarter():
     #restart the web server thread if it crashes
@@ -114,4 +117,4 @@ global map_nx
 global map_ny
 map_nx = 500
 map_ny = 500
-heatmap = Heatmap(map_nx,map_ny)
+heatmap = Heatmap(map_nx,map_ny,run_script_only=True)
