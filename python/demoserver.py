@@ -41,6 +41,9 @@ class Demoserver(SimpleHTTPServer.SimpleHTTPRequestHandler):
         typeid = int(form["type"].value)
         x = float(form["lat"].value)
         y = float(form["lon"].value)
+        
+        logging.info("Report received at " + str(x) + ", " + str(y))
+        
         v = int(form["c_val"].value)
         
         global heatmap

@@ -76,9 +76,8 @@ class MapTargets(object):
         #go through looking for most similar peaks first
         
         nIterations = len(targetsx)
-        num_new_ids = 0
+        num_new_ids = nIterations
         if nIterations>len(self.targetsx):
-            num_new_ids = nIterations-len(self.targetsx)
             nIterations = len(self.targetsx)
             
         for _ in range(nIterations):
@@ -87,6 +86,14 @@ class MapTargets(object):
         
             least_moved_new = np.argmin(mindist_old_to_new)
             least_moved_old = closest_old_to_new[least_moved_new]
+            
+            shortestdist = dist[least_moved_new,least_moved_old]
+            if shortestdist > 0:
+                logging.info("Distance between new and old targets: " + str(shortestdist))
+            
+            if dist[least_moved_new,least_moved_old] > float(self.radius)/float(self.heatmap.nx):
+                break
+            
             newtargetids[least_moved_new] = self.targetids[least_moved_old]
             
             if targetsx[least_moved_new]==self.targetsx[least_moved_old] \
@@ -97,6 +104,8 @@ class MapTargets(object):
                 self.changedtargets[least_moved_new] = 1
             dist[:,least_moved_old] = np.Inf
             dist[least_moved_new,:] = np.Inf
+            
+            num_new_ids -=1
             
         if num_new_ids>0:
             missingid_idxs = np.argwhere(newtargetids<0)
@@ -222,7 +231,7 @@ class MapTargets(object):
                     bgrid[x,y] = -1
                     rgrid = self.move_reps(rgrid, x, y, highestx, highesty)
                 else:
-                    logging.debug("target found at " + str(x) + ", " + str(y))
+                    logging.info("target found at " + str(x) + ", " + str(y))
                                    
         bgrid[bgrid==-1] = 0
                                       

@@ -198,12 +198,15 @@ class Heatmap(object):
             logging.info("Update loop took " + str(endtime-starttime) + " seconds.")
             
             #once complete, update the current time step
-            self.timestep += self.stepsize
+            if self.timestep > nupdates and self.run_script_only:
+                    self.running = False
+            else:
+                self.timestep += self.stepsize
             nupdates = self.C[j].shape[0]
+
             if self.timestep > nupdates:
                 self.timestep = nupdates
-                if self.run_script_only:
-                    self.running = False
+
         self.running = False
             
     def kill_combiners(self):
@@ -514,6 +517,7 @@ class Heatmap(object):
                   
         #add a trusted report to self.C, inserting it at the current self.timestep        
         x,y = self.translate_points_to_local(x,y)
+        logging.info("Received new report at local point " + str(x) + ", " + str(y))
         Crow = np.array([rep_id, x, y, v]).reshape((1,4))
         C = np.concatenate((self.C[j][0:self.timestep, :], Crow), axis=0)
         C = np.concatenate((C, self.C[j][self.timestep:, :]), axis=0)
