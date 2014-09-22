@@ -183,7 +183,7 @@ class Heatmapbcc(ibcc.Ibcc):
             for l in range(self.nScores):
                 sepcounts = (self.C[:,3]==l)*(self.ET[j,self.C[:,1],self.C[:,2]])
                 counts = np.zeros((self.K, self.C.shape[0]))
-                counts[self.C[:,0], range(self.C.shape[0])] = sepcounts
+                counts[self.C[:,0], np.arange(self.C.shape[0])] = sepcounts
                 counts = np.sum(counts, axis=1).reshape(-1)
                 self.alpha[j,l,:] = self.alpha0[j,l,:] + counts
 

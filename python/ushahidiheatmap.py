@@ -88,7 +88,7 @@ class Heatmap(object):
         
     def runBCC_up_to_time(self, j, timestep):       
         C = self.C[j]
-        C = C[0:timestep+1,:]
+        C = C[0:timestep,:]
         bcc_pred, _ = self.runBCC_subset(C)
         return bcc_pred
             
@@ -198,11 +198,12 @@ class Heatmap(object):
             logging.info("Update loop took " + str(endtime-starttime) + " seconds.")
             
             #once complete, update the current time step
-            if self.timestep > nupdates and self.run_script_only:
+            nupdates = self.C[j].shape[0]
+            if self.timestep >= nupdates and self.run_script_only:
                     self.running = False
             else:
                 self.timestep += self.stepsize
-            nupdates = self.C[j].shape[0]
+            
 
             if self.timestep > nupdates:
                 self.timestep = nupdates

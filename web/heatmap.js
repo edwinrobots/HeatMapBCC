@@ -132,7 +132,7 @@ function plotTargets(targetData){
         repList[tid] = target[5]; //strongly associated reports
         piList[tid] = target[6];
         
-        img = "http://maps.google.com/mapfiles/kml/shapes/caution.png";
+        img = "images/question.png";//"http://maps.google.com/mapfiles/kml/shapes/caution.png";
         
         drawTargetMarker(tid, locx, locy, img);
     }        

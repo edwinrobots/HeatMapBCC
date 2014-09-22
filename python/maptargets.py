@@ -9,6 +9,8 @@ from copy import deepcopy
 from prov.model import ProvDocument, Namespace
 from provstore.api import Api
 import os.path
+import time
+import datetime
 
 class MapTargets(object):
     '''
@@ -37,11 +39,14 @@ class MapTargets(object):
     postedreports = {} #reports that have already been posted to provenance server  
     api = None
     namespace = None
-    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/12/'
+    game_id = 13
+    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/%s/'
     targets = {}
     targetversions = {} #the latest version entity for each target id
     targetversion_nos = None
     targets_to_invalidate_version_nos = [] #version numbers of targets waiting to be invalidated
+    
+    document_id = -1 # the provenance document id in the prov store
     
     def __init__(self, heatmap):
         self.heatmap = heatmap
@@ -253,11 +258,32 @@ class MapTargets(object):
         
     def write_targets_prov(self, tlist, C, bundle_id):
         #Initialisation
-        provdoc = ProvDocument()
-        provdoc.add_namespace(self.namespace)
-        provdoc.set_default_namespace(self.defaultns)
-        b = provdoc.bundle('crowd_scanner')
-        cs = b.agent('CrowdScanner')
+#         cs = b.agent('CrowdScanner')
+        
+        if self.document_id == -1:
+            d = ProvDocument()
+            d.add_namespace(self.namespace)
+            d.set_default_namespace(self.defaultns % self.game_id)
+            
+            provstore_document = self.api.document.create(d, name="Game%s CrowdScanner" % self.game_id, public=True)
+            document_uri = provstore_document.url
+            logging.info("prov doc URI: " + str(document_uri))
+            self.provfilelist.append(provstore_document.id)
+            self.savelocalrecord()
+            self.document_id = provstore_document.id
+        
+        b = ProvDocument()  # Create a new document for this update
+        b.add_namespace(self.namespace)
+        b.set_default_namespace(self.defaultns % self.game_id)            
+            
+        # cs to be used with all targets
+        cs = b.agent('agent/CrowdScanner', (('prov:type', 'ao:IBCCAlgo'), ('prov:type', 'prov:SoftwareAgent')))
+        
+        timestamp = time.time()  # Record the timestamp at each update to generate unique identifiers        
+        startTime = datetime.datetime.fromtimestamp(timestamp)
+        endTime = startTime
+        activity = b.activity('activity/cs/update_report_%s' % timestamp, startTime, endTime)
+        activity.wasAssociatedWith(cs)
 
         #Add target and report entities
         for i, tdata in enumerate(tlist):
@@ -274,10 +300,10 @@ class MapTargets(object):
             
             targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), }
             #'ao:asset_type':str(targettype)}
-            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)            
+            target_v0 = b.entity('cs/target/'+str(tid)+'.'+str(v), targetattributes)            
             #Post the root report if this is the first version
             if v==0:
-                self.targets[tid] = b.entity('target/'+str(tid))
+                self.targets[tid] = b.entity('cs/target/'+str(tid))
             else:
                 try:
                     target_v0.wasDerivedFrom(self.targetversions[tid])
@@ -296,28 +322,25 @@ class MapTargets(object):
                     reptext = tdata[5][j].decode('utf8')
                     agentid = agentids[j]
                     
-                    reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), \
-                                        'ao:report': reptext, 'ao:name':'crowdreporter_'+str(agentid)}
+                    reporter_name = 'agent/crowdreporter%s' % agentid
+                    b.agent(reporter_name, (('prov:type', 'ao:CrowdReporter'), ('prov:type', 'prov:Person')))
                     
-                    self.postedreports[r] = b.entity('crowdreport/'+str(r), reportattributes)
+                    reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), 'ao:report': reptext}
+                    
+                    self.postedreports[r] = b.entity('cs/report/'+str(r), reportattributes)
+                    self.postedreports[r].wasAttributedTo(reporter_name)
+                activity.used(self.postedreports[r])
                 target_v0.wasDerivedFrom(self.postedreports[r])
         
         #Invalidate old targets no longer in use
         for i,tid in enumerate(self.targets_to_invalidate):
-            v = self.targets_to_invalidate_version_nos[i]
-            targettype = -1 #invalid target type 
-            targetattributes = {'ao:asset_type':str(targettype)}
-            target_v0 = b.entity('target/'+str(tid)+'.'+str(v), targetattributes)            
-            target_v0.wasDerivedFrom(self.targetversions[tid])
-            target_v0.specializationOf(self.targets[tid])
-            target_v0.wasAttributedTo(cs)
+            target_v = self.targetversions[tid]
+            b.wasInvalidatedBy(target_v, activity)
             
         #Post the document to the server
-        provstore_document = self.api.document.create(provdoc, name='cs-targets', public=True)
-        document_uri = provstore_document.url
-        logging.info("prov doc URI: " + str(document_uri))
-        self.provfilelist.append(provstore_document.id)
-        self.savelocalrecord()
+        #bundle = b.bundle('crowd_scanner')
+        bundle_id = 'bundle/csupdate/%s' % timestamp
+        self.api.add_bundle(self.document_id, b.serialize(), bundle_id)
         
     def savelocalrecord(self):
         jsonfile = self.heatmap.datadir+"/provfilelist.json"
