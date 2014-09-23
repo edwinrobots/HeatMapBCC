@@ -6,11 +6,14 @@ Created on 9 Sep 2014
 import numpy as np
 import logging, json
 from copy import deepcopy
-from prov.model import ProvDocument, Namespace
+from prov.model import ProvDocument, Namespace, PROV
 from provstore.api import Api
 import os.path
 import time
 import datetime
+
+AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
+
 
 class MapTargets(object):
     '''
@@ -24,7 +27,6 @@ class MapTargets(object):
     targetsx = []
     targetsy = []
     targetids = []
-    targetversions = []
     changedtargets = []
     targets_to_invalidate = [] # invalid targets that have not been invalidated on the prov store
         
@@ -51,8 +53,7 @@ class MapTargets(object):
     def __init__(self, heatmap):
         self.heatmap = heatmap
         self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
-        self.namespace = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
-        
+
     def calculate_targets(self, pgrid, j=1):
         targetsx, targetsy, bgrid = self.find_peaks(pgrid, j)
         
@@ -262,7 +263,7 @@ class MapTargets(object):
         
         if self.document_id == -1:
             d = ProvDocument()
-            d.add_namespace(self.namespace)
+            d.add_namespace(AO)
             d.set_default_namespace(self.defaultns % self.game_id)
             
             provstore_document = self.api.document.create(d, name="Game%s CrowdScanner" % self.game_id, public=True)
@@ -273,11 +274,11 @@ class MapTargets(object):
             self.document_id = provstore_document.id
         
         b = ProvDocument()  # Create a new document for this update
-        b.add_namespace(self.namespace)
+        b.add_namespace(AO)
         b.set_default_namespace(self.defaultns % self.game_id)            
             
         # cs to be used with all targets
-        cs = b.agent('agent/CrowdScanner', (('prov:type', 'ao:IBCCAlgo'), ('prov:type', 'prov:SoftwareAgent')))
+        cs = b.agent('agent/CrowdScanner', (('prov:type', AO['IBCCAlgo']), ('prov:type', PROV['SoftwareAgent'])))
         
         timestamp = time.time()  # Record the timestamp at each update to generate unique identifiers        
         startTime = datetime.datetime.fromtimestamp(timestamp)
@@ -298,7 +299,7 @@ class MapTargets(object):
             v = int(tdata[4])
             agentids = tdata[7]
             
-            targetattributes = {'ao:longitude': str(x), 'ao:latitude': str(y), }
+            targetattributes = {'ao:longitude': x, 'ao:latitude': y, }
             #'ao:asset_type':str(targettype)}
             target_v0 = b.entity('cs/target/'+str(tid)+'.'+str(v), targetattributes)            
             #Post the root report if this is the first version
@@ -320,12 +321,14 @@ class MapTargets(object):
                     x = Crow[1]
                     y = Crow[2]
                     reptext = tdata[5][j].decode('utf8')
+                    # Try to replace unusual characters
+                    reptext = reptext.encode('ascii', 'replace')  
                     agentid = agentids[j]
                     
                     reporter_name = 'agent/crowdreporter%s' % agentid
-                    b.agent(reporter_name, (('prov:type', 'ao:CrowdReporter'), ('prov:type', 'prov:Person')))
+                    b.agent(reporter_name, (('prov:type', AO['CrowdReporter']), ('prov:type', PROV['Person'])))
                     
-                    reportattributes = {'ao:longitude':str(x), 'ao:latitude':str(y), 'ao:report': reptext}
+                    reportattributes = {'ao:longitude': x, 'ao:latitude': y, 'ao:report': reptext}
                     
                     self.postedreports[r] = b.entity('cs/report/'+str(r), reportattributes)
                     self.postedreports[r].wasAttributedTo(reporter_name)

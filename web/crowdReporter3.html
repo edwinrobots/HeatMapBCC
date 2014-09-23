@@ -108,7 +108,7 @@ $(document).ready(function(){
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="maptype" id="pred" checked="true">
                 <label for="pred">
-                    <span>Mean probability</span>
+                    <span>Probability of Emergency</span>
                 </label>
             </li>
             <li style="padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
@@ -123,7 +123,7 @@ $(document).ready(function(){
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="method" id="reports" checked="true" >
                 <label for="reports">
-                    <span>Crowd reports only</span>
+                    <span>Reports only</span>
                 </label>
             </li>
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
@@ -143,7 +143,7 @@ $(document).ready(function(){
         <br/>
         <div style="float:left;padding-left:10px;padding-right:5px">
         <div style="float:left;width:350px"><hr>
-        <span><h3>Submit report</h3></span></div>
+        <span><h3>Submit new report</h3></span></div>
         <form action="crowd_reports" method="post" id="crowd_report_form">
             <ul style="clear:both;list-style-type:none;padding-left:0px">
                 <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
@@ -165,33 +165,33 @@ $(document).ready(function(){
 
             <div style="padding-bottom:5px;padding-top:15px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Location</b></div>
-            <div style="text-align:left;float:right;width:210px;height:30px">
+            <div style="text-align:left;float:right;width:200px;height:30px">
             <label for="lat"><span>Latitude:</span></label>
             <input style="width:60px;float:right" type="number" step="0.001" name="lat" id="lat" value="18.545"/>
 			</div>
-			<div style="text-align:left;float:right;width:210px;height:30px">
+			<div style="text-align:left;float:right;width:200px;height:30px">
 			<label for="lon"><span>Longitude:</span></label>
             <input style="width:60px;float:right" type="number" step="0.001" name="lng" id="lon" value="-72.295"/>
             </div> </div>
                          
             <div style="padding-bottom:10px;padding-top:5px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Reporter ID</b></div>
-            <div style="text-align:left;float:right;width:210px;padding-top:5px">
+            <div style="text-align:left;float:right;width:200px;padding-top:5px">
             <input type="radio" name="rep_id" id="rep_id_new" checked="true" value="-1"/><label for="rep_id_new">
             <span>New</span></label>
-            </div><div style="text-align:left;float:right;width:210px;padding-top:5px">
+            </div><div style="text-align:left;float:right;width:200px;padding-top:5px">
             <input type="radio" name="rep_id" id="rep_id_no" value="0"/>
             <label for="rep_id_no"><span>Existing ID</span></label>
             <input type="number" step="1" name="reporter" id="reporter" style="width:40px;float:right;vertical-align:middle;margin-top:5px" value="15"/>
             </div>  </div>
 
             <div style="padding-bottom:10px;padding-top:10px;width:330px;float:left">
-            <div style="float:left;width:85px"><b>Trust</b></div>
-            <div style="text-align:left;float:right;width:210px;padding-top:5px;padding-bottom:5px">
+            <div style="float:left;width:85px"><b>Initial Trust</b></div>
+            <div style="text-align:left;float:right;width:200px;padding-top:5px;padding-bottom:5px">
             <label for="trust_acc">Accuracy: </label>
             <input type="number" style="width:40px;float:right" name="trust_acc" id="trust_acc" value="0.8" step="0.01"/>
-            </div><div style="text-align:left;float:right;width:210px;padding-top:5px">
-            <label for="trust_var">Confidence in prior: </label>
+            </div><div style="text-align:left;float:right;width:200px;padding-top:5px">
+            <label for="trust_var">Certainty: </label>
             <input type="number" style="width:40px;float:right" name="trust_var" id="trust_var" value="200" step="0.5"/>
             </div> </div>
 
