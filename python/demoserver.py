@@ -21,11 +21,16 @@ class Demoserver(SimpleHTTPServer.SimpleHTTPRequestHandler):
     def do_POST(self):
         logging.info("======= Post started =======")
         logging.info(self.headers)
-        logging.info(self.path)
+        logging.info("Path = " + self.path)
         
         if "start_heatmap" in self.path:
             logging.info("Starting the timed update loop")
             start_new_map_thread()
+            return
+        
+        if "reset" in self.path:
+            kill_map_thread()
+            init_heatmap()
             return
         
         logging.info("======= Processing POST values =======")
@@ -112,12 +117,17 @@ def web_server_restarter():
             restart = False
             time.sleep(10)
         restart = True    
-    
+        
+def init_heatmap():
+    global heatmap
+    global map_nx
+    global map_ny
+    map_nx = 500
+    map_ny = 500
+    heatmap = Heatmap(map_nx,map_ny,run_script_only=True)
+      
 thr_server_maintainer = threading.Thread(target=web_server_restarter)
 thr_server_maintainer.start()
-global heatmap
-global map_nx
-global map_ny
-map_nx = 500
-map_ny = 500
-heatmap = Heatmap(map_nx,map_ny,run_script_only=True)
+init_heatmap()
+
+

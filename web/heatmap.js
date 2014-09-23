@@ -21,7 +21,9 @@ var layerId = 1;
 var repList = {};
 var piList = {};
 
-function loadOverlayImage(restartTimer, layerName, plotTargetsFlag){    
+var plotTargetsFlag = false;
+
+function loadOverlayImage(restartTimer, layerName){    
     var peaksx = [];
     var peaksy = [];
     var peaksval = [];    
@@ -70,8 +72,17 @@ function loadOverlayImage(restartTimer, layerName, plotTargetsFlag){
     
             setTimeout(function(){
                 layerName = getLayerName();
-                setHeatMapLayer(true, plotTargetsFlag);
+                setHeatMapLayer(true);
             }, mapReloadTime);
+            
+            google.maps.event.addListener(heatmapLayer, 'click', function(event) {   
+    			var lat = event.latLng.lat();
+    			var lon = event.latLng.lng();
+    	
+    			$("#lat").val(lat);
+    			$("#lon").val(lon);
+    		});  
+            
         });
     } catch (e) {
         alert("Loading map failed. " + e.msg);
@@ -89,7 +100,7 @@ function addReportInfo(infoBox, reps, pis){
 function drawTargetMarker(tid, locx, locy, img){
         //create a google maps marker
     
-        if (typeof markers[tid] !== 'undefined'){
+        if (typeof markers[tid] !== 'undefined' && markers[tid]!=null){
             markers[tid].setMap(null);
         }
     
@@ -100,10 +111,15 @@ function drawTargetMarker(tid, locx, locy, img){
             icon: img
         }); 
         
-        google.maps.event.addListener(markers[tid], 'click', function() {
+        google.maps.event.addListener(markers[tid], 'click', function() {	
+			$("#lat").val(locx);
+			$("#lon").val(locy);                        
+                        
+            locx = Math.round(locx*10000)/10000
+            locy = Math.round(locy*10000)/10000
                         
             var infoWindow = new google.maps.InfoWindow({
-                content: "<table border='1'><tr><td><b>Target ID: " + tid + "</b></td><td>Trust</td></tr>",
+                content: "<table border='1'><tr><td><b>Target ID: " + tid +  ", loc: " + locx + ", " + locy + "</b></td><td>Trust</td></tr>",
                 position: new google.maps.LatLng(locx,locy)
             });
             addReportInfo(infoWindow, repList[tid], piList[tid])       
@@ -138,7 +154,7 @@ function plotTargets(targetData){
     }        
 }
 
-function setHeatMapLayer(restartTimer, plotTargetsFlag) {
+function setHeatMapLayer(restartTimer) {
     //val = $("input[name='layerSelect']:checked").attr("id")
     //layerName = val;
     if (!plotTargetsFlag){
@@ -147,14 +163,17 @@ function setHeatMapLayer(restartTimer, plotTargetsFlag) {
         //load the targets
         $.getJSON("targets_"+layerId+".json?" + new Date().getTime(),  function(data){
             plotTargets(data);
-            loadOverlayImage(restartTimer, layerName, true);
+            loadOverlayImage(restartTimer, layerName);
         });
     }
 }
 
 function removeReports(){
     for (key in markers){
-        markers[key].setMap(null);
+    	if (markers[key]!=null){
+        	markers[key].setMap(null);
+        	markers[key] = null;
+       	}
     }      
 }
 
@@ -193,9 +212,9 @@ function switchOverlay(restartTimer){
         maptypestr += "_expert_";
     }
     if (restartTimer===undefined){
-        setHeatMapLayer(false, plotTargetsFlag);
+        setHeatMapLayer(false);
     }else{
-        setHeatMapLayer(restartTimer, plotTargetsFlag);
+        setHeatMapLayer(restartTimer);
     }
     $("span[id='statustext']").text(methoddisp + maptypedisp)
 }

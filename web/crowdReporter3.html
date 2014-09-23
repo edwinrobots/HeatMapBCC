@@ -20,10 +20,10 @@
 
 loadScript = function() {
     
-    mapCentre = new google.maps.LatLng(18.55, -72.30) //52.953250, -1.187569)
+    mapCentre = new google.maps.LatLng(18.55, -72.305) //52.953250, -1.187569)
 
     var mapOptions = {
-        zoom: 12,
+        zoom: 13,
         center: mapCentre,
         mapTypeId: google.maps.MapTypeId.SATELLITE
     };
@@ -35,7 +35,7 @@ loadScript = function() {
         opacity:1,
         map: map,
         clickable: true
-    };
+    }; 
 
     switchOverlay(true);
     //set up timeouts to call loadpeaks periodically
@@ -47,6 +47,10 @@ $(document).ready(function(){
     loadScript();
     $("#starter").click(function(){
         $.post("start_heatmap", [], []);
+    });
+    
+    $("#reset").click(function(){
+        $.post("reset", [], []);
     });
 
     $("#submit").click(function(){
@@ -165,34 +169,43 @@ $(document).ready(function(){
 
             <div style="padding-bottom:5px;padding-top:15px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Location</b></div>
+            
             <div style="text-align:left;float:right;width:200px;height:30px">
             <label for="lat"><span>Latitude:</span></label>
-            <input style="width:60px;float:right" type="number" step="0.001" name="lat" id="lat" value="18.545"/>
+            <input style="width:65px;float:right" type="number" step="0.001" name="lat" id="lat" value="18.545"/>
 			</div>
+			
 			<div style="text-align:left;float:right;width:200px;height:30px">
 			<label for="lon"><span>Longitude:</span></label>
-            <input style="width:60px;float:right" type="number" step="0.001" name="lng" id="lon" value="-72.295"/>
-            </div> </div>
+            <input style="width:65px;float:right" type="number" step="0.001" name="lng" id="lon" value="-72.295"/>
+            </div> 
+            </div>
                          
             <div style="padding-bottom:10px;padding-top:5px;width:330px;float:left">
+            
             <div style="float:left;width:85px"><b>Reporter ID</b></div>
-            <div style="text-align:left;float:right;width:200px;padding-top:5px">
+            
+            <div style="text-align:left;float:right;width:200px;height:30px">
             <input type="radio" name="rep_id" id="rep_id_new" checked="true" value="-1"/><label for="rep_id_new">
             <span>New</span></label>
-            </div><div style="text-align:left;float:right;width:200px;padding-top:5px">
+            </div>
+            
+            <div style="text-align:left;float:right;width:200px;height:30px;">
             <input type="radio" name="rep_id" id="rep_id_no" value="0"/>
             <label for="rep_id_no"><span>Existing ID</span></label>
-            <input type="number" step="1" name="reporter" id="reporter" style="width:40px;float:right;vertical-align:middle;margin-top:5px" value="15"/>
-            </div>  </div>
+            <input type="number" step="1" name="reporter" id="reporter" style="width:65px;float:right" value="15"/>
+            </div>  
+            
+            </div>
 
             <div style="padding-bottom:10px;padding-top:10px;width:330px;float:left">
             <div style="float:left;width:85px"><b>Initial Trust</b></div>
             <div style="text-align:left;float:right;width:200px;padding-top:5px;padding-bottom:5px">
             <label for="trust_acc">Accuracy: </label>
-            <input type="number" style="width:40px;float:right" name="trust_acc" id="trust_acc" value="0.8" step="0.01"/>
+            <input type="number" style="width:65px;float:right" name="trust_acc" id="trust_acc" value="0.95" step="0.01"/>
             </div><div style="text-align:left;float:right;width:200px;padding-top:5px">
             <label for="trust_var">Certainty: </label>
-            <input type="number" style="width:40px;float:right" name="trust_var" id="trust_var" value="200" step="0.5"/>
+            <input type="number" style="width:65px;float:right" name="trust_var" id="trust_var" value="10000" step="0.5"/>
             </div> </div>
 
             <div style="width:330px;float:left;padding-bottom:10px;">
@@ -205,6 +218,10 @@ $(document).ready(function(){
 
             <div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><form action="start_heatmap" method="post" id="starter_form">
             <input style="width:100%; height:30px" type="button" value="Gather Reports" name="starter" id="starter"/>
+            </form></div>
+
+            <div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><form action="reset" method="post" id="reset">
+            <input style="width:100%; height:30px" type="button" value="Reset to Start of Scenario" name="reset" id="reset"/>
             </form></div>
 
         </form></div>
