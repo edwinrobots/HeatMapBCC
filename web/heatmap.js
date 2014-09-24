@@ -206,8 +206,8 @@ function switchOverlay(restartTimer){
     }
     $("span[id='statustext']").text(maptypedisp)
     
-    $("#lat").value(18.545)
-    $("#lon").value(-72.295)
+    $("#lat").val(18.545)
+    $("#lon").val(-72.295)
 }
 
 function getLayerName(){

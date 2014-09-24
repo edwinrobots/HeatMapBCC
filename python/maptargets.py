@@ -41,8 +41,11 @@ class MapTargets(object):
     postedreports = {} #reports that have already been posted to provenance server  
     api = None
     namespace = None
-    game_id = 13
+    
+    #######################################################################
+    game_id = 31
     defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/%s/'
+    #######################################################################
     targets = {}
     targetversions = {} #the latest version entity for each target id
     targetversion_nos = None
