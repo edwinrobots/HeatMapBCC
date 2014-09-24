@@ -179,44 +179,35 @@ function removeReports(){
 
 function switchOverlay(restartTimer){
     maptype = $("input[name='maptype']:checked").attr("id");
-    method = $("input[name='method']:checked").attr("id");
-    reportsource = $("input[name='reportsource']:checked").attr("id");
         
     plotTargetsFlag = false;
     
     removeReports();
     
-    if (method=="reports"){
+    if (maptype=="reports"){
         maptypestr = "_rep_intensity_";
-        methoddisp = "Reports";
-    } else if (method=="bcc"){
+        maptypedisp = "Reports";
+    } else if (maptype=="pred"){
         maptypestr = ""; //add nothing
-        methoddisp = "Bayesian Heatmap";
-    } else if (method=="targets"){
+        maptypedisp = "Bayesian Heatmap of Emergencies";
+    } else if (maptype=="unc"){
+        maptypestr = "_sd_";
+        maptypedisp = "Bayesian Heatmap: Uncertainty";
+    } else if (maptype=="targets"){
         maptypestr = "";
+        maptypedisp = "UAV Targets with Heatmap"
         plotTargetsFlag = true
-        methoddisp = "UAV Targets with Heatmap"
     }
-    
-    if (maptype=="pred"){
-        //do nothing
-        maptypedisp = " of Emergencies";
-    } else if (maptype=="unc"){    
-        maptypestr += "_sd_";
-        maptypedisp = ": Uncertainty";
-    }
-    
-    if (reportsource=="crowdonly"){
-        //do nothing
-    } else if (reportsource=="trusted"){
-        maptypestr += "_expert_";
-    }
+ 
     if (restartTimer===undefined){
         setHeatMapLayer(false);
     }else{
         setHeatMapLayer(restartTimer);
     }
-    $("span[id='statustext']").text(methoddisp + maptypedisp)
+    $("span[id='statustext']").text(maptypedisp)
+    
+    $("#lat").value(18.545)
+    $("#lon").value(-72.295)
 }
 
 function getLayerName(){

@@ -42,6 +42,8 @@ loadScript = function() {
 };
 $(document).ready(function(){
 
+    document.forms['crowd_report_form'].reset();
+
     mapdatastr = "mapdata/map_test"
 
     loadScript();
@@ -107,37 +109,28 @@ $(document).ready(function(){
             <input type="radio" name="layerSelect" value="Services" id="services">Services Available: hostpicals, food distribution, aid distribution<br>
             <input type="radio" name="layerSelect" value="People" id="people">People: person news, search and rescue operations, displaced people gathering.<br>
         </form>-->
-        <div style="float:left;padding-left:10px"><span><h3>Predictions or Uncertainty</h3></span></div>
+        <div style="float:left;padding-left:10px"><span><h3>Map Type</h3></span></div>
         <ul style="clear:both;list-style-type:none;padding-left:10px">
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                <input type="radio" name="maptype" id="pred" checked="true">
+                <input type="radio" name="maptype" id="reports" checked="true" >
+                <label for="reports">
+                    <span>Reports only</span>
+                </label>
+            </li>            
+            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="maptype" id="pred">
                 <label for="pred">
-                    <span>Probability of Emergency</span>
+                    <span>Bayesian heatmap</span>
                 </label>
             </li>
             <li style="padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="maptype" id="unc">
                 <label for="unc">
-                    <span>Uncertainty</span>
-                </label>
-            </li>
-        </ul><br/>
-        <div style="float:left;padding-left:10px"><span><h3>Map type</h3></span></div>
-        <ul style="list-style-type:none;padding-left:10px">
-            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                <input type="radio" name="method" id="reports" checked="true" >
-                <label for="reports">
-                    <span>Reports only</span>
+                    <span>Bayesian uncertainty map</span>
                 </label>
             </li>
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                <input type="radio" name="method" id="bcc">
-                <label for="bcc">
-                    <span>Bayesian heatmap</span>
-                </label>
-            </li>
-            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                <input type="radio" name="method" id="targets">
+                <input type="radio" name="maptype" id="targets">
                 <label for="targets">
                     <span>UAV targets</span>
                 </label>
