@@ -43,7 +43,7 @@ class MapTargets(object):
     namespace = None
     
     #######################################################################
-    game_id = 31
+    game_id = 39
     defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/%s/'
     #######################################################################
     targets = {}
@@ -269,7 +269,7 @@ class MapTargets(object):
             d.add_namespace(AO)
             d.set_default_namespace(self.defaultns % self.game_id)
             
-            provstore_document = self.api.document.create(d, name="Game%s CrowdScanner" % self.game_id, public=True)
+            provstore_document = self.api.document.create(d, name="Operation%s CrowdScanner" % self.game_id, public=True)
             document_uri = provstore_document.url
             logging.info("prov doc URI: " + str(document_uri))
             self.provfilelist.append(provstore_document.id)
