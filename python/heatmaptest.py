@@ -92,10 +92,10 @@ def genSimData():
 def runBCC(C,nx,ny,nreceiver):
     nu0 = np.array([50.0, 50.0])
     alpha0 = np.array([[2, 1], [1, 2]])  
-    combiner = heatmapbcc.Heatmapbcc(nx, ny, 2, 2, alpha0, nu0, nreceiver)
+    combiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nu0, nreceiver)
     combiner.minNoIts = 20
-    bcc_pred = combiner.combineClassifications(C)
-    bcc_pred = np.exp(combiner.lnKappa)
+    bcc_pred = combiner.combine_classifications(C)
+    bcc_pred = np.exp(combiner.lnkappa)
     bcc_pred = bcc_pred[1,:,:].reshape((nx,ny))
     return bcc_pred,combiner
 

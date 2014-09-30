@@ -94,13 +94,13 @@ class Heatmap(object):
             
     def runBCC_subset(self, C, j=1):
         if j not in self.combiner or self.combiner[j]==None or self.combiner[j].K<self.K:
-            self.combiner[j] = heatmapbcc.Heatmapbcc(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
+            self.combiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
             self.combiner[j].minNoIts = 5
             self.combiner[j].maxNoIts = 200
             self.combiner[j].convThreshold = 0.1
             self.combiner[j].useLowerBound = False
 
-        bcc_pred = self.combiner[j].combineClassifications(C)
+        bcc_pred = self.combiner[j].combine_classifications(C)
         bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
         return bcc_pred, self.combiner[j]
 
@@ -160,7 +160,7 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = self.combiner[j].getsd()
+            bcc_stdPred = self.combiner[j].get_sd_kappa()
             #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
             #normalise it
             maxunc = np.max(bcc_stdPred)
@@ -606,7 +606,7 @@ if __name__ == '__main__':
         fin = time.time()
         print "bcc heatmap prediction timer (no loops): " + str(fin-start)
                         
-        bcc_mpr = combiner.getmean()
+        bcc_mpr = combiner.get_mean_kappa()
         heatmap.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
         #write_json(bcc_pred, nx,ny,j)
         heatmap.write_img("", j)
@@ -615,7 +615,7 @@ if __name__ == '__main__':
         #write_json(combiner.mPr, nx,ny,j, label="_mpr_")
         heatmap.write_img("_mpr_",j)
          
-        bcc_stdPred = combiner.getsd()
+        bcc_stdPred = combiner.get_sd_kappa()
         heatmap.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_sd_",j)
@@ -645,12 +645,12 @@ if __name__ == '__main__':
 #         write_json(bcc_pred, nx,ny,j, label="_expert_")
         heatmap.write_img("_expert_",j)        
   
-        bcc_mpr2 = combiner2.getmean()
+        bcc_mpr2 = combiner2.get_mean_kappa()
         heatmap.plotresults(bcc_mpr2, label='Incident Rate of type '+str(j))
 #         write_json(combiner.mPr, nx,ny,j, label="_mpr_expert_")
         heatmap.write_img("_mpr_expert_",j)
           
-        bcc_stdPred2 = combiner2.getsd()
+        bcc_stdPred2 = combiner2.get_sd_kappa()
 
         heatmap.plotresults(bcc_stdPred2, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
 #         write_json(stdPred, nx,ny,j, label="_sd_expert_")        
