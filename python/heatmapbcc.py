@@ -175,11 +175,11 @@ class HeatMapBCC(ibcc.IBCC):
         joint = np.exp(lnjoint)
         self.E_t = joint/np.sum(joint, axis=0)
             
-        train_idxs = self.train_t!=-1
+        train_idxs = np.array(self.train_t!=-1, dtype=np.int)
         self.E_t[:, train_idxs] = 0
         for j in range(self.nclasses):            
             #training labels    
-            self.E_t[:,self.train_t==j] = 1    
+            self.E_t[:,np.array(self.train_t==j, dtype=np.int)] = 1    
             
         return lnjoint
     
