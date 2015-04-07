@@ -345,7 +345,7 @@ class GPGrid(object):
                 W = Kpred.dot(self.partialK)
         
                 f[i,j] += W.dot(f_end)
-                C[i,j] -= W.dot(self.G).dot(Kpred.T)
+                C[i,j] -= W.dot(self.G).dot(Kpred.T) #!!! Is G correct here or should it be transposed? Also, is Kpred correct?
                 
                 ddy += 1
             ddx += 1
