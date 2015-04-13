@@ -12,6 +12,8 @@ import os.path
 import time
 import datetime
 
+uploadprov = False
+
 AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
 
 
@@ -55,7 +57,8 @@ class MapTargets(object):
     
     def __init__(self, heatmap):
         self.heatmap = heatmap
-        self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
+        if uploadprov:
+            self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
 
     def calculate_targets(self, pgrid, j=1):
         targetsx, targetsy, bgrid = self.find_peaks(pgrid, j)
@@ -268,13 +271,13 @@ class MapTargets(object):
             d = ProvDocument()
             d.add_namespace(AO)
             d.set_default_namespace(self.defaultns % self.game_id)
-            
-            provstore_document = self.api.document.create(d, name="Operation%s CrowdScanner" % self.game_id, public=True)
-            document_uri = provstore_document.url
-            logging.info("prov doc URI: " + str(document_uri))
-            self.provfilelist.append(provstore_document.id)
-            self.savelocalrecord()
-            self.document_id = provstore_document.id
+            if uploadprov:
+                provstore_document = self.api.document.create(d, name="Operation%s CrowdScanner" % self.game_id, public=True)
+                document_uri = provstore_document.url
+                logging.info("prov doc URI: " + str(document_uri))
+                self.provfilelist.append(provstore_document.id)
+                self.savelocalrecord()
+                self.document_id = provstore_document.id
         
         b = ProvDocument()  # Create a new document for this update
         b.add_namespace(AO)
@@ -338,15 +341,15 @@ class MapTargets(object):
                 activity.used(self.postedreports[r])
                 target_v0.wasDerivedFrom(self.postedreports[r])
         
-        #Invalidate old targets no longer in use
-        for i,tid in enumerate(self.targets_to_invalidate):
-            target_v = self.targetversions[tid]
-            b.wasInvalidatedBy(target_v, activity)
-            
-        #Post the document to the server
-        #bundle = b.bundle('crowd_scanner')
-        bundle_id = 'bundle/csupdate/%s' % timestamp
-        self.api.add_bundle(self.document_id, b.serialize(), bundle_id)
+        if uploadprov:
+            #Invalidate old targets no longer in use
+            for i,tid in enumerate(self.targets_to_invalidate):
+                target_v = self.targetversions[tid]
+                b.wasInvalidatedBy(target_v, activity)
+            #Post the document to the server
+            #bundle = b.bundle('crowd_scanner')
+            bundle_id = 'bundle/csupdate/%s' % timestamp
+            self.api.add_bundle(self.document_id, b.serialize(), bundle_id)
         
     def savelocalrecord(self):
         jsonfile = self.heatmap.datadir+"/provfilelist.json"
