@@ -2,10 +2,12 @@
 import ibcc
 from gpgrid import GPGrid
 import numpy as np
-from scipy.special import psi, gammaln
-from scipy.sparse import coo_matrix
+import logging
+from scipy.special import psi
 
 class HeatMapBCC(ibcc.IBCC):
+    # Crowd-supervised GP (CSGP, CrowdGP)
+    # GP crowd combination (GPCC)
     #Interpolating BCC (interBcc)
     #BRC (Bayesian report combination, because reporters describe surrounding areas, not just distinct data points like classifiers?)
     #Is it general/extensible enough a name? Does it work with documents,
@@ -17,15 +19,19 @@ class HeatMapBCC(ibcc.IBCC):
     #Manifold+Classifier?
     #Maps + Events + Bayes = BEM (Bayesian Event Mapping)
     # Semi-supervised
-    nreportpoints = 0 # Number of report locations.
-    
     nx = 0 #grid size. May be able to generalise away from 2-D grids
     ny = 0
 
-    mean_kappa = [] # posteriors from the GP
-    sd_kappa = []
+    mean_kappa = [] # posterior mean of kappa from the GP
+    sd_kappa = [] # posterior SD over kappa
     
-    heatGP = []
+    heatGP = [] # spatial GP model for kappa 
+    
+    obsx = [] # x-coordinates of locations with crowd reports
+    obsy = [] # y-coordinates of locations with crowd reports
+    
+    crowdx = [] # ordered list of x-coordinates of crowd reports 
+    crowdy = [] # ordered list of y-coordinates of crowd reports
     
     def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, table_format=False):
         self.nx = nx
@@ -33,11 +39,62 @@ class HeatMapBCC(ibcc.IBCC):
         self.N = nx*ny
         self.lnkappa = []
         self.post_T = []
-        print 'Setting up a 2-D grid. This should be generalised!'        
-        super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K, table_format) 
+        logging.debug('Setting up a 2-D grid. This should be generalised!')     
+        super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
     
-    def combine_classifications(self, crowdlabels, train_t=None):
-        super(HeatMapBCC, self).combine_classifications(crowdlabels, train_t)
+    def desparsify_crowdlabels(self, crowdlabels):
+        crowdlabels = np.array(crowdlabels)
+        self.crowdx = crowdlabels[:,1].astype(int)
+        self.crowdy = crowdlabels[:,2].astype(int)        
+        linearIdxs = np.ravel_multi_index((self.crowdx, self.crowdy), dims=(self.nx,self.ny))
+        crowdlabels_flat = crowdlabels[:,[0,1,3]]
+        crowdlabels_flat[:,1] = linearIdxs
+        crowdlabels = super(HeatMapBCC,self).desparsify_crowdlabels(crowdlabels_flat)
+        self.full_N = self.N # make sure that when we re-sparsify, we expand to the full grid size
+        linearIdxs = np.unique(linearIdxs)
+        self.obsx, self.obsy = np.unravel_index(linearIdxs, dims=(self.nx,self.ny))
+        return crowdlabels_flat
+    
+    def preprocess_goldlabels(self, goldlabels=None):
+        if np.any(goldlabels):
+            goldlabels_flat = goldlabels.flatten()
+        else:
+            goldlabels_flat = None
+        super(HeatMapBCC, self).preprocess_goldlabels(goldlabels_flat)
+        
+    def createGP(self):
+        #function can be overwritten by subclasses
+        return GPGrid(self.nx, self.ny)        
+        
+    def init_lnkappa(self):
+        super(HeatMapBCC, self).init_lnkappa()  
+        
+        self.nu = np.tile(self.nu, (1, self.N))
+        self.lnkappa = np.tile(self.lnkappa, (1, self.N))
+        
+        self.heatGP = {}           
+        for j in range(1, self.nclasses):
+            #start with a homogeneous grid     
+            self.heatGP[j] = self.createGP()
+
+    def init_t(self):     
+        super(HeatMapBCC,self).init_t()         
+#         self.goldlabels = self.goldlabels.reshape((self.nx, self.ny))    
+    
+    def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, table_format=False):
+        if self.table_format_flag:
+            #goldlabels = np.zeros(crowdlabels.shape[0]) -1
+            logging.error('Error: must use a sparse list of crowdsourced labels for HeatMapBCC')
+            return []
+        elif crowdlabels.shape[1] != 4:
+            logging.error('Must use a sparse list of crowdsourced labels with 4 columns:')
+            logging.error('Agent ID, x-cood, y-coord, response value') 
+            return []
+        return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, False)
+        
+    def resparsify_t(self):       
+        self.lnkappa = np.zeros((self.nclasses, self.nx, self.ny))
+        self.nu = np.zeros((self.nclasses, self.nx, self.ny))
         
         self.sd_kappa = {}
         self.mean_kappa = {}
@@ -59,73 +116,20 @@ class HeatMapBCC(ibcc.IBCC):
                 
         self.nu[0,:,:] = nu_rest             
         self.lnkappa[0,:,:] = psi(nu_rest) - psi(total_nu)
-        self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu[0,:,:], total_nu-self.nu[0,:,:]))
-        self.expec_t()   
-            
-        import gc
-        gc.collect()
-                     
+        self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu[0,:,:], total_nu-self.nu[0,:,:]))        
+        
+        E_t_full = np.zeros((self.nclasses, self.nx, self.ny))
+        E_t_full[:] = (np.exp(self.lnkappa) / np.sum(np.exp(self.lnkappa),axis=0))
+        E_t_full[:,self.obsx, self.obsy] = self.E_t.T
+        self.E_t_sparse = self.E_t  # save the sparse version
+        self.E_t = E_t_full                   
         return self.E_t
     
     def get_mean_kappa(self, j=1):
         return self.mean_kappa[j]
 
     def get_sd_kappa(self, j=1):
-        return self.sd_kappa[j]
-        
-    def preprocess_training(self, crowdlabels, train_t=None):
-        # Is this necessary? Prevents uncertain labels from crowd!
-        crowdlabels = crowdlabels.astype(int) 
-        self.crowdlabels = crowdlabels
-        if crowdlabels.shape[1]!=4:
-            self.table_format_flag = True
-        
-        if train_t==None:
-            if self.table_format_flag:
-                #train_t = np.zeros(crowdlabels.shape[0]) -1
-                print 'Error: must use a sparse list of crowdsourced labels for HeatMapBCC'
-                train_t = []
-            else:
-                train_t = np.zeros((self.nx,self.ny)) -1#(np.max(crowdlabels[:,1]), np.max(crowdlabels[:,2])) )
-        
-        self.train_t = train_t
-           
-    def preprocess_crowdlabels(self):
-        #ensure we don't have a matrix by mistake
-        if not isinstance(self.crowdlabels, np.ndarray):
-            self.crowdlabels = np.array(self.crowdlabels)
-        if self.table_format_flag:            
-            print 'Must use a sparse list of crowdsourced labels with 4 columns:'
-            print 'Agent ID, x-cood, y-coord, response value'
-            return        
-                
-        #De-duplication of the observations 
-        self.C = self.crowdlabels    
-        linearIdxs = np.ravel_multi_index((self.C[:,1], self.C[:,2]), dims=(self.nx,self.ny))
-        linearIdxs = np.unique(linearIdxs)
-        self.obsx, self.obsy = np.unravel_index(linearIdxs, dims=(self.nx,self.ny))
-
-    def init_t(self):     
-        kappa = self.nu / np.sum(self.nu, axis=0)        
-        self.E_t = np.zeros((self.nclasses, self.nx, self.ny)) + kappa     
-        
-    def createGP(self):
-        #function can be overwritten by subclasses
-        return GPGrid(self.nx, self.ny)
-        
-    def init_lnkappa(self):
-        if self.lnkappa != []:
-            return
-        self.nu = np.zeros((self.nclasses, self.nx, self.ny))
-        self.lnkappa = np.zeros((self.nclasses, self.nx, self.ny))    
-        
-        self.heatGP = {}           
-        for j in range(self.nclasses):
-            self.nu[j,:,:] = self.nu0[j]   
-            self.lnkappa[j,:,:] = psi(self.nu0[j]) - psi(np.sum(self.nu0))      
-            #start with a homogeneous grid     
-            if j>0:  
-                self.heatGP[j] = self.createGP()
+        return self.sd_kappa[j] 
 
     def kappa_moments_to_nu(self, mean_kappa, sd_kappa):
         total_nu = mean_kappa*(1-mean_kappa)/(sd_kappa**2) - 1
@@ -140,82 +144,30 @@ class HeatMapBCC(ibcc.IBCC):
         nu_rest = []
         
         for j in range(1,self.nclasses):
-            obsPoints = self.E_t[j, self.obsx, self.obsy]
+            obsPoints = self.E_t[:,j]
             mean_kappa, sd_kappa = self.heatGP[j].train(self.obsx, self.obsy, obsPoints)    
             #convert to pseudo-counts
             nu_j, total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
             nu_j += self.nu0[j] - 1
             total_nu += np.sum(self.nu0) - 2
-            self.nu[j, self.obsx, self.obsy] = nu_j
+            nu_j = nu_j.flatten()
+            self.nu[j] = nu_j
             if nu_rest==[]:
                 nu_rest = total_nu
             nu_rest -= nu_j
             
-            self.lnkappa[j, self.obsx, self.obsy] = psi(nu_j)-psi(total_nu)#np.log(mean_kappa)
-            
-        self.nu[0, self.obsx, self.obsy] = nu_rest
-        self.lnkappa[0, self.obsx, self.obsy] = psi(nu_rest)-psi(total_nu)#np.log(kappa_rest)
+            self.lnkappa[j] = psi(nu_j)-psi(total_nu)#np.log(mean_kappa)
+        nu_rest = nu_rest.flatten()
+        self.nu[0] = nu_rest
+        self.lnkappa[0] = psi(nu_rest)-psi(total_nu)#np.log(kappa_rest)
      
-    def expec_t(self):       
-        lnjoint = np.zeros((self.nclasses, self.nx, self.ny))
-        for j in range(self.nclasses):
-            data = self.lnPi[j, self.C[:,3], self.C[:,0]].reshape(-1) #responses
-            rows = np.array(self.C[:,1]).reshape(-1) #x co-ord
-            cols = np.array(self.C[:,2]).reshape(-1) #y co-ord
-            
-            likelihood_j = coo_matrix((data, (rows,cols)), shape=(self.nx, self.ny)).todense()
-            lnjoint[j,:,:] = likelihood_j
-        
-        lnjoint = lnjoint + self.lnkappa
-        
-        #ensure that the values are not too small
-        largest = np.max(lnjoint, 0)
-        lnjoint = lnjoint - largest
-            
-        joint = np.exp(lnjoint)
-        self.E_t = joint/np.sum(joint, axis=0)
-            
-        train_idxs = np.array(self.train_t!=-1, dtype=np.int)
-        self.E_t[:, train_idxs] = 0
-        for j in range(self.nclasses):            
-            #training labels    
-            self.E_t[:,np.array(self.train_t==j, dtype=np.int)] = 1    
-            
-        return lnjoint
-    
-    def post_Alpha(self):#Posterior Hyperparams
-        for j in range(self.nclasses):
-            for l in range(self.nscores):
-                sepcounts = (self.C[:,3]==l)*(self.E_t[j,self.C[:,1],self.C[:,2]])
-                counts = np.zeros((self.K, self.C.shape[0]))
-                counts[self.C[:,0], np.arange(self.C.shape[0])] = sepcounts
-                counts = np.sum(counts, axis=1).reshape(-1)
-                self.alpha[j,l,:] = self.alpha0[j,l,:] + counts
+    def lnjoint(self, alldata=False):
+        lnkappa_all = self.lnkappa 
+        if not self.uselowerbound and not alldata:       
+            self.lnkappa = self.lnkappa[:,self.testidxs]
+        super(HeatMapBCC, self).lnjoint(alldata)
+        self.lnkappa = lnkappa_all
 
-    def post_lnjoint_ct(self, lnjoint):
-        #not quite right if there are multiple observations at one point.
-        ET = self.E_t[:, self.obsx, self.obsy]
-        lnjoint = lnjoint[:, self.obsx, self.obsy]
-        lnpCT = np.sum(np.sum(np.sum( lnjoint*ET )))                        
-        return lnpCT
-    
-    def post_lnkappa(self):
-        n_obs = len(self.obsx)
-        lnKappa_obs = self.lnkappa[:,self.obsx,self.obsy]
-        nu0_obs = np.tile(self.nu0.reshape(self.nclasses,1), (1, n_obs))
-        
-        lnpKappa = gammaln(np.sum(nu0_obs, 0))-np.sum(gammaln(nu0_obs), 0) + \
-                    np.sum( (nu0_obs-1)*lnKappa_obs, 0)            
-        return np.sum(lnpKappa)
- 
-    def q_lnkappa(self):
-        nu_obs = self.nu[:, self.obsx, self.obsy]
-        lnKappa_obs = self.lnkappa[:,self.obsx,self.obsy]
-        
-        lnqKappa = gammaln(np.sum(nu_obs,0))-np.sum(gammaln(nu_obs), 0) + \
-                    np.sum( (nu_obs-1)*lnKappa_obs, 0)
-        return np.sum(lnqKappa)
-        
     def q_ln_t(self):
         ET = self.E_t[:, self.obsx, self.obsy]
         lnqT = np.sum( np.multiply( ET,np.log(ET) ) )

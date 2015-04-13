@@ -387,7 +387,6 @@ class MapTargets(object):
                 logging.warning("No reports associated with target " + str(i))
             else:
                 for idx in rep_ids_i:
-                    target_reports.append(str(rep_list[idx]))
                     agentid = C[idx,0]
                     #logging.info("reporter:  " + str(agentid))
                     if pi==None:
@@ -395,7 +394,9 @@ class MapTargets(object):
                     if agentid < pi.shape[2]:
                         pi_list.append(pi[:,:,agentid].tolist())
                     else:
-                        pi_list.append(self.heatmap.alpha0[:,:,0].tolist())
+                        self.target_rep_ids[i] = []
+                        continue # this report was not actually available at this timestep
+                    target_reports.append(str(rep_list[idx]))
                     agentids.append(int(agentid))
 
             listobj[i].append(target_reports) # Column 6

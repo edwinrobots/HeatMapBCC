@@ -125,9 +125,10 @@ def init_heatmap():
     map_nx = 500
     map_ny = 500
     heatmap = Heatmap(map_nx,map_ny,run_script_only=True)
+    heatmap.running = False
       
+init_heatmap()
 thr_server_maintainer = threading.Thread(target=web_server_restarter)
 thr_server_maintainer.start()
-init_heatmap()
 
 
