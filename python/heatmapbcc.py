@@ -77,10 +77,6 @@ class HeatMapBCC(ibcc.IBCC):
             #start with a homogeneous grid     
             self.heatGP[j] = self.createGP()
 
-    def init_t(self):     
-        super(HeatMapBCC,self).init_t()         
-#         self.goldlabels = self.goldlabels.reshape((self.nx, self.ny))    
-    
     def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, table_format=False):
         if self.table_format_flag:
             #goldlabels = np.zeros(crowdlabels.shape[0]) -1
