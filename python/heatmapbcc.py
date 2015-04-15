@@ -4,6 +4,7 @@ from gpgrid import GPGrid
 import numpy as np
 import logging
 from scipy.special import psi
+from scipy.stats import gamma
 
 class HeatMapBCC(ibcc.IBCC):
     # Crowd-supervised GP (CSGP, CrowdGP)
@@ -26,6 +27,9 @@ class HeatMapBCC(ibcc.IBCC):
     sd_kappa = [] # posterior SD over kappa
     
     heatGP = [] # spatial GP model for kappa 
+    gp_hyperparams = {}
+    gam_shape_gp = []
+    gam_scale_gp = []
     
     obsx = [] # x-coordinates of locations with crowd reports
     obsy = [] # y-coordinates of locations with crowd reports
@@ -33,12 +37,14 @@ class HeatMapBCC(ibcc.IBCC):
     crowdx = [] # ordered list of x-coordinates of crowd reports 
     crowdy = [] # ordered list of y-coordinates of crowd reports
     
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, table_format=False):
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, calc_full_grid=False, gp_hyperparams={'s':4, 'ls':100}):
         self.nx = nx
         self.ny = ny
         self.N = nx*ny
         self.lnkappa = []
         self.post_T = []
+        self.calc_full_grid = calc_full_grid
+        self.gp_hyperparams = gp_hyperparams
         logging.debug('Setting up a 2-D grid. This should be generalised!')     
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
     
@@ -64,7 +70,7 @@ class HeatMapBCC(ibcc.IBCC):
         
     def createGP(self):
         #function can be overwritten by subclasses
-        return GPGrid(self.nx, self.ny)        
+        return GPGrid(self.nx, self.ny, calc_full_grid=self.calc_full_grid, s=self.gp_hyperparams['s'], ls=self.gp_hyperparams['ls'])        
         
     def init_lnkappa(self):
         super(HeatMapBCC, self).init_lnkappa()  
@@ -72,6 +78,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.nu = np.tile(self.nu, (1, self.N))
         self.lnkappa = np.tile(self.lnkappa, (1, self.N))
         
+        # Initialise the underlying GP with the current set of hyper-parameters
         self.heatGP = {}           
         for j in range(1, self.nclasses):
             #start with a homogeneous grid     
@@ -168,3 +175,19 @@ class HeatMapBCC(ibcc.IBCC):
         ET = self.E_t[:, self.obsx, self.obsy]
         lnqT = np.sum( np.multiply( ET,np.log(ET) ) )
         return lnqT
+    
+    def ln_modelprior(self):
+        # get the prior over the alpha0 and nu0 hyper-paramters
+        lnp = super(HeatMapBCC,self).ln_modelprior()
+        # get the prior over the GP hyper-parameters
+        # inner length scale, 
+        # outer length scale, 
+        # sigmoid scale, s
+        #Check and initialise the hyper-hyper-parameters if necessary
+        if self.gam_scale_gp==[]:
+            self.gam_shape_gp = self.gam_shape_gp.astype(float)
+            # if the scale was not set, assume current values of alpha0 are the means given by the hyper-prior
+            self.gam_scale_gp = self.gp_hyperparams.values()/self.gam_shape_gp
+        #Gamma distribution over each value. Set the parameters of the gammas.
+        lnp_gp = np.sum(gamma.logpdf(self.gp_hyperparams.values(), self.gam_shape_gp, scale=self.gam_scale_gp))
+        return lnp + lnp_gp

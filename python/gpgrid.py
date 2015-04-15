@@ -45,9 +45,6 @@ class GPGrid(object):
     nx = 0
     ny = 0
         
-    s = 4 #sigma scaling
-    ls = 100 #length-scale
-    
     G = []
     partialK = []
     z = []
@@ -59,10 +56,13 @@ class GPGrid(object):
     
     f = []
     C = []
-        
-    def __init__(self, nx, ny):
+            
+    def __init__(self, nx, ny, s=4, ls=100, calc_full_grid=False):
         self.nx = nx
         self.ny = ny  
+        self.s = s #sigma scaling
+        self.ls = ls #length-scale
+        self.calc_full_grid = calc_full_grid
     
     def process_observations(self, obsx, obsy, obs_points): 
         
@@ -285,7 +285,7 @@ class GPGrid(object):
 #         
 #         return mPr, stdPr         
         
-        if self.f==[]:
+        if self.f==[] or self.calc_full_grid:
             return self.post_grid_oneloop()
         else:
             return self.post_grid_fast()
