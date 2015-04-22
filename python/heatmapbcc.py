@@ -59,6 +59,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.full_N = self.N # make sure that when we re-sparsify, we expand to the full grid size
         linearIdxs = np.unique(linearIdxs)
         self.obsx, self.obsy = np.unravel_index(linearIdxs, dims=(self.nx,self.ny))
+        self.nu = [] # make sure we reset kappa so that it is resized correctly -- could avoid this in future to save a few iterations
         return crowdlabels_flat
     
     def preprocess_goldlabels(self, goldlabels=None):
@@ -86,7 +87,6 @@ class HeatMapBCC(ibcc.IBCC):
 
     def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, table_format=False):
         if self.table_format_flag:
-            #goldlabels = np.zeros(crowdlabels.shape[0]) -1
             logging.error('Error: must use a sparse list of crowdsourced labels for HeatMapBCC')
             return []
         elif crowdlabels.shape[1] != 4:
@@ -96,8 +96,8 @@ class HeatMapBCC(ibcc.IBCC):
         return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, False)
         
     def resparsify_t(self):       
-        self.lnkappa = np.zeros((self.nclasses, self.nx, self.ny))
-        self.nu = np.zeros((self.nclasses, self.nx, self.ny))
+        self.lnkappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
+        self.nu_grid = np.zeros((self.nclasses, self.nx, self.ny))
         
         self.sd_kappa = {}
         self.mean_kappa = {}
@@ -106,23 +106,23 @@ class HeatMapBCC(ibcc.IBCC):
         nu_rest = []        
         for j in range(1,self.nclasses):
             mean_kappa, sd_kappa = self.heatGP[j].post_grid()
-            self.nu[j,:,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
-            self.nu[j,:,:] += self.nu0[j]
+            self.nu_grid[j,:,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
+            self.nu_grid[j,:,:] += self.nu0[j]
             total_nu += np.sum(self.nu0)
-            self.lnkappa[j,:,:] = psi(self.nu[j,:,:]) - psi(total_nu)
+            self.lnkappa_grid[j,:,:] = psi(self.nu_grid[j,:,:]) - psi(total_nu)
             self.sd_kappa[j] = sd_kappa
             self.mean_kappa[j] = mean_kappa
             self.mean_kappa[0] -= mean_kappa
             if nu_rest==[]:
                 nu_rest = total_nu
-            nu_rest = nu_rest - self.nu[j,:,:]
+            nu_rest = nu_rest - self.nu_grid[j,:,:]
                 
-        self.nu[0,:,:] = nu_rest             
-        self.lnkappa[0,:,:] = psi(nu_rest) - psi(total_nu)
-        self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu[0,:,:], total_nu-self.nu[0,:,:]))        
+        self.nu_grid[0,:,:] = nu_rest             
+        self.lnkappa_grid[0,:,:] = psi(nu_rest) - psi(total_nu)
+        self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu_grid[0,:,:], total_nu-self.nu_grid[0,:,:]))        
         
         E_t_full = np.zeros((self.nclasses, self.nx, self.ny))
-        E_t_full[:] = (np.exp(self.lnkappa) / np.sum(np.exp(self.lnkappa),axis=0))
+        E_t_full[:] = (np.exp(self.lnkappa_grid) / np.sum(np.exp(self.lnkappa_grid),axis=0))
         E_t_full[:,self.obsx, self.obsy] = self.E_t.T
         self.E_t_sparse = self.E_t  # save the sparse version
         self.E_t = E_t_full                   

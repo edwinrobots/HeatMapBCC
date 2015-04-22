@@ -102,9 +102,10 @@ def run_web_server():
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print('^C received, shutting down server')
+        logging.info('^C received, shutting down server')
         httpd.socket.close()
         heatmap.running = False
+    logging.warning("Web server thread shutting down.")
     
 def web_server_restarter():
     #restart the web server thread if it crashes

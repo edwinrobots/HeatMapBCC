@@ -5,6 +5,8 @@ Created on 23 Jun 2014
 '''
 import heatmapbcc, maptargets, time, logging, json
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
@@ -95,10 +97,10 @@ class Heatmap(object):
     def runBCC_subset(self, C, j=1):
         if j not in self.combiner or self.combiner[j]==None or self.combiner[j].K<self.K:
             self.combiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
-            self.combiner[j].minNoIts = 5
-            self.combiner[j].maxNoIts = 200
-            self.combiner[j].convThreshold = 0.1
-            self.combiner[j].useLowerBound = False
+            self.combiner[j].min_iterations = 5
+            self.combiner[j].max_iterations = 200
+            self.combiner[j].conv_threshold = 0.1
+            self.combiner[j].uselowerbound = False
 
         bcc_pred = self.combiner[j].combine_classifications(C)
         bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
@@ -186,8 +188,6 @@ class Heatmap(object):
             self.plotresults(self.enlarge_target_blobs(target_grid), lab)
             self.write_img("_targets_", j)
             self.targetextractor.write_targets_json(self.timestep, self.combiner[j].alpha, self.C[j])
-            
-            plt.close("all")
             
             endtime = time.time()
             
@@ -526,7 +526,7 @@ class Heatmap(object):
         self.C[j] = C
         
         if v==1:
-            self.targetextractor.rep_list.append("Aid agency confirms emergency")
+            self.targetextractor.rep_list[j].append("Aid agency confirms emergency")
         else:
             self.targetextractor.rep_list[j].append("Aid agency reports that there are no emergencies in this area.")
              
