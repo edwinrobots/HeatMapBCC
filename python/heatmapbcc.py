@@ -37,13 +37,16 @@ class HeatMapBCC(ibcc.IBCC):
     crowdx = [] # ordered list of x-coordinates of crowd reports 
     crowdy = [] # ordered list of y-coordinates of crowd reports
     
+    outputx = [] # coordinates of output points from the heat-map. If you just want to evaluate the whole grid, leave
+    outputy = [] # these as empty lists
+    
     def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, calc_full_grid=False, gp_hyperparams={'s':4, 'ls':100}):
         self.nx = nx
         self.ny = ny
         self.N = nx*ny
         self.lnkappa = []
         self.post_T = []
-        self.calc_full_grid = calc_full_grid
+        self.update_all_points = calc_full_grid
         self.gp_hyperparams = gp_hyperparams
         logging.debug('Setting up a 2-D grid. This should be generalised!')     
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
@@ -71,7 +74,7 @@ class HeatMapBCC(ibcc.IBCC):
         
     def createGP(self):
         #function can be overwritten by subclasses
-        return GPGrid(self.nx, self.ny, calc_full_grid=self.calc_full_grid, s=self.gp_hyperparams['s'], ls=self.gp_hyperparams['ls'])        
+        return GPGrid(self.nx, self.ny, calc_full_grid=self.update_all_points, s=self.gp_hyperparams['s'], ls=self.gp_hyperparams['ls'])        
         
     def init_lnkappa(self):
         super(HeatMapBCC, self).init_lnkappa()  
@@ -96,34 +99,62 @@ class HeatMapBCC(ibcc.IBCC):
         return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, False)
         
     def resparsify_t(self):       
-        self.lnkappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
-        self.nu_grid = np.zeros((self.nclasses, self.nx, self.ny))
-        
+        nu_rest = []      
         self.sd_kappa = {}
-        self.mean_kappa = {}
-        self.mean_kappa[0] = np.ones((self.nx,self.ny))
+        self.mean_kappa = {}                
         
-        nu_rest = []        
-        for j in range(1,self.nclasses):
-            mean_kappa, sd_kappa = self.heatGP[j].post_grid()
-            self.nu_grid[j,:,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
-            self.nu_grid[j,:,:] += self.nu0[j]
-            total_nu += np.sum(self.nu0)
-            self.lnkappa_grid[j,:,:] = psi(self.nu_grid[j,:,:]) - psi(total_nu)
-            self.sd_kappa[j] = sd_kappa
-            self.mean_kappa[j] = mean_kappa
-            self.mean_kappa[0] -= mean_kappa
-            if nu_rest==[]:
-                nu_rest = total_nu
-            nu_rest = nu_rest - self.nu_grid[j,:,:]
-                
-        self.nu_grid[0,:,:] = nu_rest             
-        self.lnkappa_grid[0,:,:] = psi(nu_rest) - psi(total_nu)
-        self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu_grid[0,:,:], total_nu-self.nu_grid[0,:,:]))        
+        if self.outputx != []:
+            nout = len(self.outputx)
+            
+            self.mean_kappa[0] = np.ones(nout)
+            E_t_full = np.zeros((self.nclasses, nout))
+            
+            self.lnkappa_out = np.zeros((self.nclasses, nout))
+            self.nu_out = np.zeros((self.nclasses, nout))
+            
+            for j in range(1,self.nclasses):
+                mean_kappa, sd_kappa = self.heatGP[j].post(self.outputx, self.outputy)
+                self.nu_out[j,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
+                self.nu_out[j,:] += self.nu0[j]
+                total_nu += np.sum(self.nu0)
+                self.lnkappa_out[j,:] = psi(self.nu_out[j,:]) - psi(total_nu)
+                self.sd_kappa[j] = sd_kappa
+                self.mean_kappa[j] = mean_kappa
+                self.mean_kappa[0] -= mean_kappa
+                if nu_rest==[]:
+                    nu_rest = total_nu
+                nu_rest = nu_rest - self.nu_out[j,:]
+            self.nu_out[0,:] = nu_rest             
+            self.lnkappa_out[0,:] = psi(nu_rest) - psi(total_nu)
+            self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu_out[0,:], total_nu-self.nu_out[0,:]))        
+            E_t_full[:,:] = (np.exp(self.lnkappa_out) / np.sum(np.exp(self.lnkappa_out),axis=0))
+            #observation points that coincide with output points should take into account the labels, not just GP
+            obsout_idxs = np.argwhere(np.in1d(self.obsx, self.outputx, assume_unique=True))
+            E_t_full[:, obsout_idxs] = self.E_t.T[:,obsout_idxs]
+        else:
+            self.mean_kappa[0] = np.ones((self.nx,self.ny))
+            E_t_full = np.zeros((self.nclasses, self.nx, self.ny))            
+            
+            self.lnkappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
+            self.nu_grid = np.zeros((self.nclasses, self.nx, self.ny))
         
-        E_t_full = np.zeros((self.nclasses, self.nx, self.ny))
-        E_t_full[:] = (np.exp(self.lnkappa_grid) / np.sum(np.exp(self.lnkappa_grid),axis=0))
-        E_t_full[:,self.obsx, self.obsy] = self.E_t.T
+            for j in range(1,self.nclasses):
+                mean_kappa, sd_kappa = self.heatGP[j].post_grid()
+                self.nu_grid[j,:,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
+                self.nu_grid[j,:,:] += self.nu0[j]
+                total_nu += np.sum(self.nu0)
+                self.lnkappa_grid[j,:,:] = psi(self.nu_grid[j,:,:]) - psi(total_nu)
+                self.sd_kappa[j] = sd_kappa
+                self.mean_kappa[j] = mean_kappa
+                self.mean_kappa[0] -= mean_kappa
+                if nu_rest==[]:
+                    nu_rest = total_nu
+                nu_rest = nu_rest - self.nu_grid[j,:,:]
+            self.nu_grid[0,:,:] = nu_rest             
+            self.lnkappa_grid[0,:,:] = psi(nu_rest) - psi(total_nu)
+            self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu_grid[0,:,:], total_nu-self.nu_grid[0,:,:]))        
+            E_t_full[:] = (np.exp(self.lnkappa_grid) / np.sum(np.exp(self.lnkappa_grid),axis=0))
+            E_t_full[:,self.obsx, self.obsy] = self.E_t.T
         self.E_t_sparse = self.E_t  # save the sparse version
         self.E_t = E_t_full                   
         return self.E_t

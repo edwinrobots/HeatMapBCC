@@ -56,7 +56,7 @@ class GPGrid(object):
         self.ny = ny  
         self.s = s #sigma scaling
         self.ls = ls #length-scale
-        self.calc_full_grid = calc_full_grid
+        self.update_all_points = calc_full_grid
         
         logging.basicConfig(level=logging.DEBUG)
 
@@ -162,24 +162,37 @@ class GPGrid(object):
         return mPr_tr, sdPr_tr
     
     def post_grid(self): 
+        '''
+        Evaluate the function posterior mean and variance at all coordinates in the grid. Use this to calculate
+        values for plotting a heat map.
+        '''
         #coordinates we want to predict as a single row
-        nout = self.nx*self.ny
+        nout = self.nx * self.ny
         outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout, 1)
         outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout, 1)
-                       
+
+        return self.post(outputx, outputy)
+    
+    def post(self, outputx, outputy):
+        '''
+        Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
+        kernel
+        '''
+        nout = outputx.size
         nobs = len(self.obsx)
         maxsize = 2.0 * 10**7
         nsplits = np.ceil(nout*nobs / maxsize)
         splitsize = int(np.ceil(nout/nsplits)) # make sure we don't kill memory
 
-        calc_full_grid = self.calc_full_grid
+        # Determine whether to calculate all points from scratch, or just those close to new/changed observations
+        update_all_points = self.update_all_points
         if self.f==[]:
             self.f = np.zeros(nout)
-            calc_full_grid = True
+            update_all_points = True
         if self.C==[]:
             self.C = np.zeros(nout) # diagonal values only
         
-        if not calc_full_grid:
+        if not update_all_points:
             changed_obs = np.abs(self.obs_f - self.f[self.obs_flat_idxs]) > 0.05
          
         Gz = self.G.dot(self.z).reshape(-1)
@@ -200,7 +213,7 @@ class GPGrid(object):
             Kpred = Kx*Ky
             
             #update all idxs?
-            if not calc_full_grid:
+            if not update_all_points:
                 changed = np.argwhere(np.sum(Kpred[:,changed_obs],axis=1)>0.1)
                 Kpred = Kpred[changed,:]
                 changed_s = changed + start
