@@ -6,6 +6,20 @@ import logging
 from scipy.special import psi
 from scipy.stats import gamma
 
+def sigmoid(f,s):
+    g = 1/(1+np.exp(-s*f))
+    return g
+
+def logit(g, s):
+    f = -np.log(1/g - 1)/s
+    return f
+
+def target_var(f,s,v):
+    mean = sigmoid(f,s)
+    u = mean*(1-mean)
+    v = v*s*s
+    return u/(1/(u*v) + 1)
+
 class HeatMapBCC(ibcc.IBCC):
     # Crowd-supervised GP (CSGP, CrowdGP)
     # GP crowd combination (GPCC)
@@ -40,13 +54,16 @@ class HeatMapBCC(ibcc.IBCC):
     outputx = [] # coordinates of output points from the heat-map. If you just want to evaluate the whole grid, leave
     outputy = [] # these as empty lists
     
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, calc_full_grid=False, gp_hyperparams={'s':4, 'ls':100}):
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, force_update_all_points=False, outputx=[], outputy=[],
+                 gp_hyperparams={'s':4, 'ls':100}):
         self.nx = nx
         self.ny = ny
+        self.outputx = outputx
+        self.outputy = outputy
         self.N = nx*ny
         self.lnkappa = []
         self.post_T = []
-        self.update_all_points = calc_full_grid
+        self.update_all_points = force_update_all_points
         self.gp_hyperparams = gp_hyperparams
         logging.debug('Setting up a 2-D grid. This should be generalised!')     
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
@@ -74,7 +91,7 @@ class HeatMapBCC(ibcc.IBCC):
         
     def createGP(self):
         #function can be overwritten by subclasses
-        return GPGrid(self.nx, self.ny, calc_full_grid=self.update_all_points, s=self.gp_hyperparams['s'], ls=self.gp_hyperparams['ls'])        
+        return GPGrid(self.nx, self.ny, force_update_all_points=self.update_all_points, s=self.gp_hyperparams['s'], ls=self.gp_hyperparams['ls'])        
         
     def init_lnkappa(self):
         super(HeatMapBCC, self).init_lnkappa()  
@@ -104,6 +121,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.mean_kappa = {}                
         
         if self.outputx != []:
+            logging.debug("Resparsifying to specified output points")        
             nout = len(self.outputx)
             
             self.mean_kappa[0] = np.ones(nout)
@@ -113,7 +131,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.nu_out = np.zeros((self.nclasses, nout))
             
             for j in range(1,self.nclasses):
-                mean_kappa, sd_kappa = self.heatGP[j].post(self.outputx, self.outputy)
+                mean_kappa, sd_kappa = self.heatGP[j].predict([self.outputx, self.outputy])
                 self.nu_out[j,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
                 self.nu_out[j,:] += self.nu0[j]
                 total_nu += np.sum(self.nu0)
@@ -132,14 +150,24 @@ class HeatMapBCC(ibcc.IBCC):
             obsout_idxs = np.argwhere(np.in1d(self.obsx, self.outputx, assume_unique=True))
             E_t_full[:, obsout_idxs] = self.E_t.T[:,obsout_idxs]
         else:
+            logging.debug("Resparsifying to grid")
             self.mean_kappa[0] = np.ones((self.nx,self.ny))
             E_t_full = np.zeros((self.nclasses, self.nx, self.ny))            
             
             self.lnkappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
             self.nu_grid = np.zeros((self.nclasses, self.nx, self.ny))
-        
+            #Evaluate the function posterior mean and variance at all coordinates in the grid. Use this to calculate
+            #values for plotting a heat map. Calculate coordinates:
+            nout = self.nx * self.ny
+            outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout, 1)
+            outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout, 1)
             for j in range(1,self.nclasses):
-                mean_kappa, sd_kappa = self.heatGP[j].post_grid()
+                mean_kappa, sd_kappa = self.heatGP[j].predict([outputx, outputy])
+                
+                #turn them back into a grid
+                mean_kappa = mean_kappa.reshape((self.nx, self.ny))
+                sd_kappa = sd_kappa.reshape((self.nx, self.ny))
+                
                 self.nu_grid[j,:,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
                 self.nu_grid[j,:,:] += self.nu0[j]
                 total_nu += np.sum(self.nu0)
@@ -164,6 +192,15 @@ class HeatMapBCC(ibcc.IBCC):
 
     def get_sd_kappa(self, j=1):
         return self.sd_kappa[j] 
+# 
+#     def nu_to_latent(self, j=1):
+#         mean = self.nu0 / np.sum(self.nu0)
+#         fmean = logit(mean, self.heatGP[j].s)
+#         
+#         totalnu = np.sum(self.nu0)
+#         var = self.nu0*(totalnu=self.nu0) / (totalnu**2 * (totalnu+1))
+#         
+#         fvar = 
 
     def kappa_moments_to_nu(self, mean_kappa, sd_kappa):
         total_nu = mean_kappa*(1-mean_kappa)/(sd_kappa**2) - 1
@@ -178,8 +215,8 @@ class HeatMapBCC(ibcc.IBCC):
         nu_rest = []
         
         for j in range(1,self.nclasses):
-            obsPoints = self.E_t[:,j]
-            mean_kappa, sd_kappa = self.heatGP[j].train(self.obsx, self.obsy, obsPoints)    
+            obs_values = self.E_t[:,j]
+            mean_kappa, sd_kappa = self.heatGP[j].fit([self.obsx, self.obsy], obs_values)    
             #convert to pseudo-counts
             nu_j, total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
             nu_j += self.nu0[j] - 1
