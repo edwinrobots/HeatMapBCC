@@ -95,8 +95,12 @@ class GPGrid(object):
             self.obs_points = presp
             allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
             
-        self.z = presp/allresp
-        self.z = self.z.reshape((self.z.size,1)) - 0.5 
+        if self.implementation=="native":
+            self.z = presp/allresp
+            self.z -= 0.5 
+        elif self.implementation=="sklearn":
+            self.z = (presp+nu0[1])/(allresp+np.sum(nu0))
+        self.z = self.z.reshape((self.z.size,1)) 
         
         #Update to produce training matrices only over known points
         obsx_tiled = np.tile(self.obsx, (len(self.obsx),1))
@@ -110,7 +114,7 @@ class GPGrid(object):
         self.K = K + 1e-6 * np.eye(len(K)) # jitter 
     
         Pr_est = (presp+nu0[1])/(allresp+np.sum(nu0))
-        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)))
+        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)+1))
     
     def fit( self, obs_coords, obs_values):
         obsx = obs_coords[0]
@@ -146,7 +150,6 @@ class GPGrid(object):
     #         print "fit time: " + str(fin-start)            
                
             self.partialK = self.G.dot(np.linalg.inv(self.G.dot(self.K).dot(self.G) + self.Q) );    
-            self.obs_f = f.reshape(-1)
             self.obs_C = C
             v = np.diag(C)
             if np.argwhere(v<0).size != 0:
@@ -154,16 +157,16 @@ class GPGrid(object):
                 v[v<0] = 0            
             self.obs_W = W
         elif self.implementation=="sklearn":
-            self.gp = GaussianProcess(theta0=1.0/self.ls)
+            self.gp = GaussianProcess(theta0=1.0/self.ls, nugget=np.diag(self.Q))
             #fit
-            X = np.concatenate((self.obsx, self.obsy), axis=1)
-            y = self.z
+            X = np.concatenate((self.obsx[:,np.newaxis], self.obsy[:,np.newaxis]), axis=1).astype(float)
+            y = logit(self.z, self.s)
             self.gp.fit(X, y)
             #predict
-            self.obs_f, v = self.gp.predict(X, eval_MSE=True)
+            f, v = self.gp.predict(X, eval_MSE=True)
         
-        logging.debug("gp grid trained")
-        
+        logging.debug("gp grid trained: %s \n %s" % (str(f), str(v)))
+        self.obs_f = f.reshape(-1)
         mPr_tr = sigmoid(self.obs_f, self.s)
         sdPr_tr = np.sqrt(target_var(self.obs_f, self.s, v))
         
