@@ -1,8 +1,9 @@
 import numpy as np
-from scipy.linalg import inv
+from scipy.linalg import inv, cholesky, solve_triangular
 from scipy.sparse import coo_matrix
 from sklearn.gaussian_process import GaussianProcess
-
+import scipy.linalg.lapack as lapack
+import scipy.linalg.fblas as fblas
 import logging
 
 def sigmoid(f,s):
@@ -32,7 +33,6 @@ class GPGrid(object):
     
     obs_f = []
     obs_C = []
-    obs_W = []
     
     nx = 0
     ny = 0
@@ -51,7 +51,7 @@ class GPGrid(object):
     
     implementation="sklearn" # use the sklearn implementation or "native" to use the version implemented here 
             
-    def __init__(self, nx, ny, s=4, ls=100, force_update_all_points=False, implementation="sklearn"):
+    def __init__(self, nx, ny, s=4, ls=100, force_update_all_points=False, implementation="native"):
         self.nx = nx
         self.ny = ny  
         self.s = s #sigma scaling
@@ -95,11 +95,8 @@ class GPGrid(object):
             self.obs_points = presp
             allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
             
-        if self.implementation=="native":
-            self.z = presp/allresp
-            self.z -= 0.5 
-        elif self.implementation=="sklearn":
-            self.z = (presp+nu0[1])/(allresp+np.sum(nu0))
+        self.z = presp/allresp
+        self.z -= 0.5 
         self.z = self.z.reshape((self.z.size,1)) 
         
         #Update to produce training matrices only over known points
@@ -127,41 +124,47 @@ class GPGrid(object):
         logging.debug("gp grid starting training...")    
         
         if self.implementation=="native":
-            f = np.zeros(len(self.obsx))
+            if self.obs_f == []:
+                f = np.zeros(len(self.obsx))
+            else:
+                f = self.obs_f
     #         start = time.clock()        
             converged = False    
             nIt = 0
-            while not converged and nIt<1000:
+            while not converged and nIt<100:
                 old_f = f
             
                 mean_X = sigmoid(f,self.s)
                 self.G = np.diagflat( self.s*mean_X*(1-mean_X) )
             
-                W = self.K.dot(self.G).dot( inv(self.G.dot(self.K).dot(self.G) + self.Q, overwrite_a=True, check_finite=False) )
-            
-                f = W.dot(self.G).dot(self.z) 
-                C = self.K - W.dot(self.G).dot(self.K)
-            
+                Cov = self.G.dot(self.K).dot(self.G) + self.Q
+                L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True) # inv(Cov, overwrite_a=True, check_finite=False) 
+
+                #W = self.K.dot(self.G).dot( inv(Cov) )
+                #f = W.dot(self.G).dot(self.z)
+                B = solve_triangular(L, self.G.dot(self.z), lower=True, overwrite_b=True)
+                A = solve_triangular(L.T, B, lower=False, overwrite_b=True)
+
+                f = self.K.dot(self.G).dot(A)             
                 diff = np.max(np.abs(f-old_f))
                 converged = diff<1e-3
                 logging.debug('GPGRID diff = ' + str(diff))
-                nIt += 1
-    #         fin = time.clock()
-    #         print "fit time: " + str(fin-start)            
-               
-            self.partialK = self.G.dot(np.linalg.inv(self.G.dot(self.K).dot(self.G) + self.Q) );    
+                nIt += 1          
+            V = solve_triangular(L, self.G.dot(self.K.T), lower=True)
+            C = self.K - V.T.dot(V)       
+            #C = self.K - W.dot(self.G).dot(self.K)     
             self.obs_C = C
+            self.A = A
             v = np.diag(C)
             if np.argwhere(v<0).size != 0:
                 logging.warning("Variance was negative in GPGrid fit()")
                 v[v<0] = 0            
-            self.obs_W = W
         elif self.implementation=="sklearn":
-            self.gp = GaussianProcess(theta0=1.0/self.ls, nugget=np.diag(self.Q))
+            obs_noise = np.diag(self.Q)/(self.z.reshape(-1)**2)
+            self.gp = GaussianProcess(theta0=1.0/self.ls, nugget=obs_noise )
             #fit
             X = np.concatenate((self.obsx[:,np.newaxis], self.obsy[:,np.newaxis]), axis=1).astype(float)
-            y = logit(self.z, self.s)
-            self.gp.fit(X, y)
+            self.gp.fit(X, self.z)
             #predict
             f, v = self.gp.predict(X, eval_MSE=True)
         
@@ -180,9 +183,9 @@ class GPGrid(object):
         outputx = output_coords[0]
         outputy = output_coords[1]
         maxsize = 2.0 * 10**7
-        
+        nout = outputx.size
+
         if self.implementation=="native":
-            nout = outputx.size
             nobs = len(self.obsx)
             nsplits = np.ceil(nout*nobs / maxsize)
             splitsize = int(np.ceil(nout/nsplits)) # make sure we don't kill memory
@@ -197,8 +200,9 @@ class GPGrid(object):
             if not update_all_points:
                 changed_obs = np.abs(self.obs_f - self.f[self.obs_flat_idxs]) > 0.05
              
-            Gz = self.G.dot(self.z).reshape(-1)
-             
+            Cov = self.G.dot(self.K).dot(self.G) + self.Q
+            L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True)
+            Vpart = solve_triangular(L, self.G, lower=True)
             for s in np.arange(nsplits):
                 
                 logging.debug("Computing posterior for split %i out of %i" % (s,nsplits))
@@ -224,17 +228,16 @@ class GPGrid(object):
                 else:
                     changed_s = np.arange(start,nout)  
                     
-                W = Kpred.dot(self.partialK)
-                
-                f_s = W.dot(Gz)
-                v_s = 1 - np.sum(W.dot(self.G)*Kpred,axis=1)
+                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=self.A.T, trans_a=True, trans_b=True )#Kpred.dot(self.A)
+                V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True)
+                v_s = 1 - np.sum(V**2,axis=1)#np.sum(Kpred.dot(G).dot(inv(Cov)).dot(self.G)*Kpred,axis=1)
                 
                 self.f[changed_s] = f_s
                 self.v[changed_s] = v_s
         elif self.implementation=="sklearn":
             #predict
-            X = np.concatenate((), axis=1)
-            self.f, self.v = self.gp.predict(X, eval_MSE=True)
+            X = np.concatenate((outputx.reshape(nout,1), outputy.reshape(nout,1)), axis=1)
+            self.f, self.v = self.gp.predict(X, eval_MSE=True, batch_size=maxsize)
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
         k = (1+(np.pi*self.v/8.0))**(-0.5)
