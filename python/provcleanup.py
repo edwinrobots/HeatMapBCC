@@ -5,6 +5,7 @@ Created on 5 Sep 2014
 '''
 from provstore.api import Api
 import json, logging
+import os.path
 
 def cleanup():
     logging.basicConfig(level=logging.INFO)
@@ -13,8 +14,11 @@ def cleanup():
     datadir = './data'
     
     jsonfile = datadir+"/provfilelist.json"
-    with open(jsonfile,'r') as fp:
-        provfilelist = json.load(fp)
+    if not os.path.isfile(jsonfile):
+        provfilelist = []
+    else:  
+        with open(jsonfile,'r') as fp:
+            provfilelist = json.load(fp)
     
     for i in provfilelist:
         try:
