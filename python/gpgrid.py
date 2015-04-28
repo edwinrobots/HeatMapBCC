@@ -95,8 +95,7 @@ class GPGrid(object):
             self.obs_points = presp
             allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
             
-        self.z = presp/allresp
-        self.z -= 0.5 
+        self.z = presp/allresp - 0.5 
         self.z = self.z.reshape((self.z.size,1)) 
         
         #Update to produce training matrices only over known points
@@ -111,7 +110,7 @@ class GPGrid(object):
         self.K = K + 1e-6 * np.eye(len(K)) # jitter 
     
         Pr_est = (presp+nu0[1])/(allresp+np.sum(nu0))
-        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)+1))
+        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)+1.0))
     
     def fit( self, obs_coords, obs_values):
         obsx = obs_coords[0]
@@ -128,7 +127,6 @@ class GPGrid(object):
                 f = np.zeros(len(self.obsx))
             else:
                 f = self.obs_f
-    #         start = time.clock()        
             converged = False    
             nIt = 0
             while not converged and nIt<100:
@@ -168,7 +166,7 @@ class GPGrid(object):
             #predict
             f, v = self.gp.predict(X, eval_MSE=True)
         
-        logging.debug("gp grid trained: %s \n %s" % (str(f), str(v)))
+        logging.debug("gp grid trained")
         self.obs_f = f.reshape(-1)
         mPr_tr = sigmoid(self.obs_f, self.s)
         sdPr_tr = np.sqrt(target_var(self.obs_f, self.s, v))
@@ -180,8 +178,8 @@ class GPGrid(object):
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
         '''
-        outputx = output_coords[0]
-        outputy = output_coords[1]
+        outputx = output_coords[0].astype(float)
+        outputy = output_coords[1].astype(float)
         maxsize = 2.0 * 10**7
         nout = outputx.size
 
@@ -228,9 +226,9 @@ class GPGrid(object):
                 else:
                     changed_s = np.arange(start,nout)  
                     
-                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=self.A.T, trans_a=True, trans_b=True )#Kpred.dot(self.A)
+                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=self.G.dot(self.A).T, trans_a=True, trans_b=True )#Kpred.dot(self.A)
                 V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True)
-                v_s = 1 - np.sum(V**2,axis=1)#np.sum(Kpred.dot(G).dot(inv(Cov)).dot(self.G)*Kpred,axis=1)
+                v_s = 1.0 - np.sum(V**2,axis=0)#np.sum(Kpred.dot(self.G).dot(inv(Cov)).dot(self.G)*Kpred,axis=1)
                 
                 self.f[changed_s] = f_s
                 self.v[changed_s] = v_s
@@ -240,7 +238,10 @@ class GPGrid(object):
             self.f, self.v = self.gp.predict(X, eval_MSE=True, batch_size=maxsize)
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
-        k = (1+(np.pi*self.v/8.0))**(-0.5)
+        k = 1#(1+(np.pi*self.v/8.0))**(-0.5)
         m_post = sigmoid(k*self.f,self.s)
-        std_post = np.sqrt(target_var(self.f, self.s, self.v))        
+        std_post = np.sqrt(target_var(self.f, self.s, self.v))   
+        
+        logging.debug("gp grid predictions: %s" % str(m_post))
+             
         return m_post, std_post
