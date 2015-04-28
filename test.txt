@@ -1,0 +1,20 @@
+There ar reports of damage at the national palace in Port au Prince. There are many people trapped under the rubble. The UN is deploying a rescue mission to investigate.
+
+
+We should send UAVs to the Eastern part of the city as the UN is not there. I expect there to be many casalties in some of the less well-known regions of the city.
+These are areas with few reports and high uncertainty. But high population density. Bois Caradeux has been marked as clear. We should try to automate this deployment of UAVs as the team are occupied and resources are limited.
+
+Let's connect the crowdsourcing effort to a particular area. We can do this manually because we know that area is the focus for our agency.
+We should select people proficient in Haitian creole. 
+
+The model can handle uncertainty in different levels of the crowd. BCCWords + Bayesian heatmaps. 
+
+Why do we need a single model for this? It allows the information from neighbouring locations to affect each other, which is important when reports are sparse.
+
+Combining BCCWords (for the report labelling) with Bayesian Heatmaps -- why is this necessary?
+a) It's not -- BCCWords deals with agreement between people to detect their reliability. HeatmapBCC deals with agreement between reports at similar/same locations.
+b) It would allow us to direct labelling effort better. The aim is to learn about the disaster zone, not to classify all the reports. Thus H&F would
+only work with a combined model. Alternatively, we select an area to label, then choose reports from within this area. 
+
+
+It will require a team that can deal wi
