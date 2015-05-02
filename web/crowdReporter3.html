@@ -19,11 +19,10 @@
     <script type="text/javascript">
 
 loadScript = function() {
-    
-    mapCentre = new google.maps.LatLng(18.55, -72.305) //52.953250, -1.187569)
+    mapCentre = new google.maps.LatLng(27.3, 84.5) //18.55, -72.305) //52.953250, -1.187569)
 
     var mapOptions = {
-        zoom: 13,
+        zoom: 8,
         center: mapCentre,
         mapTypeId: google.maps.MapTypeId.SATELLITE
     };
@@ -41,186 +40,37 @@ loadScript = function() {
     //set up timeouts to call loadpeaks periodically
 };
 $(document).ready(function(){
-
-    document.forms['crowd_report_form'].reset();
-
     mapdatastr = "mapdata/map_test"
-
     loadScript();
-    $("#starter").click(function(){
-        $.post("start_heatmap", [], []);
-    });
-    
-    $("#reset").click(function(){
-        $.post("reset", [], []);
-    });
-
-    $("#submit").click(function(){
-        var c_val = $("input[name='c_val']:checked").val();
-        var type = $("input[name='type']").val();
-        var lat = $("#lat").val();
-        var lon = $("#lon").val();
-        var rep_id = $("input[name='rep_id']:checked").val();
-        var reporter = $("#reporter").val();
-        var trust_acc = $("#trust_acc").val();
-        var trust_var = $("#trust_var").val();
-
-        // Returns successful data submission message when the entered information is stored in database.
-        var data = { c_val: c_val, type: type, lat: lat, lon:lon, rep_id:rep_id, reporter:reporter, 
-                trust_acc:trust_acc, trust_var:trust_var
-        };
-
-        var succ_callback = function(data) {
-            $('#crowd_report_form')[0].reset(); //To reset form fields
-            //alert("reloading map after update") //don't update now as it will take a while to reload anyway
-            //setHeatMapLayer();
-            alert("Submitted new report. Map update in progress, please wait for change to take effect...");
-        };
-
-        $.post("crowd_reports", data, succ_callback);
-    });
-
-//     setTimeout(function(){
-//         if (timeoutOverridden>0){
-//             timeoutOverridden -= 1;
-//             return;
-//         }
-//         setHeatMapLayer();
-//     }, 10000);
-
 });
     </script>
-    <title> Crowd Scanner </title>
+    <title> Nepal Priority Search Areas </title>
   </head>
   <body style="background-color:#233462; font-family: sans-serif">
     <div style="height:50px; background:linear-gradient(#304888, #233462); padding-top:10px; color:white">         
-        <div style="float:left;padding-left:10px; width:330px"><h2 style="margin:0" id="titletext"> Haiti CrowdScanner</h2></div>
-        <div align="center"> <h2 id="titletext" style="margin:0" > <span class="statustext" id="statustext" >Haiti CrowdScanner</span></h2></div>
+        <div align="center"> <h2 id="titletext" style="margin:0" > <span class="statustext" id="statustext" >Nepal Priority Search Areas</span></h2></div>
     </div>
     <div id="panel" style="width: 350px; float: left; background-color:#FFFFFF; border:1px solid #304888; padding-bottom:10px">
-        
-<!--        <form action="">
-            <input type="radio" checked="true" name="layerSelect" value="Emergency" id="emergency">Emergency: medical, trapped/vulnerable people<br>
-            <input type="radio" name="layerSelect" value="Vital Lines" id="vital">Vital lines: food, water, power, fuel, shelter<br>
-            <input type="radio" name="layerSelect" value="Public Health" id="health">Public Health<br>
-            <input type="radio" name="layerSelect" value="Security Threats" id="security">Security threats: looting, violence, riots<br>
-            <input type="radio" name="layerSelect" value="Infrastructure" id="infra">Infrastructure Damage: buildings, roads, bridges<br>
-            <input type="radio" name="layerSelect" value="Natural Hazards" id="natural">Natural Hazards: after shocks, deaths, missing people, floods, landslides.<br>
-            <input type="radio" name="layerSelect" value="Services" id="services">Services Available: hostpicals, food distribution, aid distribution<br>
-            <input type="radio" name="layerSelect" value="People" id="people">People: person news, search and rescue operations, displaced people gathering.<br>
-        </form>-->
         <div style="float:left;padding-left:10px"><span><h3>Map Type</h3></span></div>
-        <ul style="clear:both;list-style-type:none;padding-left:10px">
-            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                <input type="radio" name="maptype" id="reports" checked="true" >
-                <label for="reports">
-                    <span>Reports only</span>
-                </label>
-            </li>            
+        <ul style="clear:both;list-style-type:none;padding-left:10px">       
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="maptype" id="pred">
                 <label for="pred">
-                    <span>Bayesian heatmap</span>
+                    <span>Priority Areas</span>
                 </label>
             </li>
             <li style="padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="maptype" id="unc">
                 <label for="unc">
-                    <span>Bayesian uncertainty map</span>
-                </label>
-            </li>
-            <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                <input type="radio" name="maptype" id="targets">
-                <label for="targets">
-                    <span>UAV targets</span>
+                    <span>Uncertainty map</span>
                 </label>
             </li>
         </ul>
 
         <br/>
-        <div style="float:left;padding-left:10px;padding-right:5px">
-        <div style="float:left;width:350px"><hr>
-        <span><h3>Submit new report</h3></span></div>
-        <form action="crowd_reports" method="post" id="crowd_report_form">
-            <ul style="clear:both;list-style-type:none;padding-left:0px">
-                <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                    <input type="radio" name="c_val" id="pos" value="1"/>
-                    <label for="pos"><span>Positive: confirm target</span><br/></label>
-                </li>
-                <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
-                    <input type="radio" name="c_val" checked="true" id="neg" value="0"/>
-                    <label for="neg"><span>Negative: no target here</span><br/></label>
-                </li>
-            </ul>
-
-            <!--<div style="padding-bottom:5px; padding-top:5px;float:right">
-            <div style="float:left;width:85px; padding-right:10px"><b>Type</b></div>
-            <div style="text-align:left;float:right;width:255px; padding-bottom:10px"> -->
-            <input type="hidden" name="type" id="Emergency" value="1"/>
-            <!-- <label for="Emergency"><span>Emergency</span><br/></label>
-            </div>  </div> -->
-
-            <div style="padding-bottom:5px;padding-top:15px;width:330px;float:left">
-            <div style="float:left;width:85px"><b>Location</b></div>
-            
-            <div style="text-align:left;float:right;width:200px;height:30px">
-            <label for="lat"><span>Latitude:</span></label>
-            <input style="width:65px;float:right" type="number" step="0.001" name="lat" id="lat" value="18.545"/>
-			</div>
-			
-			<div style="text-align:left;float:right;width:200px;height:30px">
-			<label for="lon"><span>Longitude:</span></label>
-            <input style="width:65px;float:right" type="number" step="0.001" name="lng" id="lon" value="-72.295"/>
-            </div> 
-            </div>
-                         
-            <div style="padding-bottom:10px;padding-top:5px;width:330px;float:left">
-            
-            <div style="float:left;width:85px"><b>Reporter ID</b></div>
-            
-            <div style="text-align:left;float:right;width:200px;height:30px">
-            <input type="radio" name="rep_id" id="rep_id_new" checked="true" value="-1"/><label for="rep_id_new">
-            <span>New</span></label>
-            </div>
-            
-            <div style="text-align:left;float:right;width:200px;height:30px;">
-            <input type="radio" name="rep_id" id="rep_id_no" value="0"/>
-            <label for="rep_id_no"><span>Existing ID</span></label>
-            <input type="number" step="1" name="reporter" id="reporter" style="width:65px;float:right" value="15"/>
-            </div>  
-            
-            </div>
-
-            <div style="padding-bottom:10px;padding-top:10px;width:330px;float:left">
-            <div style="float:left;width:85px"><b>Initial Trust</b></div>
-            <div style="text-align:left;float:right;width:200px;padding-top:5px;padding-bottom:5px">
-            <label for="trust_acc">Accuracy: </label>
-            <input type="number" style="width:65px;float:right" name="trust_acc" id="trust_acc" value="0.95" step="0.01"/>
-            </div><div style="text-align:left;float:right;width:200px;padding-top:5px">
-            <label for="trust_var">Certainty: </label>
-            <input type="number" style="width:65px;float:right" name="trust_var" id="trust_var" value="10000" step="0.5"/>
-            </div> </div>
-
-            <div style="width:330px;float:left;padding-bottom:10px;">
-            <input style="width:100%; height:30px" type="button" value="Post New Report" name="submit" id="submit"/>
-            </div>
-
-            <div style="float:left;padding-right:10px;width:330px;display:none" ><hr>Map file displayed: <span class="filename_disp" id="filename_disp">Map File</span></div>
-			
-			<div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><hr></div>
-
-            <div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><form action="start_heatmap" method="post" id="starter_form">
-            <input style="width:100%; height:30px" type="button" value="Gather Reports" name="starter" id="starter"/>
-            </form></div>
-
-            <div style="width:330px; float:left; padding-top:10px; padding-bottom:10px"><form action="reset" method="post" id="reset">
-            <input style="width:100%; height:30px" type="button" value="Reset to Start of Scenario" name="reset" id="reset"/>
-            </form></div>
-
-        </form></div>
-    </div>
+     </div>
     <div style="height:100%">
-        <div id="map-canvas"/>
+        <div id="map-canvas"></div>
     </div>
   </body>
   <script>

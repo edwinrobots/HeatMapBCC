@@ -101,7 +101,11 @@ class HeatMapBCC(ibcc.IBCC):
         
         # Initialise the underlying GP with the current set of hyper-parameters
         self.heatGP = {}           
-        for j in range(1, self.nclasses):
+        if self.nclasses==2:
+            gprange = [1]
+        else:
+            gprange = np.arange(self.nclasses)
+        for j in gprange:
             #start with a homogeneous grid     
             self.heatGP[j] = self.createGP()
 
@@ -116,10 +120,13 @@ class HeatMapBCC(ibcc.IBCC):
         return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, False)
         
     def resparsify_t(self):       
-        nu_rest = []      
         self.sd_kappa = {}
         self.mean_kappa = {}                
-        
+        if self.nclasses==2:
+            gprange = [1]
+        else:
+            gprange = np.arange(self.nclasses)
+                        
         if self.outputx != []:
             logging.debug("Resparsifying to specified output points")        
             nout = len(self.outputx)
@@ -129,58 +136,35 @@ class HeatMapBCC(ibcc.IBCC):
             
             self.lnkappa_out = np.zeros((self.nclasses, nout))
             self.nu_out = np.zeros((self.nclasses, nout))
-            
-            for j in range(1,self.nclasses):
-                mean_kappa, sd_kappa = self.heatGP[j].predict([self.outputx, self.outputy])
-                self.nu_out[j,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
-                self.nu_out[j,:] += self.nu0[j]
-                total_nu += np.sum(self.nu0)
-                self.lnkappa_out[j,:] = psi(self.nu_out[j,:]) - psi(total_nu)
+
+            for j in gprange:
+                self.lnkappa_out[j,:], sd_kappa = self.heatGP[j].predict([self.outputx, self.outputy])
                 self.sd_kappa[j] = sd_kappa
-                self.mean_kappa[j] = mean_kappa
-                self.mean_kappa[0] -= mean_kappa
-                if nu_rest==[]:
-                    nu_rest = total_nu
-                nu_rest = nu_rest - self.nu_out[j,:]
-            self.nu_out[0,:] = nu_rest             
-            self.lnkappa_out[0,:] = psi(nu_rest) - psi(total_nu)
-            self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu_out[0,:], total_nu-self.nu_out[0,:]))        
+            if self.nclasses==2:
+                self.sd_kappa[0] = self.sd_kappa[1]        
             E_t_full[:,:] = (np.exp(self.lnkappa_out) / np.sum(np.exp(self.lnkappa_out),axis=0))
             #observation points that coincide with output points should take into account the labels, not just GP
             obsout_idxs = np.argwhere(np.in1d(self.obsx, self.outputx, assume_unique=True))
             E_t_full[:, obsout_idxs] = self.E_t.T[:,obsout_idxs]
         else:
             logging.debug("Resparsifying to grid")
-            self.mean_kappa[0] = np.ones((self.nx,self.ny))
+#             self.mean_kappa[0] = np.ones((self.nx,self.ny))
             E_t_full = np.zeros((self.nclasses, self.nx, self.ny))            
             
             self.lnkappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
-            self.nu_grid = np.zeros((self.nclasses, self.nx, self.ny))
+#             self.nu_grid = np.zeros((self.nclasses, self.nx, self.ny))
             #Evaluate the function posterior mean and variance at all coordinates in the grid. Use this to calculate
             #values for plotting a heat map. Calculate coordinates:
             nout = self.nx * self.ny
             outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout, 1)
             outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout, 1)
-            for j in range(1,self.nclasses):
-                mean_kappa, sd_kappa = self.heatGP[j].predict([outputx, outputy])
-                
-                #turn them back into a grid
-                mean_kappa = mean_kappa.reshape((self.nx, self.ny))
+            for j in gprange:
+                lnkappa_grid_j, sd_kappa = self.heatGP[j].predict([outputx, outputy])
+                self.lnkappa_grid[j:,:] = lnkappa_grid_j.reshape((self.nx, self.ny))
                 sd_kappa = sd_kappa.reshape((self.nx, self.ny))
-                
-                self.nu_grid[j,:,:], total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
-                self.nu_grid[j,:,:] += self.nu0[j]
-                total_nu += np.sum(self.nu0)
-                self.lnkappa_grid[j,:,:] = psi(self.nu_grid[j,:,:]) - psi(total_nu)
                 self.sd_kappa[j] = sd_kappa
-                self.mean_kappa[j] = mean_kappa
-                self.mean_kappa[0] -= mean_kappa
-                if nu_rest==[]:
-                    nu_rest = total_nu
-                nu_rest = nu_rest - self.nu_grid[j,:,:]
-            self.nu_grid[0,:,:] = nu_rest             
-            self.lnkappa_grid[0,:,:] = psi(nu_rest) - psi(total_nu)
-            self.sd_kappa[0] = np.sqrt(self.beta_var(self.nu_grid[0,:,:], total_nu-self.nu_grid[0,:,:]))        
+            if self.nclasses==2:
+                self.sd_kappa[0] = self.sd_kappa[1]
             E_t_full[:] = (np.exp(self.lnkappa_grid) / np.sum(np.exp(self.lnkappa_grid),axis=0))
             E_t_full[:,self.obsx, self.obsy] = self.E_t.T
         self.E_t_sparse = self.E_t  # save the sparse version
@@ -212,25 +196,35 @@ class HeatMapBCC(ibcc.IBCC):
         return var
 
     def expec_lnkappa(self):
-        nu_rest = []
-        
-        for j in range(1,self.nclasses):
+        if self.nclasses==2:
+            nu_rest = []
+            gprange = [1]
+        else:
+            gprange = np.arange(self.nclasses)
+        for j in gprange:
             obs_values = self.E_t[:,j]
-            mean_kappa, sd_kappa = self.heatGP[j].fit([self.obsx, self.obsy], obs_values)    
+            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values)
             #convert to pseudo-counts
-            nu_j, total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
-            nu_j += self.nu0[j] - 1
-            total_nu += np.sum(self.nu0) - 2
-            nu_j = nu_j.flatten()
-            self.nu[j] = nu_j
-            if nu_rest==[]:
-                nu_rest = total_nu
-            nu_rest -= nu_j
-            
-            self.lnkappa[j] = psi(nu_j)-psi(total_nu)#np.log(mean_kappa)
-        nu_rest = nu_rest.flatten()
-        self.nu[0] = nu_rest
-        self.lnkappa[0] = psi(nu_rest)-psi(total_nu)#np.log(kappa_rest)
+#             prior_mean = self.nu0[j]/np.sum(self.nu0)
+#             prior_v = prior_mean * (1-prior_mean) / (np.sum(self.nu0)+1)
+#             prior_v = 
+#             nu_j, total_nu = self.kappa_moments_to_nu(mean_kappa, sd_kappa)
+#             nu_j += self.nu0[j] - 1
+#             total_nu += np.sum(self.nu0-1)
+#             nu_j = nu_j.flatten()
+#             self.nu[j] = nu_j
+#             if self.nclasses==2:
+#                 if nu_rest==[]:
+#                     nu_rest = total_nu
+#                 else:
+#                     nu_rest -= nu_j
+#             
+#             self.lnkappa[j] = psi(nu_j)-psi(total_nu)#np.log(mean_kappa)
+#         
+        if self.nclasses==2:
+#             nu_rest = nu_rest.flatten()
+#             self.nu[0] = nu_rest
+            self.lnkappa[0] = np.log(1-np.exp(self.lnkappa[1]))#psi(nu_rest)-psi(total_nu)#np.log(kappa_rest)
      
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 

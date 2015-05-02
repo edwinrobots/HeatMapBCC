@@ -1,8 +1,8 @@
 import numpy as np
-from scipy.linalg import inv, cholesky, solve_triangular
+from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
 from sklearn.gaussian_process import GaussianProcess
-import scipy.linalg.lapack as lapack
+# import scipy.linalg.lapack as lapack
 import scipy.linalg.fblas as fblas
 import logging
 
@@ -168,10 +168,11 @@ class GPGrid(object):
         
         logging.debug("gp grid trained")
         self.obs_f = f.reshape(-1)
-        mPr_tr = sigmoid(self.obs_f, self.s)
-        sdPr_tr = np.sqrt(target_var(self.obs_f, self.s, v))
+        #k = (1+(np.pi*v/8.0))**(-0.5)
+        mPr_tr = np.log(sigmoid(self.obs_f, self.s))
+        #sdPr_tr = np.sqrt(target_var(k*self.obs_f, self.s, k*k*v))
         
-        return mPr_tr, sdPr_tr
+        return mPr_tr#, sdPr_tr
         
     def predict(self, output_coords):
         '''
@@ -238,10 +239,10 @@ class GPGrid(object):
             self.f, self.v = self.gp.predict(X, eval_MSE=True, batch_size=maxsize)
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
-        k = 1#(1+(np.pi*self.v/8.0))**(-0.5)
-        m_post = sigmoid(k*self.f,self.s)
-        std_post = np.sqrt(target_var(self.f, self.s, self.v))   
+        #k = (1+(np.pi*self.v/8.0))**(-0.5)
+        m_post = np.log(sigmoid(self.f,self.s))
+#         std_post = np.sqrt(target_var(self.f, self.s, self.v))   
         
         logging.debug("gp grid predictions: %s" % str(m_post))
              
-        return m_post, std_post
+        return m_post, self.v#std_post

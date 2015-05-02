@@ -28,23 +28,6 @@ function loadOverlayImage(restartTimer, layerName){
     var peaksy = [];
     var peaksval = [];    
     
-//     if (layerName=="emergency"){
-//         layerId = 1;
-//     }else if(layerName=="vital"){
-//         layerId = 2;
-//     }else if(layerName=="health"){
-//         layerId = 3;
-//     }else if(layerName=="security"){
-//         layerId = 4;
-//     }else if(layerName=="infra"){
-//         layerId = 5;
-//     }else if(layerName=="natural"){
-//         layerId = 6;
-//     }else if(layerName=="services"){
-//         layerId = 7;
-//     }else if(layerName=="people"){
-//         layerId = 8;
-//     }
     layerId = 1; //fix to emergencies for now
 
     filename = mapdatastr+maptypestr+layerId+".png?" + new Date().getTime();
@@ -184,19 +167,12 @@ function switchOverlay(restartTimer){
     
     removeReports();
     
-    if (maptype=="reports"){
-        maptypestr = "_rep_intensity_";
-        maptypedisp = "Reports";
-    } else if (maptype=="pred"){
+    if (maptype=="pred"){
         maptypestr = ""; //add nothing
-        maptypedisp = "Bayesian Heatmap of Emergencies";
+        maptypedisp = "Priority Search Areas";
     } else if (maptype=="unc"){
         maptypestr = "_sd_";
-        maptypedisp = "Bayesian Heatmap: Uncertainty";
-    } else if (maptype=="targets"){
-        maptypestr = "";
-        maptypedisp = "UAV Targets with Heatmap"
-        plotTargetsFlag = true
+        maptypedisp = "Uncertainty";
     }
  
     if (restartTimer===undefined){
@@ -205,9 +181,9 @@ function switchOverlay(restartTimer){
         setHeatMapLayer(restartTimer);
     }
     $("span[id='statustext']").text(maptypedisp)
-    
-    $("#lat").val(18.545)
-    $("#lon").val(-72.295)
+
+    $("#lat").val(27.3)
+    $("#lon").val(84.5)
 }
 
 function getLayerName(){
