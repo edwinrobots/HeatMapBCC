@@ -2,7 +2,6 @@ import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
 from sklearn.gaussian_process import GaussianProcess
-# import scipy.linalg.lapack as lapack
 import scipy.linalg.fblas as fblas
 import logging
 
@@ -201,10 +200,12 @@ class GPGrid(object):
              
             Cov = self.G.dot(self.K).dot(self.G) + self.Q
             L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True)
-            Vpart = solve_triangular(L, self.G, lower=True)
+            Vpart = solve_triangular(L, self.G, lower=True, check_finite=False, overwrite_b=True)
+            GA = self.G.dot(self.A)      
+            
             for s in np.arange(nsplits):
                 
-                logging.debug("Computing posterior for split %i out of %i" % (s,nsplits))
+                logging.info("Computing posterior for split %i out of %i" % (s,nsplits))
                 
                 start = int(s*splitsize)            
                 end = int(start+splitsize) if start+splitsize<=nout else -1
@@ -217,6 +218,8 @@ class GPGrid(object):
                 Kx = np.exp( -ddx**2/self.ls )
                 Kpred = Kx*Ky
                 
+                #Kpred[Kpred<1e-10] = 0
+                
                 #update all idxs?
                 if not update_all_points:
                     changed = np.argwhere(np.sum(Kpred[:,changed_obs],axis=1)>0.1)
@@ -227,10 +230,10 @@ class GPGrid(object):
                 else:
                     changed_s = np.arange(start,nout)  
                     
-                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=self.G.dot(self.A).T, trans_a=True, trans_b=True )#Kpred.dot(self.A)
-                V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True)
-                v_s = 1.0 - np.sum(V**2,axis=0)#np.sum(Kpred.dot(self.G).dot(inv(Cov)).dot(self.G)*Kpred,axis=1)
-                
+                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=GA.T, trans_a=True, trans_b=True, overwrite_c=True)
+                V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True, overwrite_c=True)
+                v_s = 1.0 - np.sum(V**2,axis=0)
+       
                 self.f[changed_s] = f_s
                 self.v[changed_s] = v_s
         elif self.implementation=="sklearn":

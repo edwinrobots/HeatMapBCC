@@ -19,12 +19,12 @@
     <script type="text/javascript">
 
 loadScript = function() {
-    mapCentre = new google.maps.LatLng(27.3, 84.5) //18.55, -72.305) //52.953250, -1.187569)
+    mapCentre = new google.maps.LatLng(27.8, 85.4) //18.55, -72.305) //52.953250, -1.187569)
 
     var mapOptions = {
-        zoom: 8,
+        zoom: 11,
         center: mapCentre,
-        mapTypeId: google.maps.MapTypeId.SATELLITE
+        mapTypeId: google.maps.MapTypeId.HYBRID
     };
 
     map = new google.maps.Map(document.getElementById('map-canvas'),
@@ -56,13 +56,25 @@ $(document).ready(function(){
             <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="maptype" id="pred">
                 <label for="pred">
-                    <span>Priority Areas</span>
+                    <span>Help Wanted -- food/water/shelter/medical</span>
                 </label>
             </li>
+            <!-- <li style="clear:both;padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="maptype" id="targets">
+                <label for="targets">
+                    <span>Highlight Priority Targets</span>
+                </label>
+            </li>-->
             <li style="padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
                 <input type="radio" name="maptype" id="unc">
                 <label for="unc">
-                    <span>Uncertainty map</span>
+                    <span>No Information Received</span>
+                </label>
+            </li>
+            <li style="padding-bottom:5px; padding-top:5px; padding-bottom:5px;float:left;width:350px">
+                <input type="radio" name="maptype" id="report_intensity">
+                <label for="report_intensity">
+                    <span>All Reports -- highlight where reports have been received</span>
                 </label>
             </li>
         </ul>

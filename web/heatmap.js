@@ -94,28 +94,13 @@ function drawTargetMarker(tid, locx, locy, img){
             icon: img
         }); 
         
-        google.maps.event.addListener(markers[tid], 'click', function() {	
-			$("#lat").val(locx);
-			$("#lon").val(locy);                        
+        //google.maps.event.addListener(markers[tid], 'click', function() {	
+		//	$("#lat").val(locx);
+		//	$("#lon").val(locy);                        
                         
-            locx = Math.round(locx*10000)/10000
-            locy = Math.round(locy*10000)/10000
-                        
-            var infoWindow = new google.maps.InfoWindow({
-                content: "<table border='1'><tr><td><b>Target ID: " + tid +  ", loc: " + locx + ", " + locy + "</b></td><td>Trust</td></tr>",
-                position: new google.maps.LatLng(locx,locy)
-            });
-            addReportInfo(infoWindow, repList[tid], piList[tid])       
-            infoWindow.content = infoWindow.content + "</table>"
-            
-            infoWindow.open(map);
-            for (var i in openWindows){
-                    
-                openWindows[i].close();
-                delete openWindows[i];
-            }
-            openWindows[tid] = infoWindow;
-        });
+        //    locx = Math.round(locx*10000)/10000
+        //    locy = Math.round(locy*10000)/10000
+        //});
 }
 
 function plotTargets(targetData){
@@ -128,10 +113,8 @@ function plotTargets(targetData){
         locx = target[1];
         locy = target[2];
         typeid = target[3];
-        repList[tid] = target[5]; //strongly associated reports
-        piList[tid] = target[6];
         
-        img = "images/question.png";//"http://maps.google.com/mapfiles/kml/shapes/caution.png";
+        img = "http://maps.google.com/mapfiles/kml/paddle/red-blank.png";//"images/question.png";
         
         drawTargetMarker(tid, locx, locy, img);
     }        
@@ -169,10 +152,17 @@ function switchOverlay(restartTimer){
     
     if (maptype=="pred"){
         maptypestr = ""; //add nothing
-        maptypedisp = "Priority Search Areas";
+        maptypedisp = "Help Wanted";
     } else if (maptype=="unc"){
         maptypestr = "_sd_";
-        maptypedisp = "Uncertainty";
+        maptypedisp = "No Information";
+    } else if (maptype=="targets"){
+        maptypestr = "";
+        maptypedisp = "Highlight Target Areas with High Priority"
+        plotTargetsFlag = true
+    } else if (maptype=="report_intensity"){
+    	maptypestr = "repintensity";
+    	maptypedisp = "Volume of Reports from Kathmandu Living Labs, including reports of aid operations being carried out."
     }
  
     if (restartTimer===undefined){

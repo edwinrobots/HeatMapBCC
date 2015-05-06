@@ -5,24 +5,14 @@ Created on 9 Sep 2014
 '''
 import numpy as np
 import logging, json
-from copy import deepcopy
-from prov.model import ProvDocument, Namespace, PROV
-from provstore.api import Api
 import os.path
-import time
-import datetime
-
-uploadprov = False
-
-AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
-
 
 class MapTargets(object):
     '''
     classdocs
     '''
 
-    target_threshold = 0.85#0.775
+    target_threshold = 0.75#0.775
     radius = 5 #radius in which to look for peaks
     
     #storing target info
@@ -32,36 +22,18 @@ class MapTargets(object):
     changedtargets = []
     targets_to_invalidate = [] # invalid targets that have not been invalidated on the prov store
         
-    plist = []
-    target_rep_ids = []
-    rep_list = None
-    rep_id_grid = None
-    
     heatmap = None
     
-    provfilelist = []  
-    postedreports = {} #reports that have already been posted to provenance server  
-    api = None
-    namespace = None
-    
-    #######################################################################
-    game_id = 39
-    defaultns = 'https://provenance.ecs.soton.ac.uk/atomicorchid/data/%s/'
-    #######################################################################
     targets = {}
     targetversions = {} #the latest version entity for each target id
     targetversion_nos = None
     targets_to_invalidate_version_nos = [] #version numbers of targets waiting to be invalidated
     
-    document_id = -1 # the provenance document id in the prov store
-    
     def __init__(self, heatmap):
         self.heatmap = heatmap
-        if uploadprov:
-            self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
 
     def calculate_targets(self, pgrid, j=1):
-        targetsx, targetsy, bgrid = self.find_peaks(pgrid, j)
+        targetsx, targetsy, bgrid = self._find_peaks(pgrid, j)
         
         dist = np.zeros((len(targetsx),len(self.targetsx)))
         
@@ -121,7 +93,7 @@ class MapTargets(object):
             
         if num_new_ids>0:
             missingid_idxs = np.argwhere(newtargetids<0)
-            max_id_so_far = np.max(self.targets.keys())
+            max_id_so_far = np.max(self.targetids.keys())
             missingids = range(max_id_so_far+1,max_id_so_far+num_new_ids+1)
             newtargetids[missingid_idxs] = missingids
             self.changedtargets[missingid_idxs] = 1
@@ -144,7 +116,7 @@ class MapTargets(object):
                 
         return bgrid
 
-    def move_reps(self, rgrid, x, y, newx, newy):
+    def _move_reps(self, rgrid, x, y, newx, newy):
         if rgrid[x,y] == None:
             return rgrid
         
@@ -159,8 +131,7 @@ class MapTargets(object):
         rgrid[x,y] = []
         return rgrid   
 
-    def find_peaks(self, pgrid, j):
-        rep_id_grid = self.rep_id_grid[j]
+    def _find_peaks(self, pgrid, j):
         #Turn a grid of predictions of events, e.g. bcc_pred, into a set of binary points
         #representing the most likely events. 
         #find points > theta        
@@ -170,30 +141,11 @@ class MapTargets(object):
             theta = self.target_threshold
         
         bgrid = np.array(pgrid>theta, dtype=np.int8)
-        rgrid = deepcopy(rep_id_grid)
         
         for x in np.arange(bgrid.shape[0]):
             for y in np.arange(bgrid.shape[1]):
                 if bgrid[x,y]==0:
                     continue
-                
-                #move reports from discarded neighbours
-                if bgrid[x+1,y]==0:
-                    rgrid = self.move_reps(rgrid, x+1, y, x, y)
-                if bgrid[x-1,y]==0:
-                    rgrid = self.move_reps(rgrid, x-1, y, x, y)
-                if bgrid[x,y+1]==0:
-                    rgrid = self.move_reps(rgrid, x, y+1, x, y)                                    
-                if bgrid[x,y-1]==0:
-                    rgrid = self.move_reps(rgrid, x, y-1, x, y)
-                if bgrid[x+1,y+1]==0:
-                    rgrid = self.move_reps(rgrid, x+1, y+1, x, y)
-                if bgrid[x-1,y-1]==0:
-                    rgrid = self.move_reps(rgrid, x-1, y-1, x, y)
-                if bgrid[x-1,y+1]==0:
-                    rgrid = self.move_reps(rgrid, x-1, y+1, x, y)                                    
-                if bgrid[x+1,y-1]==0:
-                    rgrid = self.move_reps(rgrid, x+1, y-1, x, y)     
                 
                 #find highest neighbour
                 highestx = x
@@ -241,115 +193,17 @@ class MapTargets(object):
                     
                 if highestx!=x or highesty!=y:
                     bgrid[x,y] = -1
-                    rgrid = self.move_reps(rgrid, x, y, highestx, highesty)
                 else:
                     logging.info("target found at " + str(x) + ", " + str(y))
                                    
         bgrid[bgrid==-1] = 0
                                       
-        hasreports = np.argwhere(rgrid)
-        hasreportsgrid = np.zeros(bgrid.shape)
-        hasreportsgrid[hasreports[:,0],hasreports[:,1]] = 1
-        bgrid = bgrid * hasreportsgrid
-        
         target_list = np.argwhere(bgrid>0)
         targetsx = target_list[:,0]
         targetsy = target_list[:,1]
         
-        self.target_rep_ids = rgrid[targetsx, targetsy]
-                
-        p_list = pgrid[targetsx,targetsy]     
-        self.plist = np.around(p_list,2), 
         targetsx, targetsy = self.heatmap.tranlate_points_to_original(targetsx, targetsy)
         return targetsx, targetsy, bgrid
-        
-    def write_targets_prov(self, tlist, C, bundle_id):
-        #Initialisation
-#         cs = b.agent('CrowdScanner')
-        
-        if self.document_id == -1:
-            d = ProvDocument()
-            d.add_namespace(AO)
-            d.set_default_namespace(self.defaultns % self.game_id)
-            if uploadprov:
-                provstore_document = self.api.document.create(d, name="Operation%s CrowdScanner" % self.game_id, public=True)
-                document_uri = provstore_document.url
-                logging.info("prov doc URI: " + str(document_uri))
-                self.provfilelist.append(provstore_document.id)
-                self.savelocalrecord()
-                self.document_id = provstore_document.id
-        
-        b = ProvDocument()  # Create a new document for this update
-        b.add_namespace(AO)
-        b.set_default_namespace(self.defaultns % self.game_id)            
-            
-        # cs to be used with all targets
-        cs = b.agent('agent/CrowdScanner', (('prov:type', AO['IBCCAlgo']), ('prov:type', PROV['SoftwareAgent'])))
-        
-        timestamp = time.time()  # Record the timestamp at each update to generate unique identifiers        
-        startTime = datetime.datetime.fromtimestamp(timestamp)
-        endTime = startTime
-        activity = b.activity('activity/cs/update_report_%s' % timestamp, startTime, endTime)
-        activity.wasAssociatedWith(cs)
-
-        #Add target and report entities
-        for i, tdata in enumerate(tlist):
-            if self.changedtargets[i]==0:
-                continue
-            
-            #Target entity for target i
-            tid = int(tdata[0])
-            x = tdata[1]
-            y = tdata[2]
-#             targettype = tdata[3] #don't record here, it will be revealed and recorded by UAVs
-            v = int(tdata[4])
-            agentids = tdata[7]
-            
-            targetattributes = {'ao:longitude': x, 'ao:latitude': y, }
-            #'ao:asset_type':str(targettype)}
-            target_v0 = b.entity('cs/target/'+str(tid)+'.'+str(v), targetattributes)            
-            #Post the root report if this is the first version
-            if v==0:
-                self.targets[tid] = b.entity('cs/target/'+str(tid))
-            else:
-                try:
-                    target_v0.wasDerivedFrom(self.targetversions[tid])
-                except KeyError:
-                    logging.error("Got a key error for key " + str(tid) + ', which is supposed to be version' + str(v))
-            self.targetversions[tid] = target_v0                    
-            target_v0.specializationOf(self.targets[tid])
-            target_v0.wasAttributedTo(cs)
-            
-            #Report entities for origins of target i
-            for j, r in enumerate(self.target_rep_ids[i]):
-                if r not in self.postedreports:
-                    Crow = C[r,:]
-                    x = Crow[1]
-                    y = Crow[2]
-                    reptext = tdata[5][j].decode('utf8')
-                    # Try to replace unusual characters
-                    reptext = reptext.encode('ascii', 'replace')  
-                    agentid = agentids[j]
-                    
-                    reporter_name = 'agent/crowdreporter%s' % agentid
-                    b.agent(reporter_name, (('prov:type', AO['CrowdReporter']), ('prov:type', PROV['Person'])))
-                    
-                    reportattributes = {'ao:longitude': x, 'ao:latitude': y, 'ao:report': reptext}
-                    
-                    self.postedreports[r] = b.entity('cs/report/'+str(r), reportattributes)
-                    self.postedreports[r].wasAttributedTo(reporter_name)
-                activity.used(self.postedreports[r])
-                target_v0.wasDerivedFrom(self.postedreports[r])
-        
-        if uploadprov:
-            #Invalidate old targets no longer in use
-            for i,tid in enumerate(self.targets_to_invalidate):
-                target_v = self.targetversions[tid]
-                b.wasInvalidatedBy(target_v, activity)
-            #Post the document to the server
-            #bundle = b.bundle('crowd_scanner')
-            bundle_id = 'bundle/csupdate/%s' % timestamp
-            self.api.add_bundle(self.document_id, b.serialize(), bundle_id)
         
     def savelocalrecord(self):
         jsonfile = self.heatmap.datadir+"/provfilelist.json"
@@ -365,8 +219,6 @@ class MapTargets(object):
         jsonfile = self.heatmap.webdatadir+'/targets_'+str(j)+'.json'
         
         #get the data ready
-        rep_list = self.rep_list[j]        
-        pi = alpha / np.sum(alpha, axis=1).reshape((2,1,alpha.shape[2]))
         #for now we will randomly assign some target types!
         if targettypes==None:
             targettypes = np.random.randint(0,4,(self.targetsx.size,1))
@@ -381,33 +233,6 @@ class MapTargets(object):
             listobj[i][0] = int(listobj[i][0])
             listobj[i][3] = int(listobj[i][3])
             listobj[i].append(int(self.targetversion_nos[i])) #Column 4
-              
-            target_reports = [] 
-            pi_list = []
-            rep_ids_i = self.target_rep_ids[i]
-            agentids = []
-            if rep_ids_i==None:
-                logging.warning("No reports associated with target " + str(i))
-            else:
-                for idx in rep_ids_i:
-                    agentid = C[idx,0]
-                    #logging.info("reporter:  " + str(agentid))
-                    if pi==None:
-                        continue
-                    if agentid < pi.shape[2]:
-                        pi_list.append(pi[:,:,agentid].tolist())
-                    else:
-                        self.target_rep_ids[i] = []
-                        continue # this report was not actually available at this timestep
-                    target_reports.append(str(rep_list[idx]))
-                    agentids.append(int(agentid))
-
-            listobj[i].append(target_reports) # Column 6
-            listobj[i].append(pi_list) # Column 6
-            #Include the version number as final entry in the list
-            listobj[i].append(agentids) # column 7          
             
-        #Write the provenance and save the json
-        self.write_targets_prov(listobj, C, update_number)
         with open(jsonfile, 'w') as fp:
             json.dump(listobj, fp, indent=2)

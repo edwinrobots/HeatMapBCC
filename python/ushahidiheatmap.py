@@ -12,6 +12,7 @@ from scipy.sparse import coo_matrix
 import os
 import shutil
 import pandas as pd
+import maptargets
 
 class Heatmap(object):
 
@@ -21,20 +22,20 @@ class Heatmap(object):
     datadir = './data'
     fileprefix = '/mapdata/map_test'
     
-    minlat = 26.0
-    maxlat = 28.6
-    minlon = 82.0
+    minlat = 27.0
+    maxlat = 28.7
+    minlon = 82.9
     maxlon = 87.0 
         
-    nx = 1000
-    ny = 1000
+    nx = 500
+    ny = 500
     
     C = []
     K = 1
     rep_ids = []
         
-    startclean = True #if true, will delete all previous maps before running
-    timestep = 65 #max is likely to be 765
+    startclean = False #if true, will delete all previous maps before running
+    timestep = 50 
     stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
 
     running = False
@@ -42,7 +43,7 @@ class Heatmap(object):
     alpha0 = []
     nu0 = []
     
-    def __init__(self, nx,ny, run_script_only=False, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None):
+    def __init__(self, nx,ny, minlat=None,maxlat=None, minlon=None,maxlon=None, fileprefix=None):
         self.nx = nx
         self.ny = ny
         if minlat != None:
@@ -59,8 +60,12 @@ class Heatmap(object):
         else:
             self.fileprefix = self.webdatadir + fileprefix
                 
-        self.alpha0 = np.array([[2.0, 1.2, 1.1, 1.0, 1.0, 1.0], [1.2, 2.0, 1.2, 1.1, 1.0, 1.0], [1.1, 1.2, 2.0, 1.2, 1.1, 1.0], 
-                                [1.0, 1.1, 1.2, 2.0, 1.2, 1.1], [1.0, 1.0, 1.1, 1.2, 2.0, 1.2], [1.0, 1.0, 1.0, 1.1, 1.2, 2.0]])
+        self.alpha0 = np.array([[4.0, 1.0, 1.0, 1.0, 1.0, 1.0], [1.0, 2.0, 1.4, 1.2, 1.0, 1.0], [1.0, 1.6, 2.0, 1.4, 1.2, 1.0], 
+                                [1.0, 1.4, 1.6, 2.0, 1.4, 1.2], [1.0, 1.2, 1.4, 1.6, 2.0, 1.4], [1.0, 1.2, 1.2, 1.4, 1.6, 2.0]])
+        self.alpha0 = np.tile(self.alpha0[:,:,np.newaxis], (1,1,6))
+        for i in range(6):
+            for c in range(6):
+                self.alpha0[c,c,i] += i
         self.nu0 = np.array([1,1,1,1,1,1], dtype=float)#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         if self.startclean:
@@ -69,7 +74,7 @@ class Heatmap(object):
         #self.load_ush_data() 
         self.write_coords_json()     
         
-        self.run_script_only = run_script_only   
+        self.targetextractor = maptargets.MapTargets(self)
         
     def runBCC(self, j):
         C = self.C[j]
@@ -77,9 +82,23 @@ class Heatmap(object):
         
     def runBCC_up_to_time(self, j, timestep):       
         C = self.C[j]
+        #C = C[0:200,:]
         logging.info("!!! At this point we need to fetch the latest data from Zooniverse !!!")
         bcc_pred, _ = self.runBCC_subset(C)
         return bcc_pred
+            
+    def squash_multi_class(self, bcc_pred):
+        bcc_pred = bcc_pred.reshape((len(self.nu0), self.nx,self.ny))
+        self.current_predictions = bcc_pred
+        cs = np.cumsum(bcc_pred, axis=0)
+        nclasses = len(self.nu0)
+        result = np.zeros((self.nx, self.ny))
+        c = nclasses - 1
+        while c >= 0:
+            result[cs[c,:,:]>0.1] = c # remove anything that is still highly uncertain
+            c -= 1
+        result = result / (len(self.nu0)-1)
+        return result
             
     def runBCC_subset(self, C, j=1):
         if j not in self.combiner or self.combiner[j]==None or self.combiner[j].K<self.K:
@@ -90,15 +109,7 @@ class Heatmap(object):
             self.combiner[j].uselowerbound = False
 
         bcc_pred = self.combiner[j].combine_classifications(C)
-        bcc_pred = bcc_pred.reshape((len(self.nu0), self.nx,self.ny))
-        cs = np.cumsum(bcc_pred, axis=0)
-        nclasses = len(self.nu0)
-#         result = bcc_pred * np.arange(len(self.nu0))[:, np.newaxis, np.newaxis]
-#         result = np.sum(result, axis=0)
-        result = np.zeros((self.nx, self.ny))
-        for c in np.fliplr(range(nclasses)):
-            result[cs[c,:,:]>0.9] = c # remove anything that is still highly uncertain
-        result = result / (len(self.nu0)-1)
+        result = self.squash_multi_class(bcc_pred)
         
         return result, self.combiner[j]
 
@@ -135,16 +146,23 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
             
+            np.save("./output/current_predictions.npy", self.current_predictions)
+            
             # BCC UNCERTAINTY
             bcc_stdPred = self.combiner[j].get_sd_kappa(0)
             for c in range(1, len(self.nu0)):
-                bcc_stdPred += self.combiner[c].get_sd_kappa(c)
+                bcc_stdPred += self.combiner[j].get_sd_kappa(c)
             maxunc = np.max(bcc_stdPred) #normalise it
             minunc = np.min(bcc_stdPred)
             bcc_stdPred = (bcc_stdPred-minunc)/(maxunc-minunc)
             lab = 'Uncertainty (S.D.) in Pr(incident) of type '+str(j)
             self.plotresults(bcc_stdPred, label=lab)
             self.write_img("_sd_",j)
+            
+            # TARGETS
+            self.targetextractor.calculate_targets(bcc_pred)
+            lab = 'Predicted target points of type ' + str(j)
+            self.targetextractor.write_targets_json(self.timestep, self.combiner[j].alpha, self.C[j])
             
             #once complete, update the current time step
             logging.info("Change this as we won't be using a fixed step size with live data.")
@@ -185,7 +203,7 @@ class Heatmap(object):
         std = np.sqrt(variance)    
         return pred, std
     
-    def plotresults(self, bcc_pred, label='no idea', interp='none', imgmax=1, imgmin=0):
+    def plotresults(self, bcc_pred, label='no idea', interp='nearest', imgmax=1, imgmin=0):
         dpi = 96
         if self.nx>=500:
             fig = plt.figure(frameon=False, figsize=(float(self.nx)/dpi,float(self.ny)/dpi))
@@ -196,27 +214,25 @@ class Heatmap(object):
         ax = fig.add_subplot(111)
         ax.set_axis_off()    
                 
-        cmap = plt.get_cmap('jet')                
-        cmap._init()
-        
         prior = self.nu0/float(np.sum(self.nu0))
         prior = prior[0]
         
-        alphas1 = np.linspace(0, 0.3, np.ceil(0.2*cmap.N)+3)
-        alphas2 = np.linspace(0.3, 0.6, 0.8*cmap.N)
-        alphas = np.concatenate((alphas1, alphas2))
-        cmap._lut[:,-1] = alphas        
-        
         # bin the results so we get contours rather than blurred map
-        contours = bcc_pred.copy()
-        contours[bcc_pred<0.2] = 0
-        contours[(bcc_pred<0.4) & (bcc_pred>=0.2)] = 0.25
-        contours[(bcc_pred<0.6) & (bcc_pred>=0.4)] = 0.6
-        contours[(bcc_pred<0.8) & (bcc_pred>=0.6)] = 0.8
-        contours[bcc_pred>=0.8] = 1
+        contours = np.zeros((bcc_pred.shape[0], bcc_pred.shape[1], 4))#bcc_pred.copy()
+        contours[bcc_pred<0.2, :] = [0, 0, 0, 0]
+        contours[(bcc_pred>=0.2) & (bcc_pred<0.4), :] = [1, 0.8, 0, 0.5]
+        logging.info("Squares in category 1: %i" % np.sum((bcc_pred>=0.2)&(bcc_pred<0.4)) )
+        contours[(bcc_pred>=0.4) & (bcc_pred<0.6), :] = [1, 0.5, 0, 0.6]
+        logging.info("Squares in category 1: %i" % np.sum((bcc_pred>=0.4)&(bcc_pred<0.6)) )
+        contours[(bcc_pred>=0.6) & (bcc_pred<0.8), :] = [1, 0.2, 0, 0.7]
+        logging.info("Squares in category 1: %i" % np.sum((bcc_pred>=0.6)&(bcc_pred<0.8)) )
+        contours[(bcc_pred>=0.8) & (bcc_pred<1), :] = [1, 0, 0.1, 0.8]
+        logging.info("Squares in category 1: %i" % np.sum((bcc_pred>=0.8)&(bcc_pred<1.0)) )
+        contours[bcc_pred==1, :] = [1, 0, 0.5, 0.8]
+        logging.info("Squares in category 1: %i" % np.sum(bcc_pred>=1.0) )
          
-        plt.imshow(contours, cmap=cmap, aspect=None, origin='lower', \
-                   vmin=imgmin, vmax=imgmax, interpolation=interp, filterrad=0.01)
+        plt.imshow(contours, aspect=None, origin='lower', \
+                   vmin=imgmin, vmax=imgmax, interpolation=interp)
     
         fig.tight_layout(pad=0,w_pad=0,h_pad=0)
         ax = plt.gca()
@@ -250,11 +266,16 @@ class Heatmap(object):
         return latdata,londata
         
     def load_kll_data(self):
-        dataFile = self.datadir + '/1430580842.csv'#/1430513460.csv'#'/nepal_1_5_2151_kathmandhulivinglabs.csv'
-        alldata = pd.read_csv(dataFile, parse_dates=False, index_col=False, usecols=[5,6,7], skipinitialspace=True, quotechar='"')
+        dataFile = self.datadir + '/1430867846.csv'#/1430580842.csv'#/1430513460.csv'#'/nepal_1_5_2151_kathmandhulivinglabs.csv'
+        alldata = pd.read_csv(dataFile, parse_dates=False, index_col=False, skipinitialspace=True, quotechar='"')
         latdata = alldata['LATITUDE']
         londata = alldata['LONGITUDE']#pd.read_csv(dataFile, quotechar='"', skipinitialspace=True, dtype=np.float64, sep=',', usecols=[7])
         catdata = alldata['CATEGORY']
+        loc_acc_data = alldata['Location Accuracy']
+        verified_data = alldata['VERIFIED']
+        action_data = alldata['ACTIONABLE']
+        actiontaken_data = alldata['ACTION TAKEN']
+        
         latdata,londata = self.translate_points_to_local(latdata,londata)
         
         # output a four column list.
@@ -268,6 +289,7 @@ class Heatmap(object):
         categories = np.array([], dtype=np.str)
         
         nreports = 0
+        
         for i, cat in enumerate(catdata):
             lat = latdata[i]
             lon = londata[i]
@@ -275,22 +297,48 @@ class Heatmap(object):
             if lat>=self.nx or lat<0 or lon>=self.ny or lon<0:
                 logging.warning("Coords outside area of interest: %f %f" % (lat,lon))
                 continue
-            
-            toks = str.split(cat.strip(), ',')
-            for tok in toks:
-                if not len(tok):
-                    continue
-                if not tok in categories:
-                    categories = np.append(categories, tok)
+#             catidxs = []
+#             toks = str.split(cat.strip(), ',')
+#             for tok in toks:
+#                 if not len(tok):
+#                     continue
+#                 if not tok in categories:
+#                     categories = np.append(categories, tok)
+#                 
+#                 catidx = np.argwhere(categories==tok)[0][0]
+#                 catidxs = catidxs.append(catidx)
+            loc_acc = loc_acc_data[i]
+            ver = verified_data[i]
+            agentidx = 1 # set according to verified and location accuracy 
+            if loc_acc!='DISTRICT' and loc_acc!='REGION' and loc_acc!='50km':
+                agentidx += 1
+                if loc_acc=='Exact location' or loc_acc=='100m' or loc_acc=='500m' or loc_acc=='1km':
+                    agentidx += 1
+            if ver=='YES':
+                agentidx *= 2
+            agentidx -= 1               
                 
-                catidx = np.argwhere(categories==tok)[0][0]
-            
-                crow = np.array([catidx, lat, lon, 5]).reshape((1,4))
-                C[1] = np.concatenate((C[1], crow), axis=0)
-                nreports += 1
-            
+            #score set according to actionable
+            act_taken = actiontaken_data[i]
+            actionable = action_data[i]
+            if act_taken=='YES' and actionable=='Actionable+Urgent':
+                score = 3
+            elif act_taken=='YES' and actionable=='Actionable':
+                score = 2
+            elif actionable=='Actionable+Urgent':
+                score = 5
+            elif actionable=='Actionable':
+                score = 4
+            elif actionable=='Unactionable':
+                score = 1
+            else:
+                score = 3
+            crow = np.array([agentidx, lat, lon, score]).reshape((1,4))
+            C[1] = np.concatenate((C[1], crow), axis=0)
+            nreports += 1
         C[1] = C[1][0:nreports, :]
-        self.K = len(categories)
+        self.K = np.max(C[1][:,0])
+        self.alpha0 = self.alpha0[:,:,np.unique(C[1][:,0]).astype(int)]
         self.C = C
         self.combiner = {} #reset as we have reloaded the data
         
@@ -325,5 +373,5 @@ class Heatmap(object):
 #--------  MAIN TEST PROGRAM--------------------------------------------------
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)   
-    heatmap = Heatmap(1000, 1000, run_script_only=True)
+    heatmap = Heatmap(500, 1000)
     heatmap.timed_update_loop(1)
