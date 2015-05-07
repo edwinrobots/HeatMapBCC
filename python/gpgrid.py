@@ -170,7 +170,7 @@ class GPGrid(object):
         self.obs_f = f.reshape(-1)
         if expectedlog:
             mPr_tr = np.log(sigmoid(self.obs_f, self.s))
-    	else:
+        else:
             k = (1+(np.pi*v/8.0))**(-0.5)    
             mPr_tr = np.log(sigmoid(k*self.obs_f, self.s))
         return mPr_tr
@@ -244,7 +244,7 @@ class GPGrid(object):
             self.f, self.v = self.gp.predict(X, eval_MSE=True, batch_size=maxsize)
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
-	if expectedlog:
+        if expectedlog:
             m_post = np.log(sigmoid(self.f,self.s))
         else:
             k = (1+(np.pi*self.v/8.0))**(-0.5)

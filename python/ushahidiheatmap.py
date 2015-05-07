@@ -162,7 +162,7 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = self.combiner[j].get_sd_kappa()
+            bcc_stdPred = self.combiner[j].get_heat_variance()
             #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
             #normalise it
             maxunc = np.max(bcc_stdPred)
@@ -615,7 +615,7 @@ if __name__ == '__main__':
         #write_json(combiner.mPr, nx,ny,j, label="_mpr_")
         heatmap.write_img("_mpr_",j)
          
-        bcc_stdPred = combiner.get_sd_kappa()
+        bcc_stdPred = combiner.get_heat_variance()
         heatmap.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_sd_",j)
@@ -650,7 +650,7 @@ if __name__ == '__main__':
 #         write_json(combiner.mPr, nx,ny,j, label="_mpr_expert_")
         heatmap.write_img("_mpr_expert_",j)
           
-        bcc_stdPred2 = combiner2.get_sd_kappa()
+        bcc_stdPred2 = combiner2.get_heat_variance()
 
         heatmap.plotresults(bcc_stdPred2, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
 #         write_json(stdPred, nx,ny,j, label="_sd_expert_")        
