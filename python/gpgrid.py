@@ -1,8 +1,7 @@
 import numpy as np
-from scipy.linalg import inv, cholesky, solve_triangular
+from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
 from sklearn.gaussian_process import GaussianProcess
-import scipy.linalg.lapack as lapack
 import scipy.linalg.fblas as fblas
 import logging
 
@@ -74,11 +73,11 @@ class GPGrid(object):
         self.rawobsy = obsy
         self.rawobs_points = obs_points  
             
+        logging.debug("GP grid processing " + str(len(self.obsx)) + " observations.")
+            
         self.obsx = np.array(obsx)
         self.obsy = np.array(obsy)
         self.obs_flat_idxs = np.ravel_multi_index((self.obsx, self.obsy), (self.nx,self.ny))
-
-        logging.debug("GP grid processing " + str(len(self.obsx)) + " observations.")
         
         obs_points = np.array(obs_points)
         if obs_points.ndim==1 or obs_points.shape[1]==1:
@@ -113,7 +112,7 @@ class GPGrid(object):
         Pr_est = (presp+nu0[1])/(allresp+np.sum(nu0))
         self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)+1.0))
     
-    def fit( self, obs_coords, obs_values):
+    def fit( self, obs_coords, obs_values, expectedlog=False):
         obsx = obs_coords[0]
         obsy = obs_coords[1]
         self.process_observations(obsx, obsy, obs_values)
@@ -169,12 +168,14 @@ class GPGrid(object):
         
         logging.debug("gp grid trained")
         self.obs_f = f.reshape(-1)
-        mPr_tr = sigmoid(self.obs_f, self.s)
-        sdPr_tr = np.sqrt(target_var(self.obs_f, self.s, v))
+        if expectedlog:
+            mPr_tr = np.log(sigmoid(self.obs_f, self.s))
+    	else:
+            k = (1+(np.pi*v/8.0))**(-0.5)    
+            mPr_tr = np.log(sigmoid(k*self.obs_f, self.s))
+        return mPr_tr
         
-        return mPr_tr, sdPr_tr
-        
-    def predict(self, output_coords):
+    def predict(self, output_coords, expectedlog=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
@@ -201,7 +202,9 @@ class GPGrid(object):
              
             Cov = self.G.dot(self.K).dot(self.G) + self.Q
             L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True)
-            Vpart = solve_triangular(L, self.G, lower=True)
+            Vpart = solve_triangular(L, self.G, lower=True, check_finite=False, overwrite_b=True)
+            GA = self.G.dot(self.A)      
+            
             for s in np.arange(nsplits):
                 
                 logging.debug("Computing posterior for split %i out of %i" % (s,nsplits))
@@ -217,6 +220,8 @@ class GPGrid(object):
                 Kx = np.exp( -ddx**2/self.ls )
                 Kpred = Kx*Ky
                 
+                #Kpred[Kpred<1e-10] = 0
+                
                 #update all idxs?
                 if not update_all_points:
                     changed = np.argwhere(np.sum(Kpred[:,changed_obs],axis=1)>0.1)
@@ -227,10 +232,10 @@ class GPGrid(object):
                 else:
                     changed_s = np.arange(start,nout)  
                     
-                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=self.G.dot(self.A).T, trans_a=True, trans_b=True )#Kpred.dot(self.A)
-                V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True)
-                v_s = 1.0 - np.sum(V**2,axis=0)#np.sum(Kpred.dot(self.G).dot(inv(Cov)).dot(self.G)*Kpred,axis=1)
-                
+                f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=GA.T, trans_a=True, trans_b=True, overwrite_c=True)
+                V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True, overwrite_c=True)
+                v_s = 1.0 - np.sum(V**2,axis=0)
+       
                 self.f[changed_s] = f_s
                 self.v[changed_s] = v_s
         elif self.implementation=="sklearn":
@@ -239,10 +244,11 @@ class GPGrid(object):
             self.f, self.v = self.gp.predict(X, eval_MSE=True, batch_size=maxsize)
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
-        k = 1#(1+(np.pi*self.v/8.0))**(-0.5)
-        m_post = sigmoid(k*self.f,self.s)
-        std_post = np.sqrt(target_var(self.f, self.s, self.v))   
-        
+	if expectedlog:
+            m_post = np.log(sigmoid(self.f,self.s))
+        else:
+            k = (1+(np.pi*self.v/8.0))**(-0.5)
+            m_post = sigmoid(k*self.f,self.s)
         logging.debug("gp grid predictions: %s" % str(m_post))
              
-        return m_post, std_post
+        return m_post
