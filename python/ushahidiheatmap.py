@@ -364,8 +364,8 @@ class Heatmap(object):
         logging.debug('Tranlating our local points back to original lat/long')
         
         #normalise
-        x = np.divide(np.float64(x),self.nx)
-        y = np.divide(np.float64(y),self.ny)
+        x = np.divide(x.astype(float),self.nx)
+        y = np.divide(y.astype(float),self.ny)
         
         latdata = x*(self.maxlat-self.minlat) + self.minlat
         londata = y*(self.maxlon-self.minlon) + self.minlon

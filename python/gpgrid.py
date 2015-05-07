@@ -50,19 +50,17 @@ class GPGrid(object):
     
     implementation="sklearn" # use the sklearn implementation or "native" to use the version implemented here 
             
-    def __init__(self, nx, ny, s=4, ls=100, force_update_all_points=False, implementation="native"):
+    def __init__(self, nx, ny, s=4, ls=100, nu0=[1,1], force_update_all_points=False, implementation="native"):
         self.nx = nx
         self.ny = ny  
         self.s = s #sigma scaling
         self.ls = ls #length-scale
         self.update_all_points = force_update_all_points
         self.implementation = implementation
+        self.nu0 = np.array(nu0, dtype=float)
+        self.latentpriormean = logit(self.nu0[1] / np.sum(self.nu0), self.s)
     
     def process_observations(self, obsx, obsy, obs_points): 
-        
-        #this can be passed in from the priors in future?
-        nu0 = np.array([1, 1],dtype=np.float)
-        
         if obs_points==[]:
             return [],[]        
         
@@ -94,8 +92,9 @@ class GPGrid(object):
             presp = np.array(obs_points[:,0]).reshape(obs_points.shape[0],1)
             self.obs_points = presp
             allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
-            
-        self.z = presp/allresp - 0.5 
+        
+        #add on the prior counts
+        self.z = presp/allresp - self.nu0[1] / np.sum(self.nu0) # subtract the prior mean
         self.z = self.z.reshape((self.z.size,1)) 
         
         #Update to produce training matrices only over known points
@@ -109,8 +108,8 @@ class GPGrid(object):
         K = Kx*Ky
         self.K = K + 1e-6 * np.eye(len(K)) # jitter 
     
-        Pr_est = (presp+nu0[1])/(allresp+np.sum(nu0))
-        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(nu0)+1.0))
+        Pr_est = (presp+self.nu0[1]) / (allresp+np.sum(self.nu0))
+        self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(self.nu0)+1.0))
     
     def fit( self, obs_coords, obs_values, expectedlog=False):
         obsx = obs_coords[0]
@@ -167,7 +166,7 @@ class GPGrid(object):
             f, v = self.gp.predict(X, eval_MSE=True)
         
         logging.debug("gp grid trained")
-        self.obs_f = f.reshape(-1)
+        self.obs_f = f.reshape(-1) + self.latentpriormean
         if expectedlog:
             mPr_tr = np.log(sigmoid(self.obs_f, self.s))
         else:
@@ -242,6 +241,8 @@ class GPGrid(object):
             #predict
             X = np.concatenate((outputx.reshape(nout,1), outputy.reshape(nout,1)), axis=1)
             self.f, self.v = self.gp.predict(X, eval_MSE=True, batch_size=maxsize)
+                
+        self.f += self.latentpriormean
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
         if expectedlog:

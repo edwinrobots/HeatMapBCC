@@ -140,7 +140,8 @@ class HeatMapBCC(ibcc.IBCC):
                 self.lnkappa_out[j,:] = self.heatGP[j].predict([self.outputx, self.outputy], expectedlog=True)
                 self.var_logodds_kappa[j] = self.heatGP[j].v
             if self.nclasses==2:
-                self.var_logodds_kappa[0] = self.var_logodds_kappa[1]        
+                self.var_logodds_kappa[0] = self.var_logodds_kappa[1]
+                self.lnkappa_out[0,:] = np.log(1 - np.exp(self.lnkappa_out[1,:]))        
             E_t_full[:,:] = (np.exp(self.lnkappa_out) / np.sum(np.exp(self.lnkappa_out),axis=0))
             #observation points that coincide with output points should take into account the labels, not just GP
             obsout_idxs = np.argwhere(np.in1d(self.obsx, self.outputx, assume_unique=True))
@@ -161,6 +162,7 @@ class HeatMapBCC(ibcc.IBCC):
                 self.var_logodds_kappa[j] = self.heatGP[j].v.reshape((self.nx, self.ny))
             if self.nclasses==2:
                 self.var_logodds_kappa[0] = self.var_logodds_kappa[1]
+                self.lnkappa_grid[0,:,:] = np.log(1 - np.exp(self.lnkappa_grid[1,:,:]))
             E_t_full[:] = (np.exp(self.lnkappa_grid) / np.sum(np.exp(self.lnkappa_grid),axis=0))
             E_t_full[:,self.obsx, self.obsy] = self.E_t.T
         self.E_t_sparse = self.E_t  # save the sparse version
