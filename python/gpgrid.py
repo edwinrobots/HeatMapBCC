@@ -74,13 +74,14 @@ class GPGrid(object):
         self.rawobsy = obsy
         self.rawobs_points = obs_points  
             
-        logging.debug("GP grid processing " + str(len(self.obsx)) + " observations.")
-            
         self.obsx = np.array(obsx)
         self.obsy = np.array(obsy)
         self.obs_flat_idxs = np.ravel_multi_index((self.obsx, self.obsy), (self.nx,self.ny))
+
+        logging.debug("GP grid processing " + str(len(self.obsx)) + " observations.")
         
-        if len(obs_points.shape)==1 or obs_points.shape[1]==1:
+        obs_points = np.array(obs_points)
+        if obs_points.ndim==1 or obs_points.shape[1]==1:
             self.obs_points = np.array(obs_points).reshape(-1)
 
             self.grid_all = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
