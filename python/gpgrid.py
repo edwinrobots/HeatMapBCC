@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
+from scipy.optimize import fmin_cobyla
+from scipy.stats import gamma
 from sklearn.gaussian_process import GaussianProcess
 import scipy.linalg.fblas as fblas
 import logging
@@ -20,14 +22,23 @@ def target_var(f,s,v):
     return u/(1/(u*v) + 1)
 
 class GPGrid(object):
+    # hyperparameters
+    nu0 = []# prior observations, used to determine the observation noise variance and the prior mean
+    s = 4 # sigmoid scaling parameter
+    ls = 100 # inner length scale of the GP
+    
+    # parameters for the hyperpriors if we want to optimise the hyperparameters
+    gam_shape_ls = 100
+    gam_shape_s = 4 
+    gam_scale_ls = 0
+    gam_scale_s = 0   
+    gam_shape_nu = 200
+    gam_scale_nu = []
 
-    rawobsx = []
-    rawobsy = []
-    rawobs_points = []
-
+    # save the training points
     obsx = []
     obsy = []
-    obs_points = []
+    obs_values = [] # value of the positive class at each observations. Any duplicate points will be summed.
     grid_all = []
     
     obs_f = []
@@ -60,38 +71,34 @@ class GPGrid(object):
         self.nu0 = np.array(nu0, dtype=float)
         self.latentpriormean = logit(self.nu0[1] / np.sum(self.nu0), self.s)
     
-    def process_observations(self, obsx, obsy, obs_points): 
-        if obs_points==[]:
+    def process_observations(self, obsx, obsy, obs_values): 
+        if obs_values==[]:
             return [],[]        
         
-        if self.z!=[] and obsx==self.rawobsx and obsy==self.rawobsy and obs_points==self.rawobs_points:
+        if self.z!=[] and obsx==self.rawobsx and obsy==self.rawobsy and obs_values==self.rawobs_points:
             return
         
-        self.rawobsx = obsx
-        self.rawobsy = obsy
-        self.rawobs_points = obs_points  
-            
         logging.debug("GP grid processing " + str(len(self.obsx)) + " observations.")
             
         self.obsx = np.array(obsx)
         self.obsy = np.array(obsy)
         self.obs_flat_idxs = np.ravel_multi_index((self.obsx, self.obsy), (self.nx,self.ny))
         
-        obs_points = np.array(obs_points)
-        if obs_points.ndim==1 or obs_points.shape[1]==1:
-            self.obs_points = np.array(obs_points).reshape(-1)
+        obs_values = np.array(obs_values)
+        if obs_values.ndim==1 or obs_values.shape[1]==1:
+            self.obs_values = np.array(obs_values).reshape(-1)
 
             self.grid_all = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
-            grid_p = coo_matrix((self.obs_points, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
+            grid_p = coo_matrix((self.obs_values, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
             
             self.obsx, self.obsy = self.grid_all.nonzero()
             presp = grid_p[self.obsx,self.obsy]
             allresp = self.grid_all[self.obsx,self.obsy]
             
-        elif obs_points.shape[1]==2:
-            presp = np.array(obs_points[:,0]).reshape(obs_points.shape[0],1)
-            self.obs_points = presp
-            allresp = np.array(obs_points[:,1]).reshape(obs_points.shape[0],1)
+        elif obs_values.shape[1]==2:
+            presp = np.array(obs_values[:,0]).reshape(obs_values.shape[0],1)
+            self.obs_values = presp
+            allresp = np.array(obs_values[:,1]).reshape(obs_values.shape[0],1)
         
         #add on the prior counts
         self.z = presp/allresp - self.nu0[1] / np.sum(self.nu0) # subtract the prior mean
@@ -110,6 +117,50 @@ class GPGrid(object):
     
         Pr_est = (presp+self.nu0[1]) / (allresp+np.sum(self.nu0))
         self.Q = np.diagflat(Pr_est*(1-Pr_est)/(allresp+np.sum(self.nu0)+1.0))
+    
+    def ln_modelprior(self):
+        #Check and initialise the hyper-hyper-parameters if necessary
+        if self.gam_scale_ls==0:
+            self.gam_scale_ls = self.ls / float(self.gam_shape_ls)
+        if self.gam_scale_s==0:
+            self.gam_scale_s = self.s / float(self.gam_shape_s)
+        if self.gam_scale_nu == []:
+            self.gam_scale_nu = self.nu0 / float(self.gam_shape_nu)
+        #Gamma distribution over each value. Set the parameters of the gammas.
+        lnp_gp = gamma.logpdf(self.ls, self.gam_shape_ls, scale=self.gam_scale_ls) + \
+                    gamma.logpdf(self.s, self.gam_shape_s, scale=self.gam_scale_s) + \
+                    np.sum(gamma.logpdf(self.nu0, self.gam_shape_nu, scale=self.gam_scale_nu))
+        return lnp_gp
+    
+    def neg_marginal_likelihood(self, hyperparams):
+        '''
+        Weight the marginal log data likelihood by the hyper-prior. Unnormalised posterior over the hyper-parameters.
+        '''
+        if np.any(np.isnan(hyperparams)) or np.any(hyperparams <= 0):
+            return np.inf
+        self.s = hyperparams[0]
+        self.ls = hyperparams[1]
+        self.nu0 = hyperparams[2:]
+        mPr_tr = self.fit((self.obsx, self.obsy), self.obs_values, expectedlog=False)
+        
+        #calculate likelihood from the fitted model
+        data_loglikelihood = np.sum(np.log(mPr_tr))
+        log_model_prior = self.ln_modelprior()
+        lml = data_loglikelihood + log_model_prior
+        logging.debug("Log joint probability of the model & data: %f" % lml)
+        return -lml #returns Negative!
+    
+    def optimize(self, obs_coords, obs_values):
+        obsx = obs_coords[0]
+        obsy = obs_coords[1]
+        self.process_observations(obsx, obsy, obs_values)
+        initialguess = np.concatenate(([self.s, self.ls], self.nu0))
+        constraints = [lambda hp: np.all(hp)]
+        opt_hyperparams = fmin_cobyla(self.neg_marginal_likelihood, initialguess, constraints)
+        logging.debug("Optimal hyper-parameters: ")
+        for param in opt_hyperparams:
+            logging.debug(str(param))        
+        return opt_hyperparams
     
     def fit( self, obs_coords, obs_values, expectedlog=False):
         obsx = obs_coords[0]
@@ -171,7 +222,7 @@ class GPGrid(object):
             mPr_tr = np.log(sigmoid(self.obs_f, self.s))
         else:
             k = (1+(np.pi*v/8.0))**(-0.5)    
-            mPr_tr = np.log(sigmoid(k*self.obs_f, self.s))
+            mPr_tr = sigmoid(k*self.obs_f, self.s)
         return mPr_tr
     
     def predict(self, output_coords, expectedlog=False):

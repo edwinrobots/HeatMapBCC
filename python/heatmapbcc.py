@@ -40,9 +40,6 @@ class HeatMapBCC(ibcc.IBCC):
     var_logodds_kappa = [] # posterior SD over kappa
     
     heatGP = [] # spatial GP model for kappa 
-    gp_hyperparams = {}
-    gam_shape_gp = [4, 100] 
-    gam_scale_gp = []
     
     obsx = [] # x-coordinates of locations with crowd reports
     obsy = [] # y-coordinates of locations with crowd reports
@@ -91,7 +88,7 @@ class HeatMapBCC(ibcc.IBCC):
     def createGP(self):
         #function can be overwritten by subclasses
         return GPGrid(self.nx, self.ny, force_update_all_points=self.update_all_points, s=self.gp_hyperparams['s'],
-                        ls=self.gp_hyperparams['ls'])        
+                        ls=self.gp_hyperparams['ls'], nu0=self.nu0)        
         
     def init_lnkappa(self):
         super(HeatMapBCC, self).init_lnkappa()  
@@ -212,27 +209,24 @@ class HeatMapBCC(ibcc.IBCC):
     def ln_modelprior(self):
         # get the prior over the alpha0 and nu0 hyper-paramters
         lnp = super(HeatMapBCC,self).ln_modelprior()
-        # get the prior over the GP hyper-parameters
-        # inner length scale, 
-        # outer length scale, 
-        # sigmoid scale, s
-        #Check and initialise the hyper-hyper-parameters if necessary
-        if self.gam_scale_gp==[]:
-            self.gam_shape_gp = np.array(self.gam_shape_gp, dtype=float)
-            # if the scale was not set, assume current values of alpha0 are the means given by the hyper-prior
-            self.gam_scale_gp = [self.gp_hyperparams['s']/self.gam_shape_gp[0], self.gp_hyperparams['ls']/self.gam_shape_gp[1]]
         #Gamma distribution over each value. Set the parameters of the gammas.
-        lnp_gp = np.sum(gamma.logpdf(self.gp_hyperparams.values(), self.gam_shape_gp, scale=self.gam_scale_gp))
+        lnp_gp = 0
+        for j in range(self.nclasses):
+            if j in self.heatGP:
+                lnp_gp += self.heatGP[j].ln_modelprior()
         return lnp + lnp_gp
     
     def set_hyperparams(self,hyperparams):
         ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores + self.nclasses]
         super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
-        self.gp_hyperparams = {'s':hyperparams[-2], 'ls':hyperparams[-1]}
+        for j in range(self.nclasses):
+            if j in self.heatGP:
+                self.heatGP[j].s = hyperparams[-2]
+                self.heatGP[j].ls = hyperparams[-1]
         return (self.alpha0, self.nu0, hyperparams[-2], hyperparams[-1])
 
     def get_hyperparams(self):
         hyperparams, constraints = super(HeatMapBCC, self).get_hyperparams()
-        hyperparams = np.concatenate((hyperparams, [self.gp_hyperparams['s']], [self.gp_hyperparams['ls']]))
+        hyperparams = np.concatenate((hyperparams, [self.heatGP[1].s, self.heatGP[1].ls]))
         constraints.append(lambda hp: np.all(hp[-2:]))
         return hyperparams, constraints
