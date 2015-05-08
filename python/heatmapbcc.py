@@ -3,7 +3,6 @@ import ibcc
 from gpgrid import GPGrid
 import numpy as np
 import logging
-from scipy.special import psi
 from scipy.stats import gamma, norm
 
 def sigmoid(f,s):
@@ -42,7 +41,7 @@ class HeatMapBCC(ibcc.IBCC):
     
     heatGP = [] # spatial GP model for kappa 
     gp_hyperparams = {}
-    gam_shape_gp = []
+    gam_shape_gp = [4, 100] 
     gam_scale_gp = []
     
     obsx = [] # x-coordinates of locations with crowd reports
@@ -219,9 +218,21 @@ class HeatMapBCC(ibcc.IBCC):
         # sigmoid scale, s
         #Check and initialise the hyper-hyper-parameters if necessary
         if self.gam_scale_gp==[]:
-            self.gam_shape_gp = self.gam_shape_gp.astype(float)
+            self.gam_shape_gp = np.array(self.gam_shape_gp, dtype=float)
             # if the scale was not set, assume current values of alpha0 are the means given by the hyper-prior
-            self.gam_scale_gp = self.gp_hyperparams.values()/self.gam_shape_gp
+            self.gam_scale_gp = [self.gp_hyperparams['s']/self.gam_shape_gp[0], self.gp_hyperparams['ls']/self.gam_shape_gp[1]]
         #Gamma distribution over each value. Set the parameters of the gammas.
         lnp_gp = np.sum(gamma.logpdf(self.gp_hyperparams.values(), self.gam_shape_gp, scale=self.gam_scale_gp))
         return lnp + lnp_gp
+    
+    def set_hyperparams(self,hyperparams):
+        ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores + self.nclasses]
+        super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
+        self.gp_hyperparams = {'s':hyperparams[-2], 'ls':hyperparams[-1]}
+        return (self.alpha0, self.nu0, hyperparams[-2], hyperparams[-1])
+
+    def get_hyperparams(self):
+        hyperparams, constraints = super(HeatMapBCC, self).get_hyperparams()
+        hyperparams = np.concatenate((hyperparams, [self.gp_hyperparams['s']], [self.gp_hyperparams['ls']]))
+        constraints.append(lambda hp: np.all(hp[-2:]))
+        return hyperparams, constraints

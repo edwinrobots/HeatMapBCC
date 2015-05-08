@@ -173,7 +173,7 @@ class GPGrid(object):
             k = (1+(np.pi*v/8.0))**(-0.5)    
             mPr_tr = np.log(sigmoid(k*self.obs_f, self.s))
         return mPr_tr
-        
+    
     def predict(self, output_coords, expectedlog=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
