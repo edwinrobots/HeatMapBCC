@@ -104,7 +104,8 @@ class HeatMapBCC(ibcc.IBCC):
             #start with a homogeneous grid     
             self.heatGP[j] = self.createGP()
 
-    def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, table_format=False):
+    def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, 
+                                maxiter=200, table_format=False):
         if self.table_format_flag:
             logging.error('Error: must use a sparse list of crowdsourced labels for HeatMapBCC')
             return []
@@ -112,7 +113,8 @@ class HeatMapBCC(ibcc.IBCC):
             logging.error('Must use a sparse list of crowdsourced labels with 4 columns:')
             logging.error('Agent ID, x-cood, y-coord, response value') 
             return []
-        return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, False)
+        return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, 
+                                                               maxiter, False)
         
     def resparsify_t(self):       
         self.var_logodds_kappa = {}
@@ -178,7 +180,7 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = np.arange(self.nclasses)
         for j in gprange:
             obs_values = self.E_t[:,j]
-            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True)
+            self.lnkappa[j], _ = self.heatGP[j].optimize([self.obsx, self.obsy], obs_values, expectedlog=True)
         if self.nclasses==2:
             self.lnkappa[0] = np.log(1-np.exp(self.lnkappa[1]))
      
@@ -217,16 +219,15 @@ class HeatMapBCC(ibcc.IBCC):
         return lnp + lnp_gp
     
     def set_hyperparams(self,hyperparams):
-        ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores + self.nclasses]
+        ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores * self.alpha0_length + self.nclasses]
         super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
         for j in range(self.nclasses):
             if j in self.heatGP:
-                self.heatGP[j].s = hyperparams[-2]
                 self.heatGP[j].ls = hyperparams[-1]
-        return (self.alpha0, self.nu0, hyperparams[-2], hyperparams[-1])
+        return (self.alpha0, self.nu0, hyperparams[-1])
 
     def get_hyperparams(self):
         hyperparams, constraints = super(HeatMapBCC, self).get_hyperparams()
-        hyperparams = np.concatenate((hyperparams, [self.heatGP[1].s, self.heatGP[1].ls]))
-        constraints.append(lambda hp: np.all(hp[-2:]))
+        hyperparams = np.concatenate((hyperparams, [self.heatGP[1].ls]))
+        constraints.append(lambda hp: np.all(hp[-1:]))
         return hyperparams, constraints

@@ -79,7 +79,7 @@ class Heatmap(object):
         self.targetextractor = maptargets.MapTargets(self)
         if self.startclean:
             self.initial_cleanup()
-        self.load_ush_data() 
+        self.load_data() 
         self.write_coords_json()     
         
         self.run_script_only = run_script_only   
@@ -372,7 +372,7 @@ class Heatmap(object):
         
         return latdata,londata
         
-    def load_ush_data(self):
+    def load_data(self):
         dataFile = self.datadir+'/exported_ushahidi.csv'
         self.K = 1
         #load the data
@@ -584,7 +584,7 @@ if __name__ == '__main__':
     #High definition with no interpolation
     nx = 1000
     ny = 1000  
-    heatmap.load_ush_data() 
+    heatmap.load_data() 
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
         heatmap.plotresults(rep_pred, label='Predicted Incidents of type '+str(j))
@@ -598,7 +598,7 @@ if __name__ == '__main__':
     #Using BCC - lower res so it is tractable to interpolate
     heatmap.nx = 1000
     heatmap.ny = 1000
-    heatmap.load_ush_data() # in case nx and ny have changed, need to reload
+    heatmap.load_data() # in case nx and ny have changed, need to reload
            
     for j in range(1,2):
         start = time.time()
@@ -623,7 +623,7 @@ if __name__ == '__main__':
     #insert a trusted report at 18.5333 N, -72.3333 W     
     heatmap.nx = 2000
     heatmap.ny = 2000
-    heatmap.load_ush_data()
+    heatmap.load_data()
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
@@ -637,7 +637,7 @@ if __name__ == '__main__':
           
     heatmap.nx = 2000
     heatmap.ny = 2000  
-    heatmap.load_ush_data() 
+    heatmap.load_data() 
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
         bcc_pred2,combiner2 = heatmap.runBCC(j)
