@@ -32,8 +32,8 @@ class GPGrid(object):
     # parameters for the hyperpriors if we want to optimise the hyperparameters
     gam_shape_ls = 100
     gam_scale_ls = 0
-    gam_shape_s0 = 4 
-    gam_scale_s0 = 1       
+    gam_shape_s0 = 1 
+    gam_scale_s0 = 16       
     gam_shape_nu = 200
     gam_scale_nu = []
 
@@ -67,6 +67,8 @@ class GPGrid(object):
         self.nx = nx
         self.ny = ny  
         self.s = s #sigma scaling
+        self.gam_shape_s0 = 1
+        self.gam_scale_s0 = self.s**2
         self.ls = ls #length-scale
         self.update_all_points = force_update_all_points
         self.implementation = implementation
@@ -104,6 +106,7 @@ class GPGrid(object):
             obs_total_counts = np.array(obs_values[:,1]).reshape(obs_values.shape[0],1)
         
         #Difference between observed value and prior mean
+        # Is this right at this point? Should it be moderated by prior pseudo-counts? Because we are treating this as a noisy observation of kappa.
         self.obs_probs = (obs_pos_counts/obs_total_counts)[:, np.newaxis]
         self.z = self.obs_probs - self.nu0[1] / np.sum(self.nu0) # subtract the prior mean
         self.z = self.z.reshape((self.z.size,1)) 
@@ -244,8 +247,8 @@ class GPGrid(object):
             D = solve_triangular(L.T, E, lower=False, overwrite_b=True)
             self.gam_scale_s = 1.0 / (1.0/float(self.gam_scale_s0) + 0.5*np.trace(D))  
             #update s to its current expected value
-            self.s = self.gam_shape_s * self.gam_scale_s            
-        
+            self.s = np.sqrt(self.gam_shape_s * self.gam_scale_s) # is the sqrt correct?            
+            logging.debug("Updated output scale: " + str(self.s))
         self.mean_prob_obs = mean_prob_obs
             
         return mean_prob_obs
