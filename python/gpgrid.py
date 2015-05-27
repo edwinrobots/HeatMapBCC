@@ -87,10 +87,10 @@ class GPGrid(object):
             
         self.obsx = np.array(obsx)
         self.obsy = np.array(obsy)
-        self.obs_flat_idxs = np.ravel_multi_index((self.obsx, self.obsy), (self.nx,self.ny))
+#         self.obs_flat_idxs = np.ravel_multi_index((self.obsx, self.obsy), (self.nx,self.ny))
         
         obs_values = np.array(obs_values)
-        if obs_values.ndim==1 or obs_values.shape[1]==1:
+        if obs_values.ndim==1 or obs_values.shape[1]==1: # duplicate locations allowed, one count at each array entry
             self.obs_values = np.array(obs_values).reshape(-1)
 
             self.grid_obs_counts = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
@@ -100,7 +100,8 @@ class GPGrid(object):
             obs_pos_counts = grid_obs_pos_counts[self.obsx,self.obsy]
             obs_total_counts = self.grid_obs_counts[self.obsx,self.obsy]
             
-        elif obs_values.shape[1]==2:
+        elif obs_values.shape[1]==2: 
+            # obs_values given as two columns: first is positive counts, second is total counts. No duplicate locations
             obs_pos_counts = np.array(obs_values[:,0]).reshape(obs_values.shape[0],1)
             self.obs_values = obs_pos_counts
             obs_total_counts = np.array(obs_values[:,1]).reshape(obs_values.shape[0],1)
@@ -142,7 +143,7 @@ class GPGrid(object):
         if np.any(np.isnan(hyperparams)) or np.any(hyperparams <= 0):
             return np.inf
         self.ls = hyperparams[0]
-        self.fit((self.obsx, self.obsy), self.obs_values, expectedlog=expectedlog)
+        self.fit((self.obsx, self.obsy), self.obs_values, expectedlog=expectedlog, process_obs=False)
         
         #calculate likelihood from the fitted model
         if expectedlog:
@@ -153,14 +154,13 @@ class GPGrid(object):
         log_model_prior = self.ln_modelprior()
         lml = data_loglikelihood + log_model_prior
         
-        if self.verbose:
-            logging.debug("Log joint probability of the model & data: %f" % lml)
+        logging.debug("Log joint probability of the model & data: %f" % lml)
         return -lml #returns Negative!
     
     def optimize(self, obs_coords, obs_values, expectedlog=False):
         obsx = obs_coords[0]
         obsy = obs_coords[1]
-        self.process_observations(obsx, obsy, obs_values)
+        self.process_observations(obsx, obsy, obs_values) # process the data here so we don't repeat each call
         initialguess = [self.ls]
         constraints = [lambda hp,_: np.all(hp)]
         opt_hyperparams = fmin_cobyla(self.neg_marginal_likelihood, initialguess, constraints, args=(expectedlog,))
@@ -169,10 +169,11 @@ class GPGrid(object):
             logging.debug(str(param))        
         return self.mean_prob_obs, opt_hyperparams
     
-    def fit( self, obs_coords, obs_values, expectedlog=False):
+    def fit( self, obs_coords, obs_values, expectedlog=False, process_obs=True):
         obsx = obs_coords[0]
         obsy = obs_coords[1]
-        self.process_observations(obsx, obsy, obs_values)
+        if process_obs:
+            self.process_observations(obsx, obsy, obs_values)
         if self.obsx==[]:
             mPr = 0.5
             stdPr = 0.25       
@@ -262,7 +263,7 @@ class GPGrid(object):
         outputy = output_coords[1].astype(float)
         maxsize = 2.0 * 10**7
         nout = outputx.size
-
+        
         if self.implementation=="native":
             nobs = len(self.obsx)
             nsplits = np.ceil(nout*nobs / maxsize)
@@ -275,8 +276,8 @@ class GPGrid(object):
                 update_all_points = True
                 self.v = np.zeros(nout) # diagonal values only
             
-            if not update_all_points:
-                changed_obs = np.abs(self.obs_f - self.f[self.obs_flat_idxs]) > 0.05
+            #if not update_all_points: # how can we do this if we don't always have grid outputs and inputs?
+            #    changed_obs = np.abs(self.obs_f - self.f[self.obs_flat_idxs]) > 0.05
              
             Cov = self.G.dot(self.K).dot(self.G) + self.Q
             L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True)
@@ -301,11 +302,12 @@ class GPGrid(object):
                 #Kpred[Kpred<1e-10] = 0
                 
                 #update all idxs?
-                if not update_all_points:
-                    changed = np.argwhere(np.sum(Kpred[:,changed_obs],axis=1)>0.1)
-                    Kpred = Kpred[changed,:]
-                    changed_s = changed + start
-                elif end>=0:
+#                 if not update_all_points:
+#                     changed = np.argwhere(np.sum(Kpred[:,changed_obs],axis=1)>0.1)
+#                     Kpred = Kpred[changed,:]
+#                     changed_s = changed + start
+#                el...
+                if end>=0:
                     changed_s = np.arange(start,end)
                 else:
                     changed_s = np.arange(start,nout)  
