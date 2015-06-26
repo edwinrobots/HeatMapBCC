@@ -101,8 +101,8 @@ class GPGrid(object):
             grid_obs_pos_counts = coo_matrix((self.obs_values, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
             
             self.obsx, self.obsy = self.grid_obs_counts.nonzero()
-            obs_pos_counts = grid_obs_pos_counts[self.obsx,self.obsy]
-            obs_total_counts = self.grid_obs_counts[self.obsx,self.obsy]
+            obs_pos_counts = grid_obs_pos_counts[self.obsx,self.obsy][:, np.newaxis]
+            obs_total_counts = self.grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
             
         elif obs_values.shape[1]==2: 
             # obs_values given as two columns: first is positive counts, second is total counts. No duplicate locations
@@ -114,7 +114,7 @@ class GPGrid(object):
         
         #Difference between observed value and prior mean
         # Is this right at this point? Should it be moderated by prior pseudo-counts? Because we are treating this as a noisy observation of kappa.
-        obs_probs = obs_pos_counts/obs_total_counts[:, np.newaxis].reshape((obs_pos_counts.size,1))
+        obs_probs = obs_pos_counts/obs_total_counts
         self.z = obs_probs#- (self.nu0[1]/np.sum(self.nu0))
         
         #Update to produce training matrices only over known points
@@ -139,9 +139,9 @@ class GPGrid(object):
     
     def lowerbound(self):
         #calculate likelihood from the fitted model 
-        v = np.diag(self.obs_C)[:, np.newaxis]
-        k = (1+(np.pi*v/8.0))**(-0.5)
-        mean_prob_obs = sigmoid(self.obs_f) + k
+        #v = np.diag(self.obs_C)[:, np.newaxis]
+        #k = (1+(np.pi*v/8.0))**(-0.5)
+        #mean_prob_obs = sigmoid(self.obs_f) + k
         if not hasattr(self, 'logdetQ'):
             self.logdetQ = np.sum(np.log(np.diag(cholesky(self.Q, lower=True, overwrite_a=False, check_finite=False))))*2.0
             self.Qinv = np.linalg.pinv(self.Q) # Q is diagonal so inverse is trivial
@@ -150,6 +150,15 @@ class GPGrid(object):
         #-0.5*(len(self.obs_f)*np.log(2*np.pi) + self.logdetQ + \
         #   (self.z - mean_prob_obs).T.dot(self.Qinv).dot(self.z - mean_prob_obs) ) #+ \
         #   np.trace(self.G.dot(self.Qinv).dot(self.G).dot(self.obs_C)) ) #this trace term cancels with a term in pf_minus_qf
+        
+        logp_minus_logq = self.logp_minus_logq()
+        
+        lb = data_loglikelihood + logp_minus_logq
+        # if using steinberg/bonilla this value usually goes up even if lb goes down due to changing C estimate
+        #print "least squares minimisation: " + str(lb - 0.5*logdetC)
+        return lb
+
+    def logp_minus_logq(self):
 
         cholKs = self.cholK / np.sqrt(self.old_s)
                 
@@ -167,15 +176,7 @@ class GPGrid(object):
                         - self.gam_shape_s*np.log(self.gam_scale_s) + (self.gam_shape_s0-self.gam_shape_s)*np.log(self.s)\
                         + (self.gam_scale_s-self.gam_scale_s0)*(self.s)
         
-#         print "data " + str(data_loglikelihood)
-#         print "ps_minus_qs " + str(ps_minus_qs)
-#         print "pf " + str(pf_minus_qf)
-                
-        lb = data_loglikelihood + pf_minus_qf + ps_minus_qs
-        # if using steinberg/bonilla this value usually goes up even if lb goes down due to changing C estimate
-        print "least squares minimisation: " + str(lb - 0.5*logdetC)
-        
-        return lb
+        return pf_minus_qf + ps_minus_qs        
     
     def neg_marginal_likelihood(self, hyperparams, expectedlog=False):
         '''
@@ -312,7 +313,7 @@ class GPGrid(object):
                 converged = (diff_s<1e-3) & (diff<1e-3) & (difflb<1)
                 if self.verbose:                  
                     print "gam scale s: " + str(self.gam_scale_s)
-                            
+                           
         elif self.implementation=="sklearn":
             obs_noise = np.diag(self.Q)/((self.z-0.5).reshape(-1)**2)
             self.gp = GaussianProcess(theta0=1.0/self.ls, nugget=obs_noise )

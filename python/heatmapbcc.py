@@ -87,8 +87,9 @@ class HeatMapBCC(ibcc.IBCC):
         
     def createGP(self):
         #function can be overwritten by subclasses
-        return GPGrid(self.nx, self.ny, force_update_all_points=self.update_all_points, s=self.gp_hyperparams['s'],
-                        ls=self.gp_hyperparams['ls'], nu0=self.nu0)        
+        #nx, ny, ls=100, nu0=[1,1], gam_shape_ls=1, force_update_all_points=False
+        return GPGrid(self.nx, self.ny, ls=self.gp_hyperparams['ls'],  gam_shape_ls=self.gp_hyperparams['gam_shape_ls'],
+                        force_update_all_points=self.update_all_points, nu0=self.nu0)        
         
     def init_lnkappa(self):
         super(HeatMapBCC, self).init_lnkappa()  
@@ -199,13 +200,11 @@ class HeatMapBCC(ibcc.IBCC):
     def post_lnkappa(self):
         lnpKappa = 0
         for j in range(self.nclasses):
-            lnpKappa += norm.logpdf(self.heatGP[j].f, 0, 1)
+            lnpKappa += self.heatGP[j].logp_minus_logq()
         return lnpKappa                
                 
     def q_lnkappa(self):
-        lnqKappa = 0
-        for j in range(self.nclasses):
-            lnqKappa += norm.logpdf(self.heatGP[j].f, self.heatGP[j].f, self.heatGP[j].v)
+        lnqKappa = 0 # this was already included in the post_lnkappa.
         return lnqKappa
     
     def ln_modelprior(self):
