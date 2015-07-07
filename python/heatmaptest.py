@@ -92,12 +92,12 @@ def genSimData():
 def runBCC(C,nx,ny,nreceiver):
     nu0 = np.array([50.0, 50.0])
     alpha0 = np.array([[2, 1], [1, 2]])  
-    combiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nu0, nreceiver)
-    combiner.minNoIts = 20
-    bcc_pred = combiner.combine_classifications(C)
-    bcc_pred = np.exp(combiner.lnkappa)
+    heatmapcombiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nu0, nreceiver)
+    heatmapcombiner.minNoIts = 20
+    bcc_pred = heatmapcombiner.combine_classifications(C)
+    bcc_pred = np.exp(heatmapcombiner.lnkappa)
     bcc_pred = bcc_pred[1,:,:].reshape((nx,ny))
-    return bcc_pred,combiner
+    return bcc_pred,heatmapcombiner
 
 def runGPDirectly(C,nx,ny):
     
@@ -132,5 +132,5 @@ if __name__ == '__main__':
     ny = scale*10
 
     nreceiver, C, gridx, gridy, pop_grid, fig = genSimData()
-    bcc_pred,combiner = runBCC(C,nx,ny,nreceiver)
+    bcc_pred,heatmapcombiner = runBCC(C,nx,ny,nreceiver)
     plotresults()

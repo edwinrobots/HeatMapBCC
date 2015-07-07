@@ -18,7 +18,7 @@ import shutil
 class Heatmap(object):
 
     sea_map = []
-    combiner = {}
+    heatmapcombiner = {}
 
     webdatadir = './web'
     datadir = './data'
@@ -95,14 +95,14 @@ class Heatmap(object):
         return bcc_pred
             
     def runBCC_subset(self, C, j=1):
-        if j not in self.combiner or self.combiner[j]==None or self.combiner[j].K<self.K:
+        if j not in self.combiner or self.combiner[j]==None or self.heatmapcombiner[j].K<self.K:
             self.combiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
-            self.combiner[j].min_iterations = 5
-            self.combiner[j].max_iterations = 200
-            self.combiner[j].conv_threshold = 0.1
-            self.combiner[j].uselowerbound = False
+            self.heatmapcombiner[j].min_iterations = 5
+            self.heatmapcombiner[j].max_iterations = 200
+            self.heatmapcombiner[j].conv_threshold = 0.1
+            self.heatmapcombiner[j].uselowerbound = False
 
-        bcc_pred = self.combiner[j].combine_classifications(C)
+        bcc_pred = self.heatmapcombiner[j].combine_classifications(C)
         bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
         return bcc_pred, self.combiner[j]
 
@@ -162,7 +162,7 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = self.combiner[j].get_heat_variance()
+            bcc_stdPred = self.heatmapcombiner[j].get_heat_variance()
             #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
             #normalise it
             maxunc = np.max(bcc_stdPred)
@@ -187,7 +187,7 @@ class Heatmap(object):
             lab = 'Predicted target points of type ' + str(j)
             self.plotresults(self.enlarge_target_blobs(target_grid), lab)
             self.write_img("_targets_", j)
-            self.targetextractor.write_targets_json(self.timestep, self.combiner[j].alpha, self.C[j])
+            self.targetextractor.write_targets_json(self.timestep, self.heatmapcombiner[j].alpha, self.C[j])
             
             endtime = time.time()
             
@@ -213,7 +213,7 @@ class Heatmap(object):
     def kill_combiners(self):
         self.running = False
         for j in self.combiner.keys():
-            self.combiner[j].keeprunning = False
+            self.heatmapcombiner[j].keeprunning = False
     
     def reportintensity(self, j, timestep=-1):
         if timestep==-1:
@@ -602,20 +602,20 @@ if __name__ == '__main__':
            
     for j in range(1,2):
         start = time.time()
-        bcc_pred,combiner = heatmap.runBCC(j)
+        bcc_pred,heatmapcombiner = heatmap.runBCC(j)
         fin = time.time()
         print "bcc heatmap prediction timer (no loops): " + str(fin-start)
                         
-        bcc_mpr = combiner.get_mean_kappa()
+        bcc_mpr = heatmapcombiner.get_mean_kappa()
         heatmap.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
         #write_json(bcc_pred, nx,ny,j)
         heatmap.write_img("", j)
                  
         heatmap.plotresults(bcc_mpr,  label='Incident Rate of type '+str(j))
-        #write_json(combiner.mPr, nx,ny,j, label="_mpr_")
+        #write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_")
         heatmap.write_img("_mpr_",j)
          
-        bcc_stdPred = combiner.get_heat_variance()
+        bcc_stdPred = heatmapcombiner.get_heat_variance()
         heatmap.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_sd_",j)
@@ -647,7 +647,7 @@ if __name__ == '__main__':
   
         bcc_mpr2 = combiner2.get_mean_kappa()
         heatmap.plotresults(bcc_mpr2, label='Incident Rate of type '+str(j))
-#         write_json(combiner.mPr, nx,ny,j, label="_mpr_expert_")
+#         write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_expert_")
         heatmap.write_img("_mpr_expert_",j)
           
         bcc_stdPred2 = combiner2.get_heat_variance()

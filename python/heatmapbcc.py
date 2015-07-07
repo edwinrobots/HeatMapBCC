@@ -50,8 +50,12 @@ class HeatMapBCC(ibcc.IBCC):
     outputx = [] # coordinates of output points from the heat-map. If you just want to evaluate the whole grid, leave
     outputy = [] # these as empty lists
     
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, nu0, K, force_update_all_points=False, outputx=[], outputy=[],
-                 gp_hyperparams={'s':4, 'ls':100}):
+    oldf = [] # latent function mean from previous VB iteration 
+    
+    optimize_lengthscale_only = True 
+    
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=0.01, rate_s0=0.01, shape_ls=10, \
+                 rate_ls=0.1, force_update_all_points=False, outputx=[], outputy=[]):
         self.nx = nx
         self.ny = ny
         self.outputx = outputx
@@ -60,20 +64,29 @@ class HeatMapBCC(ibcc.IBCC):
         self.lnkappa = []
         self.post_T = []
         self.update_all_points = force_update_all_points
-        self.gp_hyperparams = gp_hyperparams
-        logging.debug('Setting up a 2-D grid. This should be generalised!')     
+        self.z0 = z0
+        self.shape_s0 = shape_s0
+        self.rate_s0 = rate_s0
+        self.shape_ls = shape_ls
+        self.rate_ls = rate_ls
+        self.ls_initial = self.shape_ls / self.rate_ls + np.ones(nclasses)
+        logging.debug('Setting up a 2-D grid. This should be generalised!')
+        nu0 = np.ones(nclasses)     
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
     
     def desparsify_crowdlabels(self, crowdlabels):
         crowdlabels = np.array(crowdlabels)
-        self.crowdx = crowdlabels[:,1].astype(int)
-        self.crowdy = crowdlabels[:,2].astype(int)        
-        linearIdxs = np.ravel_multi_index((self.crowdx, self.crowdy), dims=(self.nx,self.ny))
+        self.crowdx = crowdlabels[:,1]
+        self.crowdy = crowdlabels[:,2]
+
+        crowdcoords = zip(self.crowdx, self.crowdy)
+        self.crowddict = dict((coord, idx) for coord, idx in zip(crowdcoords, range(len(crowdcoords))) )
+        linearIdxs = [self.crowddict[l] for l in crowdcoords] # do this to ensure that we get unique values for each coord
         crowdlabels_flat = crowdlabels[:,[0,1,3]]
         crowdlabels_flat[:,1] = linearIdxs
         crowdlabels = super(HeatMapBCC,self).desparsify_crowdlabels(crowdlabels_flat)
         self.full_N = self.N # make sure that when we re-sparsify, we expand to the full grid size
-        linearIdxs = np.unique(linearIdxs)
+        linearIdxs = self.crowddict.values()
         self.obsx, self.obsy = np.unravel_index(linearIdxs, dims=(self.nx,self.ny))
         self.nu = [] # make sure we reset kappa so that it is resized correctly -- could avoid this in future to save a few iterations
         return crowdlabels_flat
@@ -85,12 +98,6 @@ class HeatMapBCC(ibcc.IBCC):
             goldlabels_flat = None
         super(HeatMapBCC, self).preprocess_goldlabels(goldlabels_flat)
         
-    def createGP(self):
-        #function can be overwritten by subclasses
-        #nx, ny, ls=100, nu0=[1,1], gam_shape_ls=1, force_update_all_points=False
-        return GPGrid(self.nx, self.ny, ls=self.gp_hyperparams['ls'],  gam_shape_ls=self.gp_hyperparams['gam_shape_ls'],
-                        force_update_all_points=self.update_all_points, nu0=self.nu0)        
-        
     def init_lnkappa(self):
         super(HeatMapBCC, self).init_lnkappa()  
         self.lnkappa = np.tile(self.lnkappa, (1, self.N))
@@ -101,9 +108,25 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = [1]
         else:
             gprange = np.arange(self.nclasses)
+        self.oldf = {}
         for j in gprange:
             #start with a homogeneous grid     
-            self.heatGP[j] = self.createGP()
+            self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0, 
+                                    shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial[j],
+                                    force_update_all_points=self.update_all_points)   
+            self.heatGP[j].verbose = self.verbose
+            self.heatGP[j].max_iter_VB = 1 # do one update each time we call fit()
+
+    def convergence_measure(self, oldET):
+        if self.nclasses==2:
+            gprange = [1]
+        else:
+            gprange = np.arange(self.nclasses)
+        fdiff = np.zeros(self.nclasses)
+        for j in gprange:
+            #start with a homogen
+            fdiff[j] = np.max(np.abs( (self.oldf[j] - self.heatGP[j].obs_f) / (self.heatGP[j].obs_f+self.oldf[j])))
+        return np.max( [np.max(np.sum(np.abs(oldET - self.E_t), 1)), np.max(fdiff)])
 
     def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, 
                                 maxiter=200, table_format=False):
@@ -117,7 +140,7 @@ class HeatMapBCC(ibcc.IBCC):
         return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, 
                                                                maxiter, False)
         
-    def resparsify_t(self):       
+    def resparsify_t(self):
         self.var_logodds_kappa = {}
         self.mean_kappa = {}                
         if self.nclasses==2:
@@ -141,10 +164,13 @@ class HeatMapBCC(ibcc.IBCC):
             if self.nclasses==2:
                 self.var_logodds_kappa[0] = self.var_logodds_kappa[1]
                 self.lnkappa_out[0,:] = np.log(1 - np.exp(self.lnkappa_out[1,:]))        
-            E_t_full[:,:] = (np.exp(self.lnkappa_out) / np.sum(np.exp(self.lnkappa_out),axis=0))
+            E_t_full[:,:] = np.exp(self.lnkappa_out)
             #observation points that coincide with output points should take into account the labels, not just GP
-            obsout_idxs = np.argwhere(np.in1d(self.obsx, self.outputx, assume_unique=True))
-            E_t_full[:, obsout_idxs] = self.E_t.T[:,obsout_idxs]
+            outputcoords = zip(self.outputx, self.outputy)
+            obsout_idxs = np.argwhere(np.in1d(outputcoords, self.crowddict, assume_unique=True))
+            obsin_idxs = [self.crowddict[outputcoords[idx]] for idx in obsout_idxs]
+            if len(obsin_idxs):
+                E_t_full[:, obsout_idxs] = self.E_t.T[:,obsin_idxs]
         else:
             logging.debug("Resparsifying to grid")
             E_t_full = np.zeros((self.nclasses, self.nx, self.ny))            
@@ -181,7 +207,14 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = np.arange(self.nclasses)
         for j in gprange:
             obs_values = self.E_t[:,j]
-            self.lnkappa[j], _ = self.heatGP[j].optimize([self.obsx, self.obsy], obs_values, expectedlog=True)
+            if len(self.heatGP[j].obs_f):
+                self.oldf[j] = self.heatGP[j].obs_f
+            else:
+                self.oldf[j] = np.zeros(len(obs_values))
+                
+            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True)
+            if np.sum(self.oldf[j])==0:
+                self.oldf[j] = self.heatGP[j].obs_mean_prob
         if self.nclasses==2:
             self.lnkappa[0] = np.log(1-np.exp(self.lnkappa[1]))
      
@@ -215,18 +248,31 @@ class HeatMapBCC(ibcc.IBCC):
         for j in range(self.nclasses):
             if j in self.heatGP:
                 lnp_gp += self.heatGP[j].ln_modelprior()
+                logging.debug("GP for class %i using length-scale %f" % (j, self.heatGP[j].ls))
         return lnp + lnp_gp
     
-    def set_hyperparams(self,hyperparams):
-        ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores * self.alpha0_length + self.nclasses]
-        super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
+    def set_hyperparams(self, hyperparams):
+        if not self.optimize_lengthscale_only:
+            ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores * self.alpha0_length + self.nclasses]
+            super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
+        lengthscales = []
         for j in range(self.nclasses):
             if j in self.heatGP:
-                self.heatGP[j].ls = hyperparams[-1]
-        return (self.alpha0, self.nu0, hyperparams[-1])
+                self.ls_initial[j] = np.exp(hyperparams[-self.nclasses+j])
+                lengthscales.append(self.ls_initial[j])
+        return self.alpha0, self.nu0, lengthscales
 
     def get_hyperparams(self):
-        hyperparams, constraints = super(HeatMapBCC, self).get_hyperparams()
-        hyperparams = np.concatenate((hyperparams, [self.heatGP[1].ls]))
-        constraints.append(lambda hp: np.all(hp[-1:]))
-        return hyperparams, constraints
+        if not self.optimize_lengthscale_only:
+            hyperparams, constraints, rhobeg, rhoend = super(HeatMapBCC, self).get_hyperparams()
+        else:
+            constraints = []
+            hyperparams = []
+            rhobeg = []
+            rhoend = []
+        for j in range(self.nclasses):
+            if j in self.heatGP:
+                hyperparams.append(np.log(self.heatGP[j].ls))
+                rhobeg.append(hyperparams[-1] - np.log(0.5 * self.heatGP[j].ls))
+                rhoend.append(np.log(0.1 * self.heatGP[j].ls))
+        return hyperparams, constraints, rhobeg, rhoend
