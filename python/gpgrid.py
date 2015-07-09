@@ -342,7 +342,7 @@ class GPGrid(object):
 
         # Determine whether to calculate all points from scratch, or just those close to new/changed observations
         update_all_points = self.update_all_points
-        if self.f==[]:
+        if self.f==[] or update_all_points:
             self.f = np.zeros(nout)
             update_all_points = True
             self.v = np.zeros(nout) # diagonal values only        
@@ -394,4 +394,13 @@ class GPGrid(object):
         if self.verbose:
             logging.debug("gp grid predictions: %s" % str(m_post))
              
+        return m_post
+
+    def get_mean_density(self):
+        '''
+        Return an approximation to the mean density having calculated the latent mean using predict().
+        :return:
+        '''
+        k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
+        m_post = sigmoid(k * (self.f * self.mu0))
         return m_post
