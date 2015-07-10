@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
-from scipy.optimize import fmin_cobyla
+from scipy.optimize import fmin#_cobyla
 from scipy.special import gammaln, gamma
 import scipy.linalg.fblas as fblas
 import logging
@@ -63,6 +63,9 @@ class GPGrid(object):
     conv_threshold = 5e-2
 
     cov_func = "sqexp"# "matern" #
+
+    outputx = []
+    outputy = []
     
     def __init__(self, nx, ny, z0=0.5, shape_s0=0.01, rate_s0=0.01, shape_ls=10, rate_ls=0.1, ls_initial=100, force_update_all_points=False):
         #Grid size for prediction
@@ -197,8 +200,9 @@ class GPGrid(object):
         self.process_observations(obsx, obsy, obs_values) # process the data here so we don't repeat each call
         initialguess = [np.log(self.ls)]
         constraints = []#[lambda hp,_: 1 if np.all(np.asarray(hp)>0) else -1]
-        opt_hyperparams = fmin_cobyla(self.neg_marginal_likelihood, initialguess, constraints, args=(expectedlog,), 
-                                    rhobeg=0.5, rhoend=0.2)
+        opt_hyperparams = fmin(self.neg_marginal_likelihood, initialguess, maxfun=100, full_output=False, ftol=1, xtol=0.1)
+        #fmin_cobyla(self.neg_marginal_likelihood, initialguess, constraints, args=(expectedlog,),
+        #                            rhobeg=0.5, rhoend=0.2)
         opt_hyperparams[0] = np.exp(opt_hyperparams[0])
         logging.debug("Optimal hyper-parameters: ")
         for param in opt_hyperparams:
@@ -333,6 +337,7 @@ class GPGrid(object):
         '''
         outputx = output_coords[0].astype(float)
         outputy = output_coords[1].astype(float)
+
         maxsize = 2.0 * 10**7
         nout = outputx.size
         
@@ -342,11 +347,15 @@ class GPGrid(object):
 
         # Determine whether to calculate all points from scratch, or just those close to new/changed observations
         update_all_points = self.update_all_points
-        if self.f==[] or update_all_points:
+        if self.f==[] or update_all_points or len(self.outputx) != len(outputx) or np.any(self.outputx != outputx) or \
+                np.any(self.outputy != outputy):
             self.f = np.zeros(nout)
             update_all_points = True
             self.v = np.zeros(nout) # diagonal values only        
-            
+
+        self.outputx = outputx # save these coordinates so we can check if they are the same when called again
+        self.outputy = outputy
+
         Vpart = solve_triangular(self.L, self.G, lower=True, check_finite=False, overwrite_b=True)
         
         for s in np.arange(nsplits):
