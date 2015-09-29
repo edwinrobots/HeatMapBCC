@@ -37,8 +37,8 @@ class Heatmap(object):
     rep_ids = []
         
     startclean = True #if true, will delete all previous maps before running
-    timestep = 65 #max is likely to be 765
-    stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
+    timestep = 765#65 #max is likely to be 765
+    Nlabel_increment = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
 
     #If run_script_only is set to true, it will run the update loop when called until all scripted reports have been included.
@@ -73,7 +73,7 @@ class Heatmap(object):
         else:
             self.fileprefix = self.webdatadir + fileprefix
                 
-        self.alpha0 = np.array([[2.0, 1.0], [1.0, 2.0]])
+        self.alpha0 = np.array([[20.0, 1.0], [1.0, 20.0]])
         self.nu0 = np.array([1,1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         self.targetextractor = maptargets.MapTargets(self)
@@ -95,16 +95,18 @@ class Heatmap(object):
         return bcc_pred
             
     def runBCC_subset(self, C, j=1):
-        if j not in self.combiner or self.combiner[j]==None or self.heatmapcombiner[j].K<self.K:
-            self.combiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
+        if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
+            self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K)
+                                                            #shape_ls=0.001, rate_ls=1000)#shape_ls=10, rate_ls=0.1)
             self.heatmapcombiner[j].min_iterations = 5
             self.heatmapcombiner[j].max_iterations = 200
             self.heatmapcombiner[j].conv_threshold = 0.1
             self.heatmapcombiner[j].uselowerbound = False
 
-        bcc_pred = self.heatmapcombiner[j].combine_classifications(C)
+        self.heatmapcombiner[j].combine_classifications(C)
+        bcc_pred, _ = self.heatmapcombiner[j].predict_grid()
         bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
-        return bcc_pred, self.combiner[j]
+        return bcc_pred, self.heatmapcombiner[j]
 
     #@profile
     def loop_iteration(self, j, t):
@@ -162,7 +164,7 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = self.heatmapcombiner[j].get_heat_variance()
+            bcc_stdPred = self.heatmapcombiner[j].get_heat_variance_grid()
             #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
             #normalise it
             maxunc = np.max(bcc_stdPred)
@@ -202,8 +204,7 @@ class Heatmap(object):
             if self.timestep >= nupdates and self.run_script_only:
                     self.running = False
             else:
-                self.timestep += self.stepsize
-            
+                self.timestep += self.Nlabel_increment
 
             if self.timestep > nupdates:
                 self.timestep = nupdates
@@ -212,7 +213,7 @@ class Heatmap(object):
             
     def kill_combiners(self):
         self.running = False
-        for j in self.combiner.keys():
+        for j in self.heatmapcombiner.keys():
             self.heatmapcombiner[j].keeprunning = False
     
     def reportintensity(self, j, timestep=-1):
@@ -487,7 +488,7 @@ class Heatmap(object):
         self.K = len(instantiatedagents)
                      
         self.C = C
-        self.combiner = {} #reset as we have reloaded the data
+        self.heatmapcombiner = {} #reset as we have reloaded the data
         print "Number of type one reports: " + str(self.C[1].shape[0])
         
         self.targetextractor.rep_list = rep_list

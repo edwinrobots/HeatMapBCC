@@ -3,7 +3,7 @@ from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
 from scipy.optimize import fmin#_cobyla
 from scipy.special import gammaln, gamma
-import scipy.linalg.fblas as fblas
+import scipy.linalg.blas as fblas
 import logging
 
 def sigmoid(f):
@@ -38,7 +38,6 @@ class GPGrid(object):
     obsx = []
     obsy = []
     obs_values = [] # value of the positive class at each observations. Any duplicate points will be summed.
-    grid_obs_counts = []
     
     obs_f = []
     obs_C = []
@@ -59,7 +58,7 @@ class GPGrid(object):
     v = []
     
     max_iter_VB = 100
-    max_iter_G = 1
+    max_iter_G = 5
     conv_threshold = 5e-2
 
     cov_func = "sqexp"# "matern" #
@@ -67,7 +66,7 @@ class GPGrid(object):
     outputx = []
     outputy = []
     
-    def __init__(self, nx, ny, z0=0.5, shape_s0=0.01, rate_s0=0.01, shape_ls=10, rate_ls=0.1, ls_initial=100, force_update_all_points=False):
+    def __init__(self, nx, ny, z0=0.5, shape_s0=0.01, rate_s0=0.01, shape_ls=10, rate_ls=0.1, ls_initial=None, force_update_all_points=False):
         #Grid size for prediction
         self.nx = nx
         self.ny = ny
@@ -84,7 +83,11 @@ class GPGrid(object):
         #Length-scale
         self.shape_ls = shape_ls # prior pseudo counts * 0.5
         self.rate_ls = rate_ls # analogous to a sum of changes between points at a distance of 1
-        self.ls = ls_initial
+        if np.any(ls_initial):
+            self.ls = ls_initial
+        else:
+            self.ls = self.shape_ls / self.rate_ls
+            self.ls = np.zeros(2) + self.ls
 
         #Algorithm configuration        
         self.update_all_points = force_update_all_points
@@ -103,16 +106,41 @@ class GPGrid(object):
         self.obsy = np.array(obsy)
         
         obs_values = np.array(obs_values)
-        if obs_values.ndim==1 or obs_values.shape[1]==1: # duplicate locations allowed, one count at each array entry
-            self.obs_values = np.array(obs_values).reshape(-1)
-
-            self.grid_obs_counts = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
-            grid_obs_pos_counts = coo_matrix((self.obs_values, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
+        if self.obsx.dtype=='int' and (obs_values.ndim==1 or obs_values.shape[1]==1): # duplicate locations allowed, one count at each array entry
+            grid_obs_counts = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
+            grid_obs_pos_counts = coo_matrix((obs_values, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
             
-            self.obsx, self.obsy = self.grid_obs_counts.nonzero()
-            obs_pos_counts = grid_obs_pos_counts[self.obsx,self.obsy][:, np.newaxis]
-            obs_total_counts = self.grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
+            self.obsx, self.obsy = grid_obs_counts.nonzero()
+            self.obs_values = grid_obs_pos_counts[self.obsx,self.obsy]
+            obs_pos_counts = self.obs_values[:, np.newaxis]
+            obs_total_counts = grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
             
+        elif self.obsx.dtype=='float' and (obs_values.ndim==1 or obs_values.shape[1]==1):
+            # assume no clashes
+#             counters = {}
+#             pos_counters = {}
+#             
+#             self.obsx = []
+#             self.obsy = []
+#             
+#             for i in range(len(obsx)):
+#                 coord = (obsx[i], obsy[i])
+#                 if coord in counters:
+#                     counters[coord] += 1.0
+#                     pos_counters[coord] += obs_values[i]
+#                 else:
+#                     counters[coord] = 1.0
+#                     pos_counters[coord] = obs_values[i]
+#                     
+#                     self.obsx.append(obsx[i])
+#                     self.obsy.append(obsy[i])
+#             
+#             self.obs_values = np.array(pos_counters.values())
+            self.obs_values = obs_values
+            obs_pos_counts = self.obs_values[:, np.newaxis]
+            #obs_total_counts = np.array(counters.values())[:, np.newaxis]
+            obs_total_counts = np.ones(obs_pos_counts.shape)
+             
         elif obs_values.shape[1]==2: 
             # obs_values given as two columns: first is positive counts, second is total counts. No duplicate locations
             obs_pos_counts = np.array(obs_values[:,0]).reshape(obs_values.shape[0],1)
@@ -135,13 +163,13 @@ class GPGrid(object):
         # Mean probability at observed points given local observations
         self.obs_mean_prob = (obs_pos_counts+1) / (obs_total_counts+2)
         # Noise in observations
-        self.Q = np.diagflat(self.obs_mean_prob * (1 - self.obs_mean_prob) / obs_total_counts)
+        self.Q = np.diagflat(self.obs_mean_prob * (1 - self.obs_mean_prob) / (obs_total_counts + 1))
     
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
         lnp_gp = - gammaln(self.shape_ls) + self.shape_ls*np.log(self.rate_ls) \
                    + (self.shape_ls-1)*np.log(self.ls) - self.ls*self.rate_ls
-        return lnp_gp
+        return np.sum(lnp_gp)
     
     def lowerbound(self):
         #calculate likelihood from the fitted model 
@@ -178,14 +206,18 @@ class GPGrid(object):
         '''
         Weight the marginal log data likelihood by the hyper-prior. Unnormalised posterior over the hyper-parameters.
         '''
-        if np.any(np.isnan(hyperparams)) or np.any(hyperparams <= 0):
+        if np.any(np.isnan(hyperparams)):
             return np.inf
-        self.ls = np.exp(hyperparams[0])
-        if np.isinf(self.ls):
+        self.ls = np.exp(hyperparams[0:2])
+        if np.any(np.isinf(self.ls)):
             return np.inf
-        logging.debug("Length-scale: %f" % self.ls)
+        logging.debug("Length-scale: %f, %f" % (self.ls[0], self.ls[1]))
         self.obs_f = [] # make sure we start again
+        original_s = self.s
         self.fit((self.obsx, self.obsy), self.obs_values, expectedlog=expectedlog, process_obs=False)
+        logging.debug("Output scale: %f" % self.s)        
+        self.opt_s = self.s # saved the optimized value
+        self.s = original_s
         
         marginal_log_likelihood = self.lowerbound()
         
@@ -198,29 +230,30 @@ class GPGrid(object):
         obsx = obs_coords[0]
         obsy = obs_coords[1]
         self.process_observations(obsx, obsy, obs_values) # process the data here so we don't repeat each call
-        initialguess = [np.log(self.ls)]
-        constraints = []#[lambda hp,_: 1 if np.all(np.asarray(hp)>0) else -1]
-        opt_hyperparams = fmin(self.neg_marginal_likelihood, initialguess, maxfun=100, full_output=False, ftol=1, xtol=0.1)
+        initialguess = np.log(self.ls)
+        #constraints = []#[lambda hp,_: 1 if np.all(np.asarray(hp)>0) else -1]
+        opt_hyperparams = fmin(self.neg_marginal_likelihood, initialguess, maxfun=20, full_output=False, ftol=1, xtol=100)
         #fmin_cobyla(self.neg_marginal_likelihood, initialguess, constraints, args=(expectedlog,),
         #                            rhobeg=0.5, rhoend=0.2)
         opt_hyperparams[0] = np.exp(opt_hyperparams[0])
+        self.s = self.opt_s # use the optimal value since s would be reset to the original value otherwise
         logging.debug("Optimal hyper-parameters: ")
         for param in opt_hyperparams:
             logging.debug(str(param))        
         return self.mean_prob_obs, opt_hyperparams
 
     def sq_exp_cov(self, xvals, yvals):
-        Kx = np.exp( -xvals**2 / self.ls )
-        Ky = np.exp( -yvals**2 / self.ls )
+        Kx = np.exp( -xvals**2 / self.ls[0] )
+        Ky = np.exp( -yvals**2 / self.ls[1] )
         K = Kx * Ky
         return K
 
-    def matern(self, xvals, yvals):
-        nu = 1
-        rho = 1
-
-        #1.0/(gamma(nu) * 2**(nu-1)) *
-        return K
+#     def matern(self, xvals, yvals):
+#         nu = 1
+#         rho = 1
+# 
+#         #1.0/(gamma(nu) * 2**(nu-1)) *
+#         return K
 
     def fit( self, obs_coords, obs_values, expectedlog=False, process_obs=True):
         obsx = obs_coords[0]
@@ -242,28 +275,28 @@ class GPGrid(object):
         if self.verbose: 
             logging.debug("gp grid starting training...")    
         
-        self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
         self.shape_s = self.shape_s0 + len(self.obsx)/2.0
         
-        if self.obs_f == [] or len(self.obs_f)<len(self.obsx):
-            prev_obs_f = logit(self.obs_mean_prob)
-        else:
-            prev_obs_f = self.obs_f - self.mu0
-        old_obs_f = self.obs_f
+#         if self.obs_f == [] or len(self.obs_f)<len(self.obsx):
+#           prev_obs_f = logit(self.obs_mean_prob)
+#       else:
+#           prev_obs_f = self.obs_f - self.mu0
+        prev_obs_f = logit(self.obs_mean_prob) # do this every time to make sure we don't get stuck in local optima
+        old_obs_f = prev_obs_f
         mean_X = self.obs_mean_prob
         
         conv_count = 0    
         nIt = 0
         diff = 0
-        diff_s = 0.000001
+        #diff_s = 0.000001
         while not conv_count>3 and nIt<self.max_iter_VB:
-            
             if self.verbose:
                 logging.debug("Updated inverse output scale: " + str(self.s))
             
             self.Ks = self.K/self.s
             converged_inner = False
             nIt_inner = 0
+            
             while not converged_inner and nIt_inner < self.max_iter_G:
                 self.G = np.diagflat( mean_X*(1-mean_X) )
         
@@ -274,9 +307,9 @@ class GPGrid(object):
                 self.A = solve_triangular(self.L.T, B, overwrite_b=True)
         
                 #H = np.diagflat(1-2*mean_X) + 1e-6 * np.eye(len(K)) # jitter 
-                #self.obs_f = old_f*(1-stepsize) + stepsize*inv(H).dot(B) # uses second derivative -- better for least-squares minimisation but doesn't improve lower bound
-                stepsize = np.diag(self.G)[:, np.newaxis] +  1e-6 * np.random.rand()# good heuristic to achieve convergence: gets lower as values more extreme
-                self.obs_f = prev_obs_f*(1-stepsize) + stepsize*self.Ks.dot(self.G).dot(self.A)
+                #self.obs_f = old_f*(1-Nlabel_increment) + Nlabel_increment*inv(H).dot(B) # uses second derivative -- better for least-squares minimisation but doesn't improve lower bound
+                Nlabel_increment = 0.5#(np.diag(self.G)[:, np.newaxis])  * np.random.rand()# good heuristic to achieve convergence: gets lower as values more extreme
+                self.obs_f = prev_obs_f*(1-Nlabel_increment) + Nlabel_increment*self.Ks.dot(self.G).dot(self.A)
                 #self.obs_f = self.Ks.dot(self.G).dot(inv(self.Q + self.G.dot(self.Ks).dot(self.G))).dot(self.G).dot(self.z-0.5)
                 mean_X = sigmoid(self.obs_f)
                       
@@ -294,19 +327,20 @@ class GPGrid(object):
             V = solve_triangular(self.L, self.G.dot(self.Ks.T), lower=True, overwrite_b=True)
             self.obs_C = self.Ks - V.T.dot(V) 
             #self.obs_C = self.Ks - self.Ks.dot(self.G).dot(inv(self.Q+self.G.dot(self.Ks).dot(self.G))).dot(self.G).dot(self.Ks)
-        
+
             #update the scale parameter of the output scale distribution (also called latent function scale/sigmoid steepness)
-            invK_C_plus_ffT = solve_triangular(self.cholK.T, (self.obs_C + self.obs_f.dot(self.obs_f.T)), lower=True, overwrite_b=True)
-            invK_C_plus_ffT = solve_triangular(self.cholK, invK_C_plus_ffT, overwrite_b=True)
+            sum_sq_devs = np.sum( (np.diag(self.obs_C) + (self.obs_f * self.obs_f).reshape(-1) ) / np.diag(self.K))  # sum of square deviations
+            #invK_C_plus_ffT = solve_triangular(self.cholK.T, (self.obs_C + self.obs_f.dot(self.obs_f.T)), lower=True, overwrite_b=True)
+            #invK_C_plus_ffT = solve_triangular(self.cholK, invK_C_plus_ffT, overwrite_b=True)
             #D_old = inv(self.K).dot(self.obs_f.dot(self.obs_f.T) + self.obs_C)
-            self.rate_s = float(self.rate_s0) + 0.5*np.trace(invK_C_plus_ffT) 
+            self.rate_s = float(self.rate_s0) + 0.5*sum_sq_devs#np.trace(invK_C_plus_ffT) 
             #update s to its current expected value
             self.old_s = self.s # Approximations for Binary Gaussian Process Classification, Hannes Nickisch
-            self.s = self.shape_s/self.rate_s
+            #self.s = self.shape_s/self.rate_s
             
             #self.M = cholesky(self.Ks, lower=True, overwrite_a=False, check_finite=False)
-            old_diff_s = diff_s
-            diff_s = np.abs( (self.s-self.old_s) / self.old_s)
+            #old_diff_s = diff_s
+            #diff_s = np.abs( (self.s-self.old_s) / self.old_s)
             converged = (diff<self.conv_threshold) #& ((diff_s / old_diff_s <1.05) | (diff_s / old_diff_s < 0.95) | (diff_s<0.0001))
             if converged:
                 conv_count += 1
