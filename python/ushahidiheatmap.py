@@ -37,7 +37,7 @@ class Heatmap(object):
     rep_ids = []
         
     startclean = True #if true, will delete all previous maps before running
-    timestep = 765#65 #max is likely to be 765
+    timestep = 65 #max is likely to be 765
     Nlabel_increment = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
 
@@ -73,8 +73,8 @@ class Heatmap(object):
         else:
             self.fileprefix = self.webdatadir + fileprefix
                 
-        self.alpha0 = np.array([[20.0, 1.0], [1.0, 20.0]])
-        self.nu0 = np.array([1,1])#np.array([0.5, 0.5])#0.03
+        self.alpha0 = np.array([[2.0, 1.0], [1.0, 2.0]])
+        self.nu0 = np.array([1, 1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         self.targetextractor = maptargets.MapTargets(self)
         if self.startclean:
@@ -91,8 +91,8 @@ class Heatmap(object):
     def runBCC_up_to_time(self, j, timestep):       
         C = self.C[j]
         C = C[0:timestep,:]
-        bcc_pred, _ = self.runBCC_subset(C)
-        return bcc_pred
+        bcc_pred, bcc_var, _ = self.runBCC_subset(C)
+        return bcc_pred, bcc_var
             
     def runBCC_subset(self, C, j=1):
         if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
@@ -104,14 +104,15 @@ class Heatmap(object):
             self.heatmapcombiner[j].uselowerbound = False
 
         self.heatmapcombiner[j].combine_classifications(C)
-        bcc_pred, _ = self.heatmapcombiner[j].predict_grid()
-        bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
-        return bcc_pred, self.heatmapcombiner[j]
+        bcc_pred, _, bcc_var = self.heatmapcombiner[j].predict_grid()
+        bcc_pred = bcc_pred[j, :, :].reshape((self.nx, self.ny))
+        bcc_var = bcc_var[j, :, :].reshape((self.nx, self.ny))
+        return bcc_pred, bcc_var, self.heatmapcombiner[j]
 
     #@profile
     def loop_iteration(self, j, t):
-        bcc_pred = self.runBCC_up_to_time(j,t)
-        return bcc_pred
+        bcc_pred, bcc_var = self.runBCC_up_to_time(j,t)
+        return bcc_pred, bcc_var
               
     def enlarge_target_blobs(self, target_grid, nsize=5):
         #make neighbouring points also one
@@ -155,7 +156,7 @@ class Heatmap(object):
             logging.info("timed_update_loop timestep " + str(self.timestep))
             starttime = time.time()
 
-            bcc_pred = self.loop_iteration(j, self.timestep)
+            bcc_pred, bcc_var = self.loop_iteration(j, self.timestep)
 
             if not self.running:
                 logging.info("Stopping update loop for the heatmap")
@@ -164,7 +165,7 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = self.heatmapcombiner[j].get_heat_variance_grid()
+            bcc_stdPred = bcc_var**0.5
             #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
             #normalise it
             maxunc = np.max(bcc_stdPred)

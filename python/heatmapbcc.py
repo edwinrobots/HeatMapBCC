@@ -45,7 +45,7 @@ class HeatMapBCC(ibcc.IBCC):
     
     optimize_lengthscale_only = True
 
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=0.01, rate_s0=0.01, shape_ls=10,
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=1.0, rate_s0=16.0, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None):
         if not outputy:
             outputy = []
@@ -150,7 +150,8 @@ class HeatMapBCC(ibcc.IBCC):
         # Initialise containers for results at the output locations 
         nout = len(outputx)
         self.E_t_out = np.zeros((self.nclasses, nout))
-        self.lnkappa_out = np.zeros((self.nclasses, nout))
+        kappa_out = np.zeros((self.nclasses, nout))
+        v_kappa_out = np.zeros((self.nclasses, nout))
 
         # Obtain the density estimates
         if self.nclasses==2:
@@ -158,23 +159,25 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         for j in gprange:
-            self.lnkappa_out[j,:] = self.heatGP[j].predict([outputx, outputy], expectedlog=True)
+            kappa_out[j, :], v_kappa_out[j, :] = self.heatGP[j].predict([outputx, outputy], expectedlog=True)
         if self.nclasses==2:
-            self.lnkappa_out[0,:] = np.log(1 - np.exp(self.lnkappa_out[1,:]))
+            kappa_out[0, :] = np.log(1 - np.exp(self.lnkappa_out[1,:]))
+            v_kappa_out[0, :] = v_kappa_out[1, :]
 
         # Set the predictions for the targets
-        self.E_t_out[:,:] = np.exp(self.lnkappa_out)
+        self.E_t_out[:,:] = kappa_out
         #observation points that coincide with output points should take into account the labels, not just GP
         outputcoords = zip(outputx, outputy)
         obsin_idxs = np.array([self.crowddict[oc] if oc in self.crowddict else -1 for oc in outputcoords])
         obsout_idxs = obsin_idxs > -1
         obsin_idxs = obsin_idxs[obsout_idxs]
         self.E_t_out[:, obsout_idxs] = self.E_t.T[:, obsin_idxs]
-        return self.E_t_out
+        return self.E_t_out, kappa_out, v_kappa_out
 
     def predict_grid(self):
         E_t_grid = np.zeros((self.nclasses, self.nx, self.ny))
         kappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
+        v_kappa_grid = np.zeros((self.nclasses, self.nx, self.ny))
         #Evaluate the function posterior mean and variance at all coordinates in the grid. Use this to calculate
         #values for plotting a heat map. Calculate coordinates:
         nout = self.nx * self.ny
@@ -186,10 +189,12 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         for j in gprange:
-            kappa_grid_j = self.heatGP[j].predict([outputx, outputy], expectedlog=False)
+            kappa_grid_j, v_kappa_grid_j = self.heatGP[j].predict([outputx, outputy], expectedlog=False)
             kappa_grid[j, :,:] = kappa_grid_j.reshape((self.nx, self.ny))
+            v_kappa_grid[j, :, :] = v_kappa_grid_j.reshape((self.nx, self.ny))
         if self.nclasses==2:
             kappa_grid[0,:,:] = 1 - kappa_grid[1,:,:]
+            v_kappa_grid[0, :, :] = v_kappa_grid[1, :, :]
         
         E_t_grid[:] = kappa_grid
         
@@ -198,7 +203,7 @@ class HeatMapBCC(ibcc.IBCC):
         obsy_grid = self.obsy[obs_at_grid_points].astype(int)
         E_t_grid[:, obsx_grid, obsy_grid] = self.E_t[obs_at_grid_points, :].T
 
-        return E_t_grid, kappa_grid
+        return E_t_grid, kappa_grid, v_kappa_grid
 
     def resparsify_t(self):
         self.E_t_sparse = self.E_t # save the sparse version

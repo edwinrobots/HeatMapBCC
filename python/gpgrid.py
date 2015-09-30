@@ -57,8 +57,8 @@ class GPGrid(object):
     f = []
     v = []
     
-    max_iter_VB = 100
-    max_iter_G = 5
+    max_iter_VB = 500
+    max_iter_G = 10
     conv_threshold = 5e-2
 
     cov_func = "sqexp"# "matern" #
@@ -66,7 +66,7 @@ class GPGrid(object):
     outputx = []
     outputy = []
     
-    def __init__(self, nx, ny, z0=0.5, shape_s0=0.01, rate_s0=0.01, shape_ls=10, rate_ls=0.1, ls_initial=None, force_update_all_points=False):
+    def __init__(self, nx, ny, z0=0.5, shape_s0=1, rate_s0=16.0, shape_ls=10, rate_ls=0.1, ls_initial=None, force_update_all_points=False):
         #Grid size for prediction
         self.nx = nx
         self.ny = ny
@@ -277,19 +277,23 @@ class GPGrid(object):
         
         self.shape_s = self.shape_s0 + len(self.obsx)/2.0
         
-#         if self.obs_f == [] or len(self.obs_f)<len(self.obsx):
-#           prev_obs_f = logit(self.obs_mean_prob)
-#       else:
-#           prev_obs_f = self.obs_f - self.mu0
-        prev_obs_f = logit(self.obs_mean_prob) # do this every time to make sure we don't get stuck in local optima
+        if not np.any(self.obs_f) or len(self.obs_f)<len(self.obsx):
+            prev_obs_f = logit(self.obs_mean_prob)
+            mean_X = self.obs_mean_prob         
+            self.G = np.diagflat( mean_X*(1-mean_X) )            
+        else:
+            prev_obs_f = self.obs_f - self.mu0
+            
+#        prev_obs_f = logit(self.obs_mean_prob) # do this every time to make sure we don't get stuck in local optima
         old_obs_f = prev_obs_f
-        mean_X = self.obs_mean_prob
+        
         
         conv_count = 0    
         nIt = 0
         diff = 0
         #diff_s = 0.000001
         while not conv_count>3 and nIt<self.max_iter_VB:
+            self.verbose = True
             if self.verbose:
                 logging.debug("Updated inverse output scale: " + str(self.s))
             
@@ -298,8 +302,6 @@ class GPGrid(object):
             nIt_inner = 0
             
             while not converged_inner and nIt_inner < self.max_iter_G:
-                self.G = np.diagflat( mean_X*(1-mean_X) )
-        
                 Cov = self.G.dot(self.Ks).dot(self.G) + self.Q
                 self.L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True)  
         
@@ -312,6 +314,7 @@ class GPGrid(object):
                 self.obs_f = prev_obs_f*(1-Nlabel_increment) + Nlabel_increment*self.Ks.dot(self.G).dot(self.A)
                 #self.obs_f = self.Ks.dot(self.G).dot(inv(self.Q + self.G.dot(self.Ks).dot(self.G))).dot(self.G).dot(self.z-0.5)
                 mean_X = sigmoid(self.obs_f)
+                self.G = np.diagflat( mean_X*(1-mean_X) )
                       
                 diff = np.max(np.abs( (self.obs_f - prev_obs_f) / (self.obs_f + prev_obs_f)))
                 if self.verbose:
@@ -329,14 +332,16 @@ class GPGrid(object):
             #self.obs_C = self.Ks - self.Ks.dot(self.G).dot(inv(self.Q+self.G.dot(self.Ks).dot(self.G))).dot(self.G).dot(self.Ks)
 
             #update the scale parameter of the output scale distribution (also called latent function scale/sigmoid steepness)
-            sum_sq_devs = np.sum( (np.diag(self.obs_C) + (self.obs_f * self.obs_f).reshape(-1) ) / np.diag(self.K))  # sum of square deviations
-            #invK_C_plus_ffT = solve_triangular(self.cholK.T, (self.obs_C + self.obs_f.dot(self.obs_f.T)), lower=True, overwrite_b=True)
-            #invK_C_plus_ffT = solve_triangular(self.cholK, invK_C_plus_ffT, overwrite_b=True)
+            #sum_sq_devs = np.sum( (np.diag(self.obs_C) + (self.obs_f * self.obs_f).reshape(-1) ) / np.diag(self.K))  # sum of square deviations
+            #self.rate_s = float(self.rate_s0) + 0.5*sum_sq_devs
+            
+            invK_C_plus_ffT = solve_triangular(self.cholK.T, (self.obs_C + self.obs_f.dot(self.obs_f.T)), lower=True, overwrite_b=True)
+            invK_C_plus_ffT = solve_triangular(self.cholK, invK_C_plus_ffT, overwrite_b=True)
             #D_old = inv(self.K).dot(self.obs_f.dot(self.obs_f.T) + self.obs_C)
-            self.rate_s = float(self.rate_s0) + 0.5*sum_sq_devs#np.trace(invK_C_plus_ffT) 
+            self.rate_s = float(self.rate_s0) + 0.5 * np.trace(invK_C_plus_ffT) 
             #update s to its current expected value
             self.old_s = self.s # Approximations for Binary Gaussian Process Classification, Hannes Nickisch
-            #self.s = self.shape_s/self.rate_s
+            self.s = self.shape_s/self.rate_s
             
             #self.M = cholesky(self.Ks, lower=True, overwrite_a=False, check_finite=False)
             #old_diff_s = diff_s
@@ -364,7 +369,7 @@ class GPGrid(object):
         self.mean_prob_notobs = mean_prob_notobs
         return mean_prob_obs.reshape(-1)
     
-    def predict(self, output_coords, expectedlog=False):
+    def predict(self, output_coords, expectedlog=False, variance_method='rough'):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
@@ -390,7 +395,10 @@ class GPGrid(object):
         self.outputx = outputx # save these coordinates so we can check if they are the same when called again
         self.outputy = outputy
 
-        Vpart = solve_triangular(self.L, self.G, lower=True, check_finite=False, overwrite_b=True)
+        Cov = self.G.dot(self.Ks).dot(self.G) + self.Q
+        self.L = cholesky(Cov,lower=True, check_finite=False, overwrite_a=True)  
+
+        #Vpart = solve_triangular(self.L, self.G, lower=True, check_finite=False, overwrite_b=True)
         
         for s in np.arange(nsplits):
             
@@ -409,9 +417,12 @@ class GPGrid(object):
             ddy = outputy_s - self.obsy
             if self.cov_func == "sqexp":
                 Kpred = self.sq_exp_cov(ddx, ddy)
+                Vprior = self.sq_exp_cov(0, 0)
             elif self.cov_func == "matern":
                 Kpred = self.matern(ddx, ddy)
-            Kpred = Kpred/self.s
+                Vprior = self.sq_exp_cov(0, 0)
+            Kpred = Kpred / self.s
+            Vprior = Vprior / self.s
             
             #update all idxs?
             if not update_all_points:
@@ -420,8 +431,8 @@ class GPGrid(object):
                 output_flat = output_flat[changed]
                 
             f_s = fblas.dgemm(alpha=1.0, a=Kpred.T, b=self.G.dot(self.A).T, trans_a=True, trans_b=True, overwrite_c=True)
-            V = fblas.dgemm(alpha=1.0, a=Vpart.T, b=Kpred.T, trans_a=True, overwrite_c=True)
-            v_s = 1.0/self.s - np.sum(V**2,axis=0)
+            V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True)
+            v_s = Vprior - np.sum(V**2, axis=0)
    
             self.f[output_flat] = f_s
             self.v[output_flat] = v_s
@@ -431,13 +442,16 @@ class GPGrid(object):
         # Approximate the expected value of the variable transformed through the sigmoid.
         if expectedlog:
             m_post = np.log(sigmoid(f))
+            v_post = self.v
         else:
             k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
             m_post = sigmoid(k*f)
+            if variance_method == 'rough':
+                v_post = (sigmoid(f + np.sqrt(self.v)) - m_post)**2 + (sigmoid(f - np.sqrt(self.v)) - m_post)**2 / 2.0
         if self.verbose:
             logging.debug("gp grid predictions: %s" % str(m_post))
              
-        return m_post
+        return m_post, v_post
 
     def get_mean_density(self):
         '''
