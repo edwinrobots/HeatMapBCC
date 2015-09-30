@@ -293,7 +293,6 @@ class GPGrid(object):
         diff = 0
         #diff_s = 0.000001
         while not conv_count>3 and nIt<self.max_iter_VB:
-            self.verbose = True
             if self.verbose:
                 logging.debug("Updated inverse output scale: " + str(self.s))
             
