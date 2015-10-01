@@ -58,7 +58,7 @@ class GPGrid(object):
     v = []
     
     max_iter_VB = 500
-    max_iter_G = 10
+    max_iter_G = 20
     conv_threshold = 5e-2
 
     cov_func = "sqexp"# "matern" #
@@ -184,23 +184,24 @@ class GPGrid(object):
         lb = data_loglikelihood + logp_minus_logq
         return lb
 
-    def logp_minus_logq(self):
-
-        cholKs = self.cholK / np.sqrt(self.old_s)
-                
-        logdetC = np.sum(np.log(np.diag(cholesky(self.obs_C, lower=True, overwrite_a=False, check_finite=False))))*2.0
+    def logp(self):
+        cholKs = self.cholK * np.sqrt(self.old_s) # is this correct? Previously had a / sign instead of a *
         logdetK = np.sum(np.log(np.diag(cholKs)))*2.0
         invK_f_fT = solve_triangular(cholKs, solve_triangular(cholKs.T, self.obs_f.dot(self.obs_f.T) + self.obs_C, \
                                                                lower=True), lower=False, overwrite_b=True)
-                                                               
-        pf_minus_qf = 0.5*(logdetC - logdetK - np.trace(invK_f_fT) + len(self.obs_f) )# cancels with term in data loglikelihood
+
+        prob_s = -gammaln(self.shape_s0) + self.shape_s0*np.log(self.rate_s0) + self.shape_s0 * np.log(self.s) - self.rate_s0 * self.s     
+        return prob_s + 0.5 * -(np.trace(invK_f_fT) + logdetK)
         
-        ps_minus_qs = gammaln(self.shape_s)-gammaln(self.shape_s0) \
-                        + self.shape_s0*np.log(self.rate_s0)\
-                        - self.shape_s*np.log(self.rate_s) + (self.shape_s0-self.shape_s)*np.log(self.s)\
-                        + (self.rate_s-self.rate_s0)*(self.s)
+    def logq(self):
+        logdetC = np.sum(np.log(np.diag(cholesky(self.obs_C, lower=True, overwrite_a=False, check_finite=False))))*2.0
         
-        return pf_minus_qf + ps_minus_qs        
+        q_s = -gammaln(self.shape_s) + self.shape_s*np.log(self.rate_s) + self.shape_s * np.log(self.s) - self.rate_s * self.s
+        
+        return q_s + 0.5 * -(len(self.obs_f) + logdetC) 
+        
+    def logp_minus_logq(self):     
+        return self.logp() - self.logq()        
     
     def neg_marginal_likelihood(self, hyperparams, expectedlog=False):
         '''
