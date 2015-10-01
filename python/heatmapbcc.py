@@ -45,7 +45,7 @@ class HeatMapBCC(ibcc.IBCC):
     
     optimize_lengthscale_only = True
 
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=1.0, rate_s0=16.0, shape_ls=10,
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=1.0, rate_s0=10.0, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None):
         if not outputy:
             outputy = []
@@ -159,9 +159,9 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         for j in gprange:
-            kappa_out[j, :], v_kappa_out[j, :] = self.heatGP[j].predict([outputx, outputy], expectedlog=True)
+            kappa_out[j, :], v_kappa_out[j, :] = self.heatGP[j].predict([outputx, outputy], expectedlog=False)
         if self.nclasses==2:
-            kappa_out[0, :] = np.log(1 - np.exp(self.lnkappa_out[1,:]))
+            kappa_out[0, :] = 1 - kappa_out[1,:]
             v_kappa_out[0, :] = v_kappa_out[1, :]
 
         # Set the predictions for the targets
@@ -252,18 +252,21 @@ class HeatMapBCC(ibcc.IBCC):
         self.lnkappa = lnkappa_all
 
     def q_ln_t(self):
-        ET = self.E_t[:, self.obsx, self.obsy]
-        lnqT = np.sum( np.multiply( ET,np.log(ET) ) )
+        lnqT = np.sum( np.multiply(self.E_t, np.log(self.E_t) ) )
         return lnqT
                 
     def post_lnkappa(self):
         lnpKappa = 0
         for j in range(self.nclasses):
-            lnpKappa += self.heatGP[j].logp_minus_logq()
+            if j in self.heatGP:
+                lnpKappa += self.heatGP[j].logp()
         return lnpKappa                
                 
     def q_lnkappa(self):
-        lnqKappa = 0 # this was already included in the post_lnkappa.
+        lnqKappa = 0
+        for j in range(self.nclasses):
+            if j in self.heatGP:
+                lnqKappa += self.heatGP[j].logq()
         return lnqKappa
     
     def ln_modelprior(self):
