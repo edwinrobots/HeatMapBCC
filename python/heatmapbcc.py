@@ -39,11 +39,13 @@ class HeatMapBCC(ibcc.IBCC):
 
     lnkappa_out = [] # lnkappa at the output points given by the GP
     
-    oldf = [] # latent function mean from previous VB iteration
+    oldkappa = [] # density mean from previous VB iteration
 
     E_t_sparse = [] # target value estimates at the training points only.
     
     optimize_lengthscale_only = True
+    
+    update_s = False
 
     def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=1.0, rate_s0=10.0, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None):
@@ -114,7 +116,7 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = [1]
         else:
             gprange = np.arange(self.nclasses)
-        self.oldf = {}
+        self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
             #start with a homogeneous grid     
             self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0, 
@@ -122,17 +124,31 @@ class HeatMapBCC(ibcc.IBCC):
                                     force_update_all_points=self.update_all_points)   
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1 # do one update each time we call fit()
+            
+        self.update_s = False # don't update s in the first iteration -- let other parameters settle first
 
     def convergence_measure(self, oldET):
-        if self.nclasses==2:
-            gprange = [1]
+        kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
+        return np.max( [super(HeatMapBCC, self).convergence_measure(oldET), kappadiff])
+    
+    def convergence_check(self):
+        locally_converged = (self.nIts>=self.max_iterations or self.change<self.conv_threshold)
+        if not locally_converged:
+            return False
+        
+        if not self.update_s:
+            if self.verbose:
+                logging.debug("Switching on the inverse output scale updates.")
+            self.update_s = True
+            return False
+        elif self.update_s < 4: # need to allow at least two more iterations, one to update s, and one more each to 
+            # propagate the change through to t, then to pi, then back to t.
+            self.update_s += 1
+            return False
+        elif self.nIts>self.min_iterations:
+            return True
         else:
-            gprange = np.arange(self.nclasses)
-        fdiff = np.zeros(self.nclasses)
-        for j in gprange:
-            #start with a homogen
-            fdiff[j] = np.max(np.abs( (self.oldf[j] - self.heatGP[j].obs_f) / (self.heatGP[j].obs_f+self.oldf[j])))
-        return np.max( [np.max(np.sum(np.abs(oldET - self.E_t), 1)), np.max(fdiff)])
+            return False
 
     def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, 
                                 maxiter=200, table_format=False):
@@ -231,19 +247,13 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = [1]
         else:
             gprange = np.arange(self.nclasses)
+        self.oldkappa = np.exp(self.lnkappa)            
         for j in gprange:
-            obs_values = self.E_t[:,j]
-            if len(self.heatGP[j].obs_f):
-                self.oldf[j] = self.heatGP[j].obs_f
-            else:
-                self.oldf[j] = np.zeros(len(obs_values))
-                
-            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True)
-            if np.sum(self.oldf[j])==0:
-                self.oldf[j] = self.heatGP[j].obs_mean_prob
+            obs_values = self.E_t[:,j]                
+            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True, update_s=self.update_s)
         if self.nclasses==2:
             self.lnkappa[0] = np.log(1-np.exp(self.lnkappa[1]))
-     
+            
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
         if not self.uselowerbound and not alldata:       
@@ -286,9 +296,8 @@ class HeatMapBCC(ibcc.IBCC):
             super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
         lengthscales = []
         for j in range(self.nclasses):
-            if j in self.heatGP:
-                self.ls_initial[j] = np.exp(hyperparams[-self.nclasses+j])
-                lengthscales.append(self.ls_initial[j])
+            self.ls_initial[j] = np.exp(hyperparams[-self.nclasses+j])
+            lengthscales.append(self.ls_initial[j])
         return self.alpha0, self.nu0, lengthscales
 
     def get_hyperparams(self):
@@ -297,6 +306,5 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             hyperparams = []
         for j in range(self.nclasses):
-            if j in self.heatGP:
-                hyperparams.append(np.log(self.heatGP[j].ls))
+            hyperparams.append(np.log(self.heatGP[1].ls[j]))
         return hyperparams
