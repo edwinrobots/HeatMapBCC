@@ -24,7 +24,7 @@ class HeatMapBCC(ibcc.IBCC):
     mean_kappa = [] # posterior mean of kappa from the GP
     var_logodds_kappa = [] # posterior SD over kappa
     
-    heatGP = [] # spatial GP model for kappa 
+    heatGP = {} # spatial GP model for kappa 
     
     obsx = [] # x-coordinates of locations with crowd reports
     obsy = [] # y-coordinates of locations with crowd reports
@@ -45,9 +45,11 @@ class HeatMapBCC(ibcc.IBCC):
     
     optimize_lengthscale_only = True
     
+    n_lengthscales = 1
+    
     update_s = False
 
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=1.0, rate_s0=10.0, shape_ls=10,
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=None, rate_s0=None, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None):
         if not outputy:
             outputy = []
@@ -110,8 +112,7 @@ class HeatMapBCC(ibcc.IBCC):
         super(HeatMapBCC, self).init_lnkappa()  
         self.lnkappa = np.tile(self.lnkappa, (1, self.N))
         
-        # Initialise the underlying GP with the current set of hyper-parameters
-        self.heatGP = {}           
+        # Initialise the underlying GP with the current set of hyper-parameters           
         if self.nclasses==2:
             gprange = [1]
         else:
@@ -119,17 +120,27 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
             #start with a homogeneous grid     
-            self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0, 
+            if not j in self.heatGP:
+                self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                     shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
-                                    force_update_all_points=self.update_all_points)   
-            self.heatGP[j].verbose = self.verbose
-            self.heatGP[j].max_iter_VB = 1 # do one update each time we call fit()
-            
-        self.update_s = False # don't update s in the first iteration -- let other parameters settle first
+                                    force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
+                self.heatGP[j].verbose = self.verbose
+                self.heatGP[j].max_iter_VB = 10
+            else:
+                self.heatGP[j].reset_s()
+        
+        self.update_s = 4 # set False to not update s in the first iteration and let other parameters settle first
 
     def convergence_measure(self, oldET):
         kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
-        return np.max( [super(HeatMapBCC, self).convergence_measure(oldET), kappadiff])
+        sdiff = 0
+        for j in self.heatGP:
+            sdiff_j = np.abs( self.heatGP[j].old_s - self.heatGP[j].s ) / self.heatGP[j].old_s
+            if sdiff_j > sdiff:
+                sdiff = sdiff_j
+            if self.verbose:
+                logging.debug('sdiff: %f, s = %f' % (sdiff, self.heatGP[j].s))
+        return np.max( [super(HeatMapBCC, self).convergence_measure(oldET), kappadiff, sdiff])
     
     def convergence_check(self):
         locally_converged = (self.nIts>=self.max_iterations or self.change<self.conv_threshold)
@@ -251,8 +262,10 @@ class HeatMapBCC(ibcc.IBCC):
         for j in gprange:
             obs_values = self.E_t[:,j]                
             self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True, update_s=self.update_s)
+            self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
         if self.nclasses==2:
-            self.lnkappa[0] = np.log(1-np.exp(self.lnkappa[1]))
+            kappa0 = 1-np.exp(self.lnkappa[1])
+            self.lnkappa[0] = np.log(kappa0)
             
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
@@ -295,9 +308,11 @@ class HeatMapBCC(ibcc.IBCC):
             ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores * self.alpha0_length + self.nclasses]
             super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
         lengthscales = []
-        for j in range(self.nclasses):
-            self.ls_initial[j] = np.exp(hyperparams[-self.nclasses+j])
+        for j in range(self.n_lengthscales):
+            self.ls_initial[j] = np.exp(hyperparams[-self.n_lengthscales+j])
             lengthscales.append(self.ls_initial[j])
+        if self.verbose:
+            logging.debug("Length-scale = %f" % self.heatGP[1].ls[0])    
         return self.alpha0, self.nu0, lengthscales
 
     def get_hyperparams(self):
@@ -305,6 +320,6 @@ class HeatMapBCC(ibcc.IBCC):
             hyperparams = super(HeatMapBCC, self).get_hyperparams()
         else:
             hyperparams = []
-        for j in range(self.nclasses):
+        for j in range(self.n_lengthscales):
             hyperparams.append(np.log(self.heatGP[1].ls[j]))
         return hyperparams

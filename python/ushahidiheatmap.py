@@ -38,7 +38,7 @@ class Heatmap(object):
         
     startclean = True #if true, will delete all previous maps before running
     timestep = 65 #max is likely to be 765
-    Nlabel_increment = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
+    Nrep_inc = 700 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
 
     #If run_script_only is set to true, it will run the update loop when called until all scripted reports have been included.
@@ -73,7 +73,7 @@ class Heatmap(object):
         else:
             self.fileprefix = self.webdatadir + fileprefix
                 
-        self.alpha0 = np.array([[2.0, 1.0], [1.0, 2.0]])
+        self.alpha0 = np.array([[9.0, 6.0], [6.0, 9.0]])
         self.nu0 = np.array([1, 1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         self.targetextractor = maptargets.MapTargets(self)
@@ -96,7 +96,7 @@ class Heatmap(object):
             
     def runBCC_subset(self, C, j=1):
         if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
-            self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K)
+            self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K, shape_s0=100.0, rate_s0=600.0)
                                                             #shape_ls=0.001, rate_ls=1000)#shape_ls=10, rate_ls=0.1)
             self.heatmapcombiner[j].min_iterations = 5
             self.heatmapcombiner[j].max_iterations = 200
@@ -104,6 +104,8 @@ class Heatmap(object):
             self.heatmapcombiner[j].uselowerbound = False
 
         self.heatmapcombiner[j].combine_classifications(C)
+        print "S = "
+        print self.heatmapcombiner[j].heatGP[j].s
         bcc_pred, _, bcc_var = self.heatmapcombiner[j].predict_grid()
         bcc_pred = bcc_pred[j, :, :].reshape((self.nx, self.ny))
         bcc_var = bcc_var[j, :, :].reshape((self.nx, self.ny))
