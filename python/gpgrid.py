@@ -88,6 +88,8 @@ class GPGrid(object):
             rate_s0 = 0.5 / logit(0.25**2 + 0.5) # variance of 0.25 in probability space  
         self.shape_s0 = shape_s0 # prior pseudo counts * 0.5
         self.rate_s0 = rate_s0 # prior sum of squared deviations
+        self.shape_s = shape_s0
+        self.rate_s = rate_s0 # init to the priors until we receive data
         if np.any(s_initial):
             self.s_initial = s_initial
             self.s = s_initial
@@ -245,11 +247,17 @@ class GPGrid(object):
         obsy = obs_coords[1]
         self.process_observations(obsx, obsy, obs_values) # process the data here so we don't repeat each call
         
+        for d, ls in enumerate(self.ls):
+            if ls == 1:
+                logging.warning("Changing length-scale of 1 to 2 to avoid optimisation problems.")
+                self.ls[d] = 2.0
+        
         initialguess = np.log(self.ls)
         if self.n_lengthscales == 1:
             initialguess = initialguess[0]
-        initial_nlml = self.neg_marginal_likelihood(initialguess)
-        ftol = initial_nlml / (100.0 * (int(self.ls[0] < 10.0) * (10.0 - self.ls[0]) + 1))
+        #initial_nlml = self.neg_marginal_likelihood(initialguess)
+        ftol = np.abs(np.log(self.ls[0]) * 1e-4) #np.abs(initial_nlml / (1e3 * (int(self.ls[0] < 10.0) * (10.0 - self.ls[0]) + 1)))
+        logging.debug("Ftol = %.5f" % ftol)
         opt_hyperparams, self.nlml, _, _, _ = fmin(self.neg_marginal_likelihood, initialguess, maxfun=maxfun, ftol=ftol, 
                                xtol=1e100, full_output=True, args=(use_MAP,))
 

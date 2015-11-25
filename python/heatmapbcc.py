@@ -120,14 +120,11 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
             #start with a homogeneous grid     
-            if not j in self.heatGP:
-                self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
-                                    shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
-                                    force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
-                self.heatGP[j].verbose = self.verbose
-                self.heatGP[j].max_iter_VB = 10
-            else:
-                self.heatGP[j].reset_s()
+            self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
+                                shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
+                                force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
+            self.heatGP[j].verbose = self.verbose
+            self.heatGP[j].max_iter_VB = 10
         
         self.update_s = 4 # set False to not update s in the first iteration and let other parameters settle first
 
@@ -307,12 +304,14 @@ class HeatMapBCC(ibcc.IBCC):
         if not self.optimize_lengthscale_only:
             ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores * self.alpha0_length + self.nclasses]
             super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
-        lengthscales = []
-        for j in range(self.n_lengthscales):
-            self.ls_initial[j] = np.exp(hyperparams[-self.n_lengthscales+j])
-            lengthscales.append(self.ls_initial[j])
-        if self.verbose:
-            logging.debug("Length-scale = %f" % self.heatGP[1].ls[0])    
+        
+        if self.n_lengthscales==1:
+            self.ls_initial[:] = np.exp(hyperparams[ - self.n_lengthscales])
+        elif self.n_lengthscales==2:
+            self.ls_initial[0] = np.exp(hyperparams[ - self.n_lengthscales])
+            self.ls_initial[1] = np.exp(hyperparams[ - self.n_lengthscales + 1])
+        lengthscales = self.ls_initial
+        logging.debug("Length-scale = %.3f, %.3f" % (self.heatGP[1].ls[0], self.heatGP[1].ls[1]))    
         return self.alpha0, self.nu0, lengthscales
 
     def get_hyperparams(self):
@@ -321,5 +320,10 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             hyperparams = []
         for j in range(self.n_lengthscales):
-            hyperparams.append(np.log(self.heatGP[1].ls[j]))
+            for gpidx in self.heatGP:
+                for d, ls in enumerate(self.heatGP[gpidx].ls):
+                    if ls == 1:
+                        logging.warning("Changing length-scale of 1 to 2 to avoid optimisation problems.")
+                        self.heatGP[1].ls[d] = 2.0            
+                hyperparams.append(np.log(self.heatGP[gpidx].ls[j]))
         return hyperparams

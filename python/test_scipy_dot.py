@@ -3,7 +3,7 @@ import scipy as sp;
 import scipy.linalg as la;
 import numpy as np;
 
-n=1000
+n=5000
 A=sp.random.rand(n,n)
 B=sp.random.rand(n,n)
 
