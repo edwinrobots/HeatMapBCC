@@ -124,7 +124,7 @@ class HeatMapBCC(ibcc.IBCC):
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
                                 force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
             self.heatGP[j].verbose = self.verbose
-            self.heatGP[j].max_iter_VB = 10
+            self.heatGP[j].max_iter_VB = 1
         
         self.update_s = 4 # set False to not update s in the first iteration and let other parameters settle first
 
@@ -183,7 +183,8 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         for j in gprange:
-            kappa_out[j, :], v_kappa_out[j, :] = self.heatGP[j].predict([outputx, outputy], expectedlog=False)
+            kappa_out[j, :], v_kappa_out[j, :] = self.heatGP[j].predict([outputx, outputy], expectedlog=False, 
+                                                                        variance_method='sample')
         if self.nclasses==2:
             kappa_out[0, :] = 1 - kappa_out[1,:]
             v_kappa_out[0, :] = v_kappa_out[1, :]
@@ -262,7 +263,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
         if self.nclasses==2:
             kappa0 = 1-np.exp(self.lnkappa[1])
-            self.lnkappa[0] = np.log(kappa0)
+            self.lnkappa[0][kappa0 > 1e-10] = np.log(kappa0[kappa0 > 1e-10])
             
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
@@ -279,14 +280,14 @@ class HeatMapBCC(ibcc.IBCC):
         lnpKappa = 0
         for j in range(self.nclasses):
             if j in self.heatGP:
-                lnpKappa += self.heatGP[j].logp()
+                lnpKappa += self.heatGP[j].logps() + self.heatGP[j].logpf()
         return lnpKappa                
                 
     def q_lnkappa(self):
         lnqKappa = 0
         for j in range(self.nclasses):
             if j in self.heatGP:
-                lnqKappa += self.heatGP[j].logq()
+                lnqKappa += self.heatGP[j].logqs() + self.heatGP[j].logqf()
         return lnqKappa
     
     def ln_modelprior(self):
