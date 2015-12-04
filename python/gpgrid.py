@@ -201,8 +201,9 @@ class GPGrid(object):
         self.Elns = psi(self.shape_s) - psi(self.rate_s)
         logp_s = self.logps()
         logq_s = self.logqs()
-                
-        logging.debug("DLL: %.5f, logp_f-logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f-logq_f, logp_s-logq_s) )
+          
+        if self.verbose:      
+            logging.debug("DLL: %.5f, logp_f-logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f-logq_f, logp_s-logq_s) )
         
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         return lb
