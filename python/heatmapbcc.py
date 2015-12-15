@@ -47,7 +47,9 @@ class HeatMapBCC(ibcc.IBCC):
     
     n_lengthscales = 1
     
-    update_s = False
+    update_s = 2
+    
+    conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
     def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=None, rate_s0=None, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None):
@@ -125,9 +127,8 @@ class HeatMapBCC(ibcc.IBCC):
                                 force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
+            self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
         
-        self.update_s = 4 # set False to not update s in the first iteration and let other parameters settle first
-
     def convergence_measure(self, oldET):
         kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
         sdiff = 0
@@ -140,7 +141,9 @@ class HeatMapBCC(ibcc.IBCC):
         return np.max( [super(HeatMapBCC, self).convergence_measure(oldET), kappadiff, sdiff])
     
     def convergence_check(self):
-        locally_converged = (self.nIts>=self.max_iterations or self.change<self.conv_threshold)
+        if self.change<self.conv_threshold:
+            self.conv_count += 1
+        locally_converged = self.nIts>=self.max_iterations or (self.change<self.conv_threshold and self.conv_count>3)
         if not locally_converged:
             return False
         
