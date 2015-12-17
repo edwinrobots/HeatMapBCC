@@ -2,8 +2,8 @@ import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
 from scipy.optimize import fmin
-from scipy.special import gammaln, gamma, psi
-from scipy.stats import norm, multivariate_normal as mvn, beta
+from scipy.special import gammaln, psi
+from scipy.stats import norm
 import logging
 
 def sigmoid(f):
@@ -60,11 +60,13 @@ class GPGrid(object):
     
     max_iter_VB = 200#1000
     max_iter_G = 200
-    conv_threshold = 1e-6
+    conv_threshold = 1e-5
     conv_threshold_G = 1e-3
     conv_check_freq = 2
     
     uselowerbound = True
+    
+    expec_sigmoid_method = 'k_approximation'
 
     outputx = []
     outputy = []
@@ -86,9 +88,9 @@ class GPGrid(object):
         # Output scale (sigmoid scaling)  
         
         if not shape_s0:
-            shape_s0 = 1.0#0.5
+            shape_s0 = 1.0
         if not rate_s0:
-            rate_s0 = 1.0#1/200.0#0.5 / logit(0.25**2 + 0.5) # SD of 0.25 in probability space  
+            rate_s0 = 1.0#5.0#1/200.0#0.5 / logit(0.25**2 + 0.5) # SD of 0.25 in probability space  
         self.shape_s0 = shape_s0 # prior pseudo counts * 0.5
         self.rate_s0 = rate_s0 # prior sum of squared deviations
         self.shape_s = shape_s0
@@ -194,12 +196,19 @@ class GPGrid(object):
         #calculate likelihood from the fitted model 
         y = self.obs_values.flatten().astype(float)
         
-        f_samples = mvn.rvs(mean=self.obs_f.flatten(), cov=self.obs_C, size=500) 
-        rho_samples = sigmoid(f_samples)
-        ln_rho_samples = np.log(rho_samples)
-        ln_rho_neg_samples = np.log(1 - rho_samples)
-        ElnRho = np.mean(ln_rho_samples, axis=0)
-        ElnNotRho = np.mean(ln_rho_neg_samples, axis=0)
+        if self.expec_sigmoid_method=='sample':
+            f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=1000) 
+            rho_samples = sigmoid(f_samples)
+            ln_rho_samples = np.log(rho_samples)
+            ln_rho_neg_samples = np.log(1 - rho_samples)
+            ElnRho = np.mean(ln_rho_samples, axis=0)
+            ElnNotRho = np.mean(ln_rho_neg_samples, axis=0)
+        else:
+            k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C) / 8.0))
+            k = k[:, np.newaxis]    
+            E_Rho = sigmoid(k*self.obs_f)
+            ElnRho = np.log(E_Rho)
+            ElnNotRho = np.log(1-E_Rho)
         
         data_ll = np.sum(y * ElnRho + (self.obs_total_counts.flatten() - y) * ElnNotRho)
         
@@ -312,7 +321,7 @@ class GPGrid(object):
         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
         self.obs_f = KsG.dot(self.A, out=self.obs_f)
         V = solve_triangular(self.L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
-        self.obs_C = self.Ks - V.T.dot(V) 
+        self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
         
         mean_X = sigmoid(self.obs_f.flatten())
         self.G = G_update_rate * np.diag(mean_X * (1-mean_X)) + (1 - G_update_rate) * self.G
@@ -353,7 +362,7 @@ class GPGrid(object):
             self.KsG = np.zeros(self.G.shape)
             
             # initialise s
-            self.rate_s = self.rate_s0 + 0.5 * np.sum(logit(self.obs_mean_prob.flatten())**2 + np.diag(self.Q))
+            self.rate_s = self.rate_s0 * self.shape_s / self.shape_s0
             self.s = self.shape_s / self.rate_s        
             self.Elns = psi(self.shape_s) - np.log(self.rate_s)
             self.Ks = self.K / self.s
@@ -366,13 +375,12 @@ class GPGrid(object):
             mean_X = (self.mean_prob_obs - self.z0)
             
         old_obs_f = self.obs_f
-        conv_count = 0    
         nIt = 0
         diff = 0
         L = -np.inf
         converged = False
         
-        while not conv_count>3 and nIt<self.max_iter_VB:    
+        while not converged and nIt<self.max_iter_VB:    
             prev_mean_X = mean_X
                 
             # Iterate a few times to get G to stabilise
@@ -392,6 +400,20 @@ class GPGrid(object):
                     break;
             if inner_nIt >= self.max_iter_G - 1:
                 logging.warning("G did not converge: diff was %.5f" % diff_G)
+            
+            #update the output scale parameter (also called latent function scale/sigmoid steepness)
+            self.old_s = self.s 
+            if update_s: 
+                L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T), trans=True, 
+                                             overwrite_b=True, check_finite=False)
+                LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
+                self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF) 
+                #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
+                self.s = self.shape_s / self.rate_s
+                self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
+                if self.verbose:
+                    logging.debug("Updated inverse output scale: " + str(self.s))
+                self.Ks = self.K / self.s            
                                     
             if self.uselowerbound and np.mod(nIt, self.conv_check_freq)==self.conv_check_freq-1:
                 oldL = L
@@ -419,26 +441,8 @@ class GPGrid(object):
                 
                 diff = np.max([diff, sdiff])
                     
-                converged = diff < self.conv_threshold
-            if converged and nIt > 2:
-                conv_count += 1
-            else:
-                conv_count = 0
-            nIt += 1          
-            
-            #update the output scale parameter (also called latent function scale/sigmoid steepness)
-            self.old_s = self.s 
-            if update_s: 
-                L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T), trans=True, 
-                                             overwrite_b=True, check_finite=False)
-                LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
-                self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF) 
-                #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
-                self.s = self.shape_s / self.rate_s
-                self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
-                if self.verbose:
-                    logging.debug("Updated inverse output scale: " + str(self.s))
-                self.Ks = self.K / self.s
+                converged = (diff < self.conv_threshold) & (nIt > 2)
+            nIt += 1
                 
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
@@ -447,104 +451,68 @@ class GPGrid(object):
         self.changed_obs = (np.abs(self.obs_f - old_obs_f) > 0.05).reshape(-1)
 
         # draw samples from a Gaussian with mean f and covariance C
-        f_samples = mvn.rvs(mean=self.obs_f.flatten(), cov=self.obs_C, size=1000) 
-        rho_samples = sigmoid(f_samples)
-        rho_neg_samples = 1 - rho_samples
-        if expectedlog:
-            rho_samples = np.log(rho_samples)
-            rho_neg_samples = np.log(rho_neg_samples)
-        mean_prob_obs = np.mean(rho_samples, axis=0)
-        mean_prob_notobs = np.mean(rho_neg_samples, axis=0)
+        if self.expec_sigmoid_method=='sample':
+            f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=1000) 
+            rho_samples = sigmoid(f_samples)
+            rho_neg_samples = 1 - rho_samples
+            if expectedlog:
+                rho_samples = np.log(rho_samples)
+                rho_neg_samples = np.log(rho_neg_samples)
+            mean_prob_obs = np.mean(rho_samples, axis=0)
+            mean_prob_notobs = np.mean(rho_neg_samples, axis=0)
+        else:
+            k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C) / 8.0))
+            k = k[:, np.newaxis]    
+            mean_prob_obs = sigmoid(k*self.obs_f)
+            mean_prob_notobs = 1 - mean_prob_obs
+            if expectedlog:
+                mean_prob_obs = np.log(mean_prob_obs)
+                mean_prob_notobs = np.log(mean_prob_notobs)
 
         self.mean_prob_obs = mean_prob_obs
         self.mean_prob_notobs = mean_prob_notobs
         return mean_prob_obs.reshape(-1)
     
-    def predict(self, output_coords, expectedlog=False, variance_method='rough'):
+    def predict(self, output_coords, variance_method='rough'):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
         '''
-        outputx = output_coords[0].astype(float)
-        outputy = output_coords[1].astype(float)
+        self.outputx = output_coords[0].astype(float)[:, np.newaxis]
+        self.outputy = output_coords[1].astype(float)[:, np.newaxis]
 
-        maxsize = 2.0 * 10**7
-        nout = outputx.size
+        ddx = self.outputx - self.obsx[np.newaxis, :]
+        ddy = self.outputy - self.obsy[np.newaxis, :]
+        Kpred = self.sq_exp_cov(ddx, ddy)
+        Kpred /= self.s
         
-        nobs = len(self.obsx)
-        nsplits = np.ceil(nout*nobs / maxsize)
-        splitsize = int(np.ceil(nout/nsplits)) # make sure we don't kill memory
-
-        # Determine whether to calculate all points from scratch, or just those close to new/changed observations
-        update_all_points = self.update_all_points
-        if self.f==[] or update_all_points or len(self.outputx) != len(outputx) or np.any(self.outputx != outputx) or \
-                np.any(self.outputy != outputy):
-            self.f = np.zeros(nout)
-            update_all_points = True
-            self.v = np.zeros(nout) # diagonal values only        
-
-        self.outputx = outputx # save these coordinates so we can check if they are the same when called again
-        self.outputy = outputy
-
-        Cov = self.G.dot(self.Ks).dot(self.G.T) + self.Q
-        self.L = cholesky(Cov, lower=True, check_finite=False, overwrite_a=True)  
-
-        #Vpart = solve_triangular(self.L, self.G, lower=True, check_finite=False, overwrite_b=True)
+        ddx = self.outputx - self.outputx.T
+        ddy = self.outputy - self.outputy.T
+        Kout = self.sq_exp_cov(ddx, ddy)
+        Kout /= self.s
+        Kout += 1e-6 * np.eye(len(Kout)) # jitter
         
-        for s in np.arange(nsplits):
-            
-            if nsplits > 1:
-                logging.debug("GPGrid: computing posterior for split %i out of %i" % (s,nsplits))
-            
-            start = int(s*splitsize)            
-            end = int(start+splitsize) if start+splitsize<=nout else -1
-            outputx_s = outputx[start:end].reshape(end-start,1)
-            outputy_s = outputy[start:end].reshape(end-start,1)
-            if end>=0:
-                output_flat = np.arange(start, end)
-            else:
-                output_flat = np.arange(start, nout)  
-            
-            ddx = outputx_s - self.obsx
-            ddy = outputy_s - self.obsy
-            Kpred = self.sq_exp_cov(ddx, ddy)
-            Vprior = self.sq_exp_cov(0, 0)
-            Kpred = Kpred / self.s
-            Vprior = Vprior / self.s
-            
-            #update all idxs?
-            if not update_all_points:
-                changed = np.argwhere(np.sum(Kpred[:,self.changed_obs],axis=1)>0.1).flatten()
-                Kpred = Kpred[changed,:]
-                output_flat = output_flat[changed]
-                
-            f_s = Kpred.dot(self.G.T).dot(self.A)
-            V = solve_triangular(self.L, self.G.T.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
-            v_s = Vprior - np.sum(V**2, axis=0)
-   
-            self.f[output_flat] = f_s
-            self.v[output_flat] = v_s
-                
-        f = self.f + self.mu0
+        self.f = Kpred.dot(self.G.T).dot(self.A)
+        V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
+        self.C = Kout - V.T.dot(V)
+        self.v = np.diag(self.C)[:, np.newaxis]
+        if np.any(self.v < 0):
+            self.v[(self.v < 0) & (self.v > -1e-6)] = 0
+            if np.any(self.v < 0): # anything still below zero?
+                logging.error("Variance has gone negative in GPgrid.predict()")
+        self.f = self.f + self.mu0
                 
         # Approximate the expected value of the variable transformed through the sigmoid.
-        if expectedlog:
-            m_post = np.log(sigmoid(f))
-            v_post = self.v
-        else:
-            if variance_method == 'rough':
-                k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
-                m_post = sigmoid(k*f)
-                v_post = (sigmoid(f + np.sqrt(self.v)) - m_post)**2 + (sigmoid(f - np.sqrt(self.v)) - m_post)**2 / 2.0
-            elif variance_method == 'sample':
-                # draw samples from a Gaussian with mean f and variance v
-                f_samples = norm.rvs(loc=f, scale=np.sqrt(self.v), size=(2000, len(f)))
-                rho_samples = sigmoid(f_samples)
-                m_post = np.mean(rho_samples, axis=0)
-                v_post = np.sum((rho_samples - m_post)**2, axis=0) / float(rho_samples.shape[1]) 
-        #if self.verbose:
-        #    logging.debug("gp grid predictions: %s" % str(m_post))
-             
+        if variance_method == 'rough':
+            k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
+            m_post = sigmoid(k*self.f)
+            v_post = (sigmoid(self.f + np.sqrt(self.v)) - m_post)**2 + (sigmoid(self.f - np.sqrt(self.v)) - m_post)**2 / 2.0
+        elif variance_method == 'sample':
+            # draw samples from a Gaussian with mean f and variance v
+            f_samples = norm.rvs(loc=self.f, scale=np.sqrt(self.v), size=(len(self.f), 2000))
+            rho_samples = sigmoid(f_samples)
+            m_post = np.mean(rho_samples, axis=1)[:, np.newaxis]
+            v_post = np.mean((rho_samples - m_post)**2, axis=1)[:, np.newaxis]
         return m_post, v_post
 
     def get_mean_density(self):
@@ -557,6 +525,7 @@ class GPGrid(object):
         return m_post
     
 if __name__ == '__main__':
+    import scipy.stats.multivariate_normal as mvn
     # run some tests on the learning algorithm
     
     N = 100.0
@@ -601,10 +570,3 @@ if __name__ == '__main__':
     print shape
     print rate
     print "Posterior estimate of s is %f" % post_s
-    
-# An alternative to sampling can be:
-#             k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C) / 8.0))
-#             k = k[:, np.newaxis]    
-#             mean_prob_obs = sigmoid(k*self.obs_f)
-#             mean_prob_notobs = sigmoid(k*-self.obs_f)
-    

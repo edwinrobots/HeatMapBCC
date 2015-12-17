@@ -47,7 +47,7 @@ class HeatMapBCC(ibcc.IBCC):
     
     n_lengthscales = 1
     
-    update_s = 2
+    update_s = 4
     
     conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
@@ -143,7 +143,7 @@ class HeatMapBCC(ibcc.IBCC):
     def convergence_check(self):
         if self.change<self.conv_threshold:
             self.conv_count += 1
-        locally_converged = self.nIts>=self.max_iterations or (self.change<self.conv_threshold and self.conv_count>3)
+        locally_converged = super(HeatMapBCC, self).convergence_check()
         if not locally_converged:
             return False
         
@@ -173,7 +173,7 @@ class HeatMapBCC(ibcc.IBCC):
         return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, 
                                                                maxiter, False)
 
-    def predict(self, outputx, outputy):
+    def predict(self, outputx, outputy, variance_method='rough'):
         # Initialise containers for results at the output locations 
         nout = len(outputx)
         self.E_t_out = np.zeros((self.nclasses, nout))
@@ -186,8 +186,9 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         for j in gprange:
-            kappa_out[j, :], v_kappa_out[j, :] = self.heatGP[j].predict([outputx, outputy], expectedlog=False, 
-                                                                        variance_method='sample')
+            mean_kappa, v_kappa = self.heatGP[j].predict([outputx, outputy], variance_method=variance_method)
+            kappa_out[j, :] = mean_kappa.flatten() 
+            v_kappa_out[j, :] = v_kappa.flatten() 
         if self.nclasses==2:
             kappa_out[0, :] = 1 - kappa_out[1,:]
             v_kappa_out[0, :] = v_kappa_out[1, :]
@@ -217,7 +218,7 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         for j in gprange:
-            kappa_grid_j, v_kappa_grid_j = self.heatGP[j].predict([outputx, outputy], expectedlog=False)
+            kappa_grid_j, v_kappa_grid_j = self.heatGP[j].predict([outputx, outputy])
             kappa_grid[j, :,:] = kappa_grid_j.reshape((self.nx, self.ny))
             v_kappa_grid[j, :, :] = v_kappa_grid_j.reshape((self.nx, self.ny))
         if self.nclasses==2:
