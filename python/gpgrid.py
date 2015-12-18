@@ -495,7 +495,8 @@ class GPGrid(object):
         self.f = Kpred.dot(self.G.T).dot(self.A)
         V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
         self.C = Kout - V.T.dot(V)
-        self.v = np.diag(self.C)[:, np.newaxis]
+        self.v = np.empty((len(self.C), 1), dtype=float) 
+        self.v[:, :] = np.diag(self.C)[:, np.newaxis]
         if np.any(self.v < 0):
             self.v[(self.v < 0) & (self.v > -1e-6)] = 0
             if np.any(self.v < 0): # anything still below zero?
