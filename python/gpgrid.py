@@ -59,9 +59,10 @@ class GPGrid(object):
     v = []
     
     max_iter_VB = 200#1000
+    min_iter_VB = 5
     max_iter_G = 200
     conv_threshold = 1e-5
-    conv_threshold_G = 1e-3
+    conv_threshold_G = 1e-5
     conv_check_freq = 2
     
     uselowerbound = True
@@ -418,7 +419,7 @@ class GPGrid(object):
             if self.uselowerbound and np.mod(nIt, self.conv_check_freq)==self.conv_check_freq-1:
                 oldL = L
                 L = self.lowerbound()
-                diff = L - oldL
+                diff = (L - oldL) / np.abs(L)
                 
                 if self.verbose:
                     logging.debug('GPGRID lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, nIt))
@@ -443,6 +444,7 @@ class GPGrid(object):
                     
                 converged = (diff < self.conv_threshold) & (nIt > 2)
             nIt += 1
+            converged = converged & (nIt >= self.min_iter_VB)
                 
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)

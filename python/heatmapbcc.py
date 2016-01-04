@@ -127,6 +127,7 @@ class HeatMapBCC(ibcc.IBCC):
                                 force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
+            self.heatGP[j].min_iter_VB = 1
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
         
     def convergence_measure(self, oldET):
