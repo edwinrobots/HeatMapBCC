@@ -88,7 +88,8 @@ class HeatMapBCC(ibcc.IBCC):
         for i in range(len(self.crowdx)):
             coord = crowdcoords[i]
             if not coord in self.crowddict:
-                self.crowddict[coord] = i  
+                self.crowddict[coord] = len(self.crowddict.values()) # we are adding to the existing list in crowddict, 
+                # skipping values of i that are duplicates   
                 self.obsx.append(self.crowdx[i])
                 self.obsy.append(self.crowdy[i])
         self.obsx = np.array(self.obsx)
