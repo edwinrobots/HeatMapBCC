@@ -6,15 +6,15 @@ Created on 9 Sep 2014
 import numpy as np
 import logging, json
 from copy import deepcopy
-from prov.model import ProvDocument, Namespace, PROV
-from provstore.api import Api
+#from prov.model import ProvDocument, Namespace, PROV
+#from provstore.api import Api
 import os.path
 import time
 import datetime
 
 uploadprov = False
 
-AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
+#AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
 
 
 class MapTargets(object):
@@ -57,8 +57,8 @@ class MapTargets(object):
     
     def __init__(self, heatmap):
         self.heatmap = heatmap
-        if uploadprov:
-            self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
+#         if uploadprov:
+#             self.api = Api(username='atomicorchid', api_key='2ce8131697d4edfcb22e701e78d72f512a94d310')
 
     def calculate_targets(self, pgrid, j=1):
         targetsx, targetsy, bgrid = self.find_peaks(pgrid, j)
@@ -263,93 +263,93 @@ class MapTargets(object):
         targetsx, targetsy = self.heatmap.tranlate_points_to_original(targetsx, targetsy)
         return targetsx, targetsy, bgrid
         
-    def write_targets_prov(self, tlist, C, bundle_id):
-        #Initialisation
-#         cs = b.agent('CrowdScanner')
-        
-        if self.document_id == -1:
-            d = ProvDocument()
-            d.add_namespace(AO)
-            d.set_default_namespace(self.defaultns % self.game_id)
-            if uploadprov:
-                provstore_document = self.api.document.create(d, name="Operation%s CrowdScanner" % self.game_id, public=True)
-                document_uri = provstore_document.url
-                logging.info("prov doc URI: " + str(document_uri))
-                self.provfilelist.append(provstore_document.id)
-                self.savelocalrecord()
-                self.document_id = provstore_document.id
-        
-        b = ProvDocument()  # Create a new document for this update
-        b.add_namespace(AO)
-        b.set_default_namespace(self.defaultns % self.game_id)            
-            
-        # cs to be used with all targets
-        cs = b.agent('agent/CrowdScanner', (('prov:type', AO['IBCCAlgo']), ('prov:type', PROV['SoftwareAgent'])))
-        
-        timestamp = time.time()  # Record the timestamp at each update to generate unique identifiers        
-        startTime = datetime.datetime.fromtimestamp(timestamp)
-        endTime = startTime
-        activity = b.activity('activity/cs/update_report_%s' % timestamp, startTime, endTime)
-        activity.wasAssociatedWith(cs)
-
-        #Add target and report entities
-        for i, tdata in enumerate(tlist):
-            if self.changedtargets[i]==0:
-                continue
-            
-            #Target entity for target i
-            tid = int(tdata[0])
-            x = tdata[1]
-            y = tdata[2]
-#             targettype = tdata[3] #don't record here, it will be revealed and recorded by UAVs
-            v = int(tdata[4])
-            agentids = tdata[7]
-            
-            targetattributes = {'ao:longitude': x, 'ao:latitude': y, }
-            #'ao:asset_type':str(targettype)}
-            target_v0 = b.entity('cs/target/'+str(tid)+'.'+str(v), targetattributes)            
-            #Post the root report if this is the first version
-            if v==0:
-                self.targets[tid] = b.entity('cs/target/'+str(tid))
-            else:
-                try:
-                    target_v0.wasDerivedFrom(self.targetversions[tid])
-                except KeyError:
-                    logging.error("Got a key error for key " + str(tid) + ', which is supposed to be version' + str(v))
-            self.targetversions[tid] = target_v0                    
-            target_v0.specializationOf(self.targets[tid])
-            target_v0.wasAttributedTo(cs)
-            
-            #Report entities for origins of target i
-            for j, r in enumerate(self.target_rep_ids[i]):
-                if r not in self.postedreports:
-                    Crow = C[r,:]
-                    x = Crow[1]
-                    y = Crow[2]
-                    reptext = tdata[5][j].decode('utf8')
-                    # Try to replace unusual characters
-                    reptext = reptext.encode('ascii', 'replace')  
-                    agentid = agentids[j]
-                    
-                    reporter_name = 'agent/crowdreporter%s' % agentid
-                    b.agent(reporter_name, (('prov:type', AO['CrowdReporter']), ('prov:type', PROV['Person'])))
-                    
-                    reportattributes = {'ao:longitude': x, 'ao:latitude': y, 'ao:report': reptext}
-                    
-                    self.postedreports[r] = b.entity('cs/report/'+str(r), reportattributes)
-                    self.postedreports[r].wasAttributedTo(reporter_name)
-                activity.used(self.postedreports[r])
-                target_v0.wasDerivedFrom(self.postedreports[r])
-        
-        if uploadprov:
-            #Invalidate old targets no longer in use
-            for i,tid in enumerate(self.targets_to_invalidate):
-                target_v = self.targetversions[tid]
-                b.wasInvalidatedBy(target_v, activity)
-            #Post the document to the server
-            #bundle = b.bundle('crowd_scanner')
-            bundle_id = 'bundle/csupdate/%s' % timestamp
-            self.api.add_bundle(self.document_id, b.serialize(), bundle_id)
+#     def write_targets_prov(self, tlist, C, bundle_id):
+#         #Initialisation
+# #         cs = b.agent('CrowdScanner')
+#         
+#         if self.document_id == -1:
+#             d = ProvDocument()
+#             d.add_namespace(AO)
+#             d.set_default_namespace(self.defaultns % self.game_id)
+#             if uploadprov:
+#                 provstore_document = self.api.document.create(d, name="Operation%s CrowdScanner" % self.game_id, public=True)
+#                 document_uri = provstore_document.url
+#                 logging.info("prov doc URI: " + str(document_uri))
+#                 self.provfilelist.append(provstore_document.id)
+#                 self.savelocalrecord()
+#                 self.document_id = provstore_document.id
+#         
+#         b = ProvDocument()  # Create a new document for this update
+#         b.add_namespace(AO)
+#         b.set_default_namespace(self.defaultns % self.game_id)            
+#             
+#         # cs to be used with all targets
+#         cs = b.agent('agent/CrowdScanner', (('prov:type', AO['IBCCAlgo']), ('prov:type', PROV['SoftwareAgent'])))
+#         
+#         timestamp = time.time()  # Record the timestamp at each update to generate unique identifiers        
+#         startTime = datetime.datetime.fromtimestamp(timestamp)
+#         endTime = startTime
+#         activity = b.activity('activity/cs/update_report_%s' % timestamp, startTime, endTime)
+#         activity.wasAssociatedWith(cs)
+# 
+#         #Add target and report entities
+#         for i, tdata in enumerate(tlist):
+#             if self.changedtargets[i]==0:
+#                 continue
+#             
+#             #Target entity for target i
+#             tid = int(tdata[0])
+#             x = tdata[1]
+#             y = tdata[2]
+# #             targettype = tdata[3] #don't record here, it will be revealed and recorded by UAVs
+#             v = int(tdata[4])
+#             agentids = tdata[7]
+#             
+#             targetattributes = {'ao:longitude': x, 'ao:latitude': y, }
+#             #'ao:asset_type':str(targettype)}
+#             target_v0 = b.entity('cs/target/'+str(tid)+'.'+str(v), targetattributes)            
+#             #Post the root report if this is the first version
+#             if v==0:
+#                 self.targets[tid] = b.entity('cs/target/'+str(tid))
+#             else:
+#                 try:
+#                     target_v0.wasDerivedFrom(self.targetversions[tid])
+#                 except KeyError:
+#                     logging.error("Got a key error for key " + str(tid) + ', which is supposed to be version' + str(v))
+#             self.targetversions[tid] = target_v0                    
+#             target_v0.specializationOf(self.targets[tid])
+#             target_v0.wasAttributedTo(cs)
+#             
+#             #Report entities for origins of target i
+#             for j, r in enumerate(self.target_rep_ids[i]):
+#                 if r not in self.postedreports:
+#                     Crow = C[r,:]
+#                     x = Crow[1]
+#                     y = Crow[2]
+#                     reptext = tdata[5][j].decode('utf8')
+#                     # Try to replace unusual characters
+#                     reptext = reptext.encode('ascii', 'replace')  
+#                     agentid = agentids[j]
+#                     
+#                     reporter_name = 'agent/crowdreporter%s' % agentid
+#                     b.agent(reporter_name, (('prov:type', AO['CrowdReporter']), ('prov:type', PROV['Person'])))
+#                     
+#                     reportattributes = {'ao:longitude': x, 'ao:latitude': y, 'ao:report': reptext}
+#                     
+#                     self.postedreports[r] = b.entity('cs/report/'+str(r), reportattributes)
+#                     self.postedreports[r].wasAttributedTo(reporter_name)
+#                 activity.used(self.postedreports[r])
+#                 target_v0.wasDerivedFrom(self.postedreports[r])
+#         
+#         if uploadprov:
+#             #Invalidate old targets no longer in use
+#             for i,tid in enumerate(self.targets_to_invalidate):
+#                 target_v = self.targetversions[tid]
+#                 b.wasInvalidatedBy(target_v, activity)
+#             #Post the document to the server
+#             #bundle = b.bundle('crowd_scanner')
+#             bundle_id = 'bundle/csupdate/%s' % timestamp
+#             self.api.add_bundle(self.document_id, b.serialize(), bundle_id)
         
     def savelocalrecord(self):
         jsonfile = self.heatmap.datadir+"/provfilelist.json"

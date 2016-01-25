@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
 import os
-import provcleanup
+# import provcleanup
 import shutil
 #from memory_profiler import profile
 
@@ -138,7 +138,7 @@ class Heatmap(object):
         with open(targetsjsonfile, 'w') as fp:
             json.dump([], fp)
         
-        provcleanup.cleanup()
+#         provcleanup.cleanup()
                     
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")

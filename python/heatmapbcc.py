@@ -129,6 +129,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
+            self.heatGP[j].max_iter_G = 10
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
         
     def convergence_measure(self, oldET):
@@ -199,7 +200,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.E_t_out[:,:] = kappa_out
         #observation points that coincide with output points should take into account the labels, not just GP
         outputcoords = zip(outputx, outputy)
-        obsin_idxs = np.array([self.crowddict[oc] if oc in self.crowddict else -1 for oc in outputcoords])
+        obsin_idxs = np.array([self.crowddict[oc] if oc in self.crowddict else -1 for oc in outputcoords], dtype=int)
         obsout_idxs = obsin_idxs > -1
         obsin_idxs = obsin_idxs[obsout_idxs]
         self.E_t_out[:, obsout_idxs] = self.E_t.T[:, obsin_idxs]
@@ -265,7 +266,8 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)            
         for j in gprange:
             obs_values = self.E_t[:,j]                
-            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True, update_s=self.update_s)
+            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True, 
+                                                 update_s=self.update_s)
             self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
         if self.nclasses==2:
             kappa0 = 1-np.exp(self.lnkappa[1])
@@ -278,8 +280,31 @@ class HeatMapBCC(ibcc.IBCC):
         super(HeatMapBCC, self).lnjoint(alldata)
         self.lnkappa = lnkappa_all
 
+    def post_lnjoint_ct(self):
+        if self.nclasses==2:
+            gprange = [1]
+        else:
+            gprange = np.arange(self.nclasses)
+        self.oldkappa = np.exp(self.lnkappa)            
+        
+        # If we have not already calculated lnpCT for the lower bound, then make sure we recalculate using all data
+        lnpCT = super(HeatMapBCC, self).post_lnjoint_ct()
+        
+        for j in gprange:
+            lnpCT -= np.sum(np.multiply(self.E_t[:, j], self.lnkappa[j, :]))
+            lnpCT += self.heatGP[j].logpy()
+            
+        return lnpCT
+
     def q_ln_t(self):
         lnqT = np.sum( np.multiply(self.E_t, np.log(self.E_t) ) )
+#         lnqT = 0
+#         if self.nclasses==2:
+#             gprange = [1]
+#         else:
+#             gprange = np.arange(self.nclasses)        
+#         for j in gprange:
+#             lnqT += self.heatGP[j].logpy()
         return lnqT
                 
     def post_lnkappa(self):
