@@ -215,7 +215,7 @@ class GPGrid(object):
         return np.sum(lnp_gp)
     
     def lowerbound(self):
-        data_ll = self.logpy()
+        data_ll = np.sum(self.logpz())
         
         logp_f = self.logpf()
         logq_f = self.logqf() 
@@ -229,40 +229,19 @@ class GPGrid(object):
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         return lb
     
-    def logpy(self):
-        #calculate likelihood from the fitted model 
-        y = self.obs_values.flatten().astype(float)[:, np.newaxis] * self.obs_total_counts
-         
-#         if self.expec_sigmoid_method=='sample':
-#             f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=5000) 
-#             rho_samples = sigmoid(f_samples)
-#             E_Rho = np.mean(rho_samples, axis=0)
-#             ln_rho_samples = np.log(rho_samples)
-#             ln_rho_neg_samples = np.log(1 - rho_samples)
-#             ElnRho = np.mean(ln_rho_samples, axis=0)
-#             ElnNotRho = np.mean(ln_rho_neg_samples, axis=0)
-#         else:
-#             k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C) / 8.0))
-#             k = k[:, np.newaxis]    
-#             E_Rho = sigmoid(k*self.obs_f)
-#             ElnRho = np.log(E_Rho)
-#             ElnNotRho = np.log(1-E_Rho)
-#
-#         data_ll = np.sum(y[:, np.newaxis] * ElnRho + (self.obs_total_counts - y)[:, np.newaxis] * ElnNotRho)        
-        
+    def logpz(self, z=-1):
+        if z==-1:
+            z = self.z.flatten()
         # expected likelihood of observations given the function f
-        _, logdet_Q = np.linalg.slogdet(self.Q)
-        am_plus_b = sigmoid(self.obs_f)
-        invQ = np.linalg.inv(self.Q)
-        D = len(self.obs_f)
-        data_ll = - 0.5 * (D*np.log(2*np.pi) + logdet_Q + (y - am_plus_b).T.dot(invQ).dot(y - am_plus_b) 
-                           + np.trace(self.G.T.dot(invQ).dot(self.G).dot(self.obs_C)))  
-        return data_ll
+        Q = np.diag(self.Q)
+        am_plus_b = sigmoid(self.obs_f.flatten())
+        G = np.diag(self.G)
+        logpz = norm.logpdf(z, loc=am_plus_b, scale=Q**0.5) - 0.5*G**2 * np.diag(self.obs_C) / Q
+        return logpz
 
     def logpf(self):
         _, logdet_K = np.linalg.slogdet(self.K)
         logdet_Ks = - len(self.obs_f) * self.Elns + logdet_K
-        #_, logdet_Ks = np.linalg.slogdet(self.Ks)
         
         mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
         
@@ -459,7 +438,8 @@ class GPGrid(object):
                 if diff_G < self.conv_threshold_G:
                     break;
             if inner_nIt >= self.max_iter_G - 1:
-                logging.warning("G did not converge: diff was %.5f" % diff_G)
+                if self.verbose:
+                    logging.debug("G did not converge: diff was %.5f" % diff_G)
             
             self.obs_f = self.obs_f + self.mu0            
             
