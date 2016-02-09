@@ -165,6 +165,19 @@ class GPGrid(object):
             self.obs_values = grid_obs_pos_counts[self.obsx,self.obsy]
             obs_pos_counts = self.obs_values[:, np.newaxis]
             obs_total_counts = grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
+
+        elif self.obsx.dtype=='int' and (obs_values.shape[1]==2): # duplicate locations allowed, one count at each array entry
+            if not np.any(self.obs_values):
+                obs_values[obs_values[:, 0] == 1, 0] = self.p_rep
+                obs_values[obs_values[:, 0] == 0, 0] = 1 - self.p_rep   
+            
+            grid_obs_counts = coo_matrix((obs_values[:, 1], (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
+            grid_obs_pos_counts = coo_matrix((obs_values[:, 0], (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
+            
+            self.obsx, self.obsy = grid_obs_counts.nonzero()
+            self.obs_values = grid_obs_pos_counts[self.obsx,self.obsy]
+            obs_pos_counts = self.obs_values[:, np.newaxis]
+            obs_total_counts = grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
             
         elif self.obsx.dtype=='float' and (obs_values.ndim==1 or obs_values.shape[1]==1):
             if not np.any(self.obs_values):
@@ -188,6 +201,9 @@ class GPGrid(object):
                 obs_total_counts = np.array(obs_values[:,1]).reshape(obs_values.shape[0],1)
             else:
                 obs_total_counts = totals
+        
+        if self.verbose:
+            logging.debug("Number of observed locations =" + str(len(obs_pos_counts)))
         
         self.obs_total_counts = obs_total_counts
         
@@ -426,7 +442,7 @@ class GPGrid(object):
             diff_G = 0
             G_update_rate = 1.0 # start with full size updates
             for inner_nIt in range(self.max_iter_G):
-                oldG = self.G                
+                oldG = self.G
                 mean_X = self.expec_fC(G_update_rate=G_update_rate)
                 prev_diff_G = diff_G # save last iteration's difference
                 diff_G = np.max(np.abs(oldG - self.G))
