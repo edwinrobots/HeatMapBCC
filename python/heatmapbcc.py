@@ -129,7 +129,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
-            self.heatGP[j].max_iter_G = 10
+            self.heatGP[j].max_iter_G = 3
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
         
     def convergence_measure(self, oldET):
@@ -266,12 +266,18 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)            
         for j in gprange:
             obs_values = self.E_t[:,j]                
-            self.lnkappa[j] = self.heatGP[j].fit([self.obsx, self.obsy], obs_values, expectedlog=True, 
-                                                 update_s=self.update_s)
-            self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
+            self.heatGP[j].fit([self.obsx, self.obsy], obs_values, update_s=self.update_s)
+            self.heatGP[j].verbose = False
+            lnkappaj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
+                                                        expectedlog=True)
+            self.heatGP[j].verbose = self.verbose
+            self.lnkappa[j] = lnkappaj.flatten()
+#             self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
+            #self.lnkappa[j] = self.heatGP[j].logpz(1.0).flatten()
         if self.nclasses==2:
             kappa0 = 1-np.exp(self.lnkappa[1])
             self.lnkappa[0][kappa0 > 1e-10] = np.log(kappa0[kappa0 > 1e-10])
+            #self.lnkappa[0] = self.heatGP[1].logpz(0.0).flatten()
             
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
@@ -286,15 +292,15 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         self.oldkappa = np.exp(self.lnkappa)            
-        
+        self.lnjoint(alldata=True)
         # If we have not already calculated lnpCT for the lower bound, then make sure we recalculate using all data
 #         lnpCT = super(HeatMapBCC, self).post_lnjoint_ct()
         lnpCT = 0
         for j in gprange:
-            lnpCTj = self.lnpCT[:, j] - self.lnkappa[j] + self.heatGP[j].logpz(1.0)
+            lnpCTj = self.lnpCT[:, j] #- self.lnkappa[j] + self.heatGP[j].logpz(1.0).flatten()
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, j], lnpCTj))
         if self.nclasses==2:
-            lnpCTj = self.lnpCT[:, 0] - self.lnkappa[0] + self.heatGP[1].logpz(0.0)
+            lnpCTj = self.lnpCT[:, 0] #- self.lnkappa[0] + self.heatGP[1].logpz(0.0).flatten()
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, 0], lnpCTj))
             
         return lnpCT
@@ -303,27 +309,27 @@ class HeatMapBCC(ibcc.IBCC):
         if not self.uselowerbound:
             self.lnjoint(alldata=True)
         
-        qjoint = self.lnpCT - self.lnkappa.T
-        qjoint = qjoint[self.testidxs, :]        
-        if self.nclasses==2:
-            gprange = [1]
-        else:
-            gprange = np.arange(self.nclasses)
-        for j in gprange:
-            pz = self.heatGP[j].logpz(1.0)
-            qjoint[:, j] += pz
-        if self.nclasses==2:
-            pz = self.heatGP[1].logpz(0.0)
-            qjoint[:, 0] += pz
-            
-        # ensure that the values are not too small
-        largest = np.max(qjoint, 1)[:, np.newaxis]
-        qjoint = qjoint - largest
-        qjoint = np.exp(qjoint)
-        norma = np.sum(qjoint, axis=1)[:, np.newaxis]
-        qT = qjoint / norma
-        
-        lnqT = np.sum( np.multiply(self.E_t[self.testidxs, :], np.log(qT) ) ) #we may need to replace E_t with an expectation WRT the approximation
+#         qjoint = self.lnpCT - self.lnkappa.T
+#         qjoint = qjoint[self.testidxs, :]        
+#         if self.nclasses==2:
+#             gprange = [1]
+#         else:
+#             gprange = np.arange(self.nclasses)
+#         for j in gprange:
+#             pz = self.heatGP[j].logpz(1.0)
+#             qjoint[:, j] += pz.flatten()
+#         if self.nclasses==2:
+#             pz = self.heatGP[1].logpz(0.0)
+#             qjoint[:, 0] += pz.flatten()
+#              
+#         # ensure that the values are not too small
+#         largest = np.max(qjoint, 1)[:, np.newaxis]
+#         qjoint = qjoint - largest
+#         qjoint = np.exp(qjoint)
+#         norma = np.sum(qjoint, axis=1)[:, np.newaxis]
+#         qT = qjoint / norma
+#         lnqT = np.sum( np.multiply(self.E_t[self.testidxs, :], np.log(qT)))
+        lnqT = np.sum( np.multiply(self.E_t[self.testidxs, :], np.log(self.E_t[self.testidxs, :]) ) ) #we may need to replace E_t with an expectation WRT the approximation
 #         lnqT = 0
 #         if self.nclasses==2:
 #             gprange = [1]
