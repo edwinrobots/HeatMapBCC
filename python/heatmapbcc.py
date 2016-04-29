@@ -57,8 +57,8 @@ class HeatMapBCC(ibcc.IBCC):
             outputy = []
         if not outputx:
             outputx = []
-        self.nx = nx
-        self.ny = ny
+        self.nx = int(nx)
+        self.ny = int(ny)
         self.outputx = outputx
         self.outputy = outputy
         self.lnkappa = []
@@ -269,7 +269,7 @@ class HeatMapBCC(ibcc.IBCC):
             obs_values = self.E_t[:,j]                
             self.heatGP[j].fit([self.obsx, self.obsy], obs_values, update_s=self.update_s)
             self.heatGP[j].verbose = False
-            lnkappaj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
+            lnkappaj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='rough', 
                                                         expectedlog=True)
             self.heatGP[j].verbose = self.verbose
             self.lnkappa[j] = lnkappaj.flatten()
