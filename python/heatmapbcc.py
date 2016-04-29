@@ -173,9 +173,13 @@ class HeatMapBCC(ibcc.IBCC):
             logging.error('Must use a sparse list of crowdsourced labels with 4 columns:')
             logging.error('Agent ID, x-cood, y-coord, response value') 
             return []
-        return super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, 
+        super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams, 
                                                                maxiter, False)
-
+        if self.output_to_grid:
+            logging.debug("Resparsifying to grid")
+            self.E_t, _, _ = self.predict_grid()
+        return self.E_t
+    
     def predict(self, outputx, outputy, variance_method='rough'):
         # Initialise containers for results at the output locations 
         nout = len(outputx)
@@ -243,9 +247,6 @@ class HeatMapBCC(ibcc.IBCC):
         if np.any(self.outputx):
             logging.debug("Resparsifying to specified output points")        
             self.E_t = self.predict(self.outputx, self.outputy)
-        elif self.output_to_grid:
-            logging.debug("Resparsifying to grid")
-            self.E_t = self.predict_grid()
 
         return self.E_t
     

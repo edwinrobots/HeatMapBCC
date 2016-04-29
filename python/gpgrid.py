@@ -560,8 +560,12 @@ class GPGrid(object):
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
         '''
-        self.outputx = output_coords[0].astype(float)[:, np.newaxis]
-        self.outputy = output_coords[1].astype(float)[:, np.newaxis]
+        self.outputx = output_coords[0].astype(float)
+        if self.outputx.ndim==1:
+            self.outputx = self.outputx[:, np.newaxis]
+        self.outputy = output_coords[1].astype(float)
+        if self.outputy.ndim==1:
+            self.outputy = self.outputy[:, np.newaxis]
 
         self.f = np.empty((len(self.outputx), 1), dtype=float)
         self.v = np.empty((len(self.outputx), 1), dtype=float)
