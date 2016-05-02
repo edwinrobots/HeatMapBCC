@@ -87,10 +87,10 @@ class GPGrid(object):
             shape_s0 = 1.0
         if not rate_s0:
             rate_s0 = 1.0#5.0#1/200.0#0.5 / logit(0.25**2 + 0.5) # SD of 0.25 in probability space  
-        self.shape_s0 = shape_s0 # prior pseudo counts * 0.5
-        self.rate_s0 = rate_s0 # prior sum of squared deviations
-        self.shape_s = shape_s0
-        self.rate_s = rate_s0 # init to the priors until we receive data
+        self.shape_s0 = float(shape_s0) # prior pseudo counts * 0.5
+        self.rate_s0 = float(rate_s0) # prior sum of squared deviations
+        self.shape_s = float(shape_s0)
+        self.rate_s = float(rate_s0) # init to the priors until we receive data
         if np.any(s_initial):
             self.s_initial = s_initial
             self.s = s_initial
