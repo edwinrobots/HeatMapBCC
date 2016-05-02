@@ -129,7 +129,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
-            self.heatGP[j].max_iter_G = 6
+            self.heatGP[j].max_iter_G = 1
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
         
     def convergence_measure(self, oldET):
@@ -177,8 +177,10 @@ class HeatMapBCC(ibcc.IBCC):
                                                                maxiter, False)
         if self.output_to_grid:
             logging.debug("Resparsifying to grid")
-            self.E_t, _, _ = self.predict_grid()
-        return self.E_t
+            E_t_grid, _, _ = self.predict_grid()
+            return E_t_grid
+        else:
+            return self.E_t
     
     def predict(self, outputx, outputy, variance_method='rough'):
         # Initialise containers for results at the output locations 
@@ -269,7 +271,7 @@ class HeatMapBCC(ibcc.IBCC):
             obs_values = self.E_t[:,j]                
             self.heatGP[j].fit([self.obsx, self.obsy], obs_values, update_s=self.update_s)
             self.heatGP[j].verbose = False
-            lnkappaj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='rough', 
+            lnkappaj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
                                                         expectedlog=True)
             self.heatGP[j].verbose = self.verbose
             self.lnkappa[j] = lnkappaj.flatten()
