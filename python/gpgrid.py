@@ -20,6 +20,28 @@ def target_var(f,s,v):
     v = v*s*s
     return u/(1/(u*v) + 1)
 
+def post_rough(f, v):
+        k = 1.0 / np.sqrt(1 + (np.pi * v / 8.0))
+        m_post = sigmoid(k*f)
+        not_m_post = sigmoid(-k*f)
+        v_post = (sigmoid(f + np.sqrt(v)) - m_post)**2 + (sigmoid(f - np.sqrt(v)) - m_post)**2 / 2.0
+        
+        return m_post, not_m_post, v_post
+
+def post_sample(f, v, expectedlog): 
+    # draw samples from a Gaussian with mean f and variance v
+    f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 1000))
+    rho_samples = sigmoid(f_samples)
+    rho_not_samples = sigmoid(-f_samples)
+    if expectedlog:
+        rho_samples = np.log(rho_samples)
+        rho_not_samples = np.log(rho_not_samples)
+    m_post = np.mean(rho_samples, axis=1)[:, np.newaxis]
+    not_m_post = np.mean(rho_not_samples, axis=1)[:, np.newaxis]
+    v_post = np.mean((rho_samples - m_post)**2, axis=1)[:, np.newaxis]
+    
+    return m_post, not_m_post, v_post
+
 class GPGrid(object):
     verbose = False
     
@@ -389,8 +411,8 @@ class GPGrid(object):
         mean_X = sigmoid(self.obs_f.flatten())
         self.G = G_update_rate * np.diag(mean_X * (1-mean_X)) + (1 - G_update_rate) * self.G
         
-        KsG = self.Ks.dot(self.G.T, self.KsG)        
-        self.Cov = KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
+        self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
+        self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
         
         # instead of z0 here we can use:
         #z0 = self.z0 # use initial value for prior mean
@@ -399,8 +421,8 @@ class GPGrid(object):
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-        self.obs_f = KsG.dot(self.A, out=self.obs_f)
-        V = solve_triangular(self.L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
+        self.obs_f = self.KsG.dot(self.A, out=self.obs_f)
+        V = solve_triangular(self.L, self.KsG.T, lower=True, overwrite_b=True, check_finite=False)
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
         return mean_X
 
@@ -411,20 +433,20 @@ class GPGrid(object):
         if process_obs:
             self.process_observations(obsx, obsy, obs_values, totals)
             
-        # Get the correct covariance matrix
-        self.K = self.kernel_func(self.obs_ddx, self.obs_ddy)
-        self.K += 1e-6 * np.eye(len(self.K)) # jitter
-        self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
-        
+            # Get the correct covariance matrix
+            self.K = self.kernel_func(self.obs_ddx, self.obs_ddy)
+            self.K += 1e-6 * np.eye(len(self.K)) # jitter
+            self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
+            
+            self.shape_s = self.shape_s0 + len(self.obsx)/2.0 # reset!
+            
         if self.obsx==[]:
             mPr = 0.5
             stdPr = 0.25       
             return mPr, stdPr
              
         if self.verbose: 
-            logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )
-        
-        self.shape_s = self.shape_s0 + len(self.obsx)/2.0
+            logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )        
         
         # Initialise objects
         if not np.any(self.obs_f) or len(self.obs_f) != len(self.obsx):
@@ -555,6 +577,20 @@ class GPGrid(object):
 #         self.mean_prob_notobs = mean_prob_notobs
 #         return mean_prob_obs.reshape(-1)
     
+    def predict_obs(self, variance_method='rough', expectedlog=False, return_not=False):
+        f = self.obs_f
+        v = np.diag(self.obs_C)[:, np.newaxis]
+        if variance_method=='rough' and not expectedlog:
+            m_post, not_m_post, v_post = post_rough(f, v)
+        else:
+            if variance_method == 'rough':
+                logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
+            m_post, not_m_post, v_post = post_sample(f, v, variance_method)
+        if return_not:
+            return m_post, not_m_post, v_post
+        else:
+            return m_post, v_post        
+    
     def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
@@ -621,28 +657,19 @@ class GPGrid(object):
             self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0
                     
             # Approximate the expected value of the variable transformed through the sigmoid.
-            if variance_method == 'sample':
-                # draw samples from a Gaussian with mean f and variance v
-                f_samples = norm.rvs(loc=self.f[blockidxs, :], scale=np.sqrt(self.v[blockidxs, :]), size=(len(blockidxs), 1000))
-                rho_samples = sigmoid(f_samples)
-                rho_not_samples = sigmoid(-f_samples)
-                if expectedlog:
-                    rho_samples = np.log(rho_samples)
-                    rho_not_samples = np.log(rho_not_samples)
-                m_post[blockidxs, :] = np.mean(rho_samples, axis=1)[:, np.newaxis]
-                not_m_post[blockidxs, :] = np.mean(rho_not_samples, axis=1)[:, np.newaxis]
-                v_post[blockidxs, :] = np.mean((rho_samples - m_post[blockidxs, :])**2, axis=1)[:, np.newaxis]
+            if variance_method == 'sample' or expectedlog:
+                m_post[blockidxs, :], v_post[blockidxs, :], not_m_post[blockidxs, :] = \
+                    post_sample(self.f[blockidxs, :], self.v[blockidxs, :], expectedlog)
                 
-        if variance_method == 'rough':
-            k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
-            m_post = sigmoid(k*self.f)
-            not_m_post = sigmoid(-k*self.f)
-            v_post = (sigmoid(self.f + np.sqrt(self.v)) - m_post)**2 + (sigmoid(self.f - np.sqrt(self.v)) - m_post)**2 / 2.0
+        if variance_method == 'rough' and not expectedlog:
+            m_post, v_post, not_m_post = post_rough(self.f, self.v)
+        elif variance_method == 'rough':
+            logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
             
         if return_not:
             return m_post, not_m_post, v_post
         else:
-            return m_post, v_post
+            return m_post, v_post     
 
     def get_mean_density(self):
         '''
