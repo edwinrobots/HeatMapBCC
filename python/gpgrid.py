@@ -20,28 +20,6 @@ def target_var(f,s,v):
     v = v*s*s
     return u/(1/(u*v) + 1)
 
-def post_rough(f, v):
-        k = 1.0 / np.sqrt(1 + (np.pi * v / 8.0))
-        m_post = sigmoid(k*f)
-        not_m_post = sigmoid(-k*f)
-        v_post = (sigmoid(f + np.sqrt(v)) - m_post)**2 + (sigmoid(f - np.sqrt(v)) - m_post)**2 / 2.0
-        
-        return m_post, not_m_post, v_post
-
-def post_sample(f, v, expectedlog): 
-    # draw samples from a Gaussian with mean f and variance v
-    f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 1000))
-    rho_samples = sigmoid(f_samples)
-    rho_not_samples = sigmoid(-f_samples)
-    if expectedlog:
-        rho_samples = np.log(rho_samples)
-        rho_not_samples = np.log(rho_not_samples)
-    m_post = np.mean(rho_samples, axis=1)[:, np.newaxis]
-    not_m_post = np.mean(rho_not_samples, axis=1)[:, np.newaxis]
-    v_post = np.mean((rho_samples - m_post)**2, axis=1)[:, np.newaxis]
-    
-    return m_post, not_m_post, v_post
-
 class GPGrid(object):
     verbose = False
     
@@ -50,7 +28,7 @@ class GPGrid(object):
     ls = 100 # inner length scale of the GP
     n_lengthscales = 1 # separate or single length scale?
     mu0 = 0
-    z0 = 0.5
+
     # parameters for the hyper-priors if we want to optimise the hyper-parameters
     shape_ls = 1
     rate_ls = 0
@@ -58,8 +36,6 @@ class GPGrid(object):
     rate_s0 = 1       
 
     # save the training points
-    obsx = []
-    obsy = []
     obs_values = [] # value of the positive class at each observations. Any duplicate points will be summed.
     
     obs_f = []
@@ -99,8 +75,7 @@ class GPGrid(object):
     def __init__(self, nx, ny, z0=0.5, shape_s0=None, rate_s0=None, s_initial=None, shape_ls=10, rate_ls=0.1, 
                  ls_initial=None, force_update_all_points=False, n_lengthscales=1):
         #Grid size for prediction
-        self.nx = nx
-        self.ny = ny
+        self.dims = np.array([nx, ny])
         
         self.n_lengthscales = n_lengthscales
                 
@@ -121,22 +96,10 @@ class GPGrid(object):
             self.s = self.shape_s0 / self.rate_s0         
                 
         # Prior mean
-        self.z0 = z0
-        self.mu0 = logit(z0) 
+        self.init_prior_mean_f(z0)
         
         # Prior noise variance
-        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=50000)
-        rho_samples = sigmoid(f_samples)
-        rho_mean = self.z0
-        rho_var = np.var(rho_samples - self.z0)
-        # find the beta parameters
-        a_plus_b = 1.0 / (rho_var / (rho_mean*(1 - rho_mean))) - 1
-        a = a_plus_b * rho_mean
-        b = a_plus_b * (1 - rho_mean)
-        #b = 1.0
-        #a = 1.0
-        self.nu0 = np.array([b, a])
-        logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))
+        self.init_obs_prior()
             
         #Length-scale
         self.shape_ls = shape_ls # prior pseudo counts * 0.5
@@ -158,102 +121,113 @@ class GPGrid(object):
         Sets the value of s back to the initial point
         '''
         self.s = self.s_initial
-        if hasattr(self, 'obs_mean_prob'):
-            self.obs_f = logit(self.obs_mean_prob) + self.mu0
+        if hasattr(self, 'obs_values'):
+            self.obs_f = self.init_obs_f()#logit(self.obs_mean_prob) + self.mu0
         if hasattr(self, 'K') and np.any(self.K):
             self.obs_C = self.K / self.s
     
-    def process_observations(self, obsx, obsy, obs_values, totals=None): 
+    def forward_model(self, f):
+        return sigmoid(f)
+    
+    def update_jacobian(self, G_update_rate=1.0):
+        mean_X = self.forward_model(self.obs_f.flatten())
+        self.G = G_update_rate * np.diag(mean_X * (1-mean_X)) + (1 - G_update_rate) * self.G
+        return mean_X
+    
+    def observations_to_z(self):
+        obs_probs = self.obs_values/self.obs_total_counts
+        self.z = obs_probs        
+    
+    def init_prior_mean_f(self, z0):
+        self.mu0 = logit(z0)         
+    
+    def init_obs_f(self):
+        # Mean probability at observed points given local observations
+        self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
+        self.obs_f = logit(self.obs_mean)    
+    
+    def estimate_obs_noise(self):
+        # Noise in observations
+        var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + 1) # uncertainty in obs_mean
+        self.Q = np.diagflat((self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts) 
+                
+    def init_obs_prior(self):
+        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=50000)
+        rho_samples = self.forward_model(f_samples)
+        rho_mean = np.mean(rho_samples)
+        rho_var = np.var(rho_samples)
+        # find the beta parameters
+        a_plus_b = 1.0 / (rho_var / (rho_mean*(1 - rho_mean))) - 1
+        a = a_plus_b * rho_mean
+        b = a_plus_b * (1 - rho_mean)
+        #b = 1.0
+        #a = 1.0
+        self.nu0 = np.array([b, a])
+        logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
+    
+    def count_observations(self, obs_coords, n_obs, poscounts, totals):
+        ravelled_coords = np.ravel_multi_index(obs_coords, dims=self.dims)
+        grid_obs_counts = coo_matrix((totals, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()            
+        grid_obs_pos_counts = coo_matrix((poscounts, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()
+        
+        ravelled_coords = grid_obs_counts.nonzero()
+        self.obs_coords = np.array(np.unravel_index(ravelled_coords, shape=self.dims))
+        n_obs = self.obs_coords[0].shape[0]
+        self.obs_values = grid_obs_pos_counts[ravelled_coords][:, np.newaxis]
+        self.obs_total_counts = grid_obs_counts[ravelled_coords][:, np.newaxis]        
+                    
+    def process_observations(self, obs_coords, obs_values, totals=None): 
         if obs_values==[]:
             return [],[]      
         
-        if self.z!=[] and obsx==self.rawobsx and obsy==self.rawobsy and obs_values==self.rawobs_points:
-            return
-        
+        self.obs_coords = np.array(obs_coords)
+        n_obs = self.obs_coords.shape[0]
+                 
         if self.verbose:
-            logging.debug("GP grid fitting " + str(len(obsx)) + " observations.")
+            logging.debug("GP grid for " + str(obs_coords.shape[0]) + " observations.")
             
-        self.obsx = np.array(obsx)
-        self.obsy = np.array(obsy)
+        obs_values = np.array(obs_values)
         
-        obs_values = np.array(obs_values)        
-        if self.obsx.dtype=='int' and (obs_values.ndim==1 or obs_values.shape[1]==1): # duplicate locations allowed, one count at each array entry
-            if not np.any(self.obs_values):
-                obs_values[obs_values == 1] = self.p_rep
-                obs_values[obs_values == 0] = 1 - self.p_rep   
+        if not np.any(totals):
+            if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
+                totals = np.ones(n_obs)
+            else: # obs_values given as two columns: first is positive counts, second is total counts.
+                totals = obs_values[:, 1]
+        elif (obs_values.shape[1]==2):
+            logging.warning('GPGrid received two sets of totals; ignoring the second column of the obs_values argument')            
+          
+        if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
+            poscounts = obs_values
+        elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts. 
+            poscounts = obs_values[:, 0]
             
-            grid_obs_counts = coo_matrix((np.ones(len(self.obsx)), (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
-            grid_obs_pos_counts = coo_matrix((obs_values, (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
-            
-            self.obsx, self.obsy = grid_obs_counts.nonzero()
-            self.obs_values = grid_obs_pos_counts[self.obsx,self.obsy]
-            obs_pos_counts = self.obs_values[:, np.newaxis]
-            obs_total_counts = grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
-
-        elif self.obsx.dtype=='int' and (obs_values.shape[1]==2): # duplicate locations allowed, one count at each array entry
-            if not np.any(self.obs_values):
-                obs_values[obs_values[:, 0] == 1, 0] = self.p_rep
-                obs_values[obs_values[:, 0] == 0, 0] = 1 - self.p_rep   
-            
-            grid_obs_counts = coo_matrix((obs_values[:, 1], (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()            
-            grid_obs_pos_counts = coo_matrix((obs_values[:, 0], (self.obsx, self.obsy)), shape=(self.nx,self.ny)).toarray()
-            
-            self.obsx, self.obsy = grid_obs_counts.nonzero()
-            self.obs_values = grid_obs_pos_counts[self.obsx,self.obsy]
-            obs_pos_counts = self.obs_values[:, np.newaxis]
-            obs_total_counts = grid_obs_counts[self.obsx,self.obsy][:, np.newaxis]
-            
-        elif self.obsx.dtype=='float' and (obs_values.ndim==1 or obs_values.shape[1]==1):
-            if not np.any(self.obs_values):
-                obs_values[obs_values == 1] = self.p_rep
-                obs_values[obs_values == 0] = 1 - self.p_rep
-            self.obs_values = obs_values
-            obs_pos_counts = self.obs_values[:, np.newaxis]
-            if not np.any(totals):
-                obs_total_counts = np.ones(obs_pos_counts.shape)
-            else:
-                obs_total_counts = totals
+        if not np.any(self.obs_values):
+            poscounts[poscounts == 1] = self.p_rep
+            poscounts[poscounts == 0] = 1 - self.p_rep
              
-        elif obs_values.shape[1]==2: 
-            if not np.any(self.obs_values):
-                obs_values[obs_values[:,0] == 1, 0] = self.p_rep
-                obs_values[obs_values[:,0] == 0, 0] = 1 - self.p_rep            
-            # obs_values given as two columns: first is positive counts, second is total counts. No duplicate locations
-            obs_pos_counts = np.array(obs_values[:,0]).reshape(obs_values.shape[0],1)
-            self.obs_values = obs_pos_counts
-            if not np.any(totals):
-                obs_total_counts = np.array(obs_values[:,1]).reshape(obs_values.shape[0],1)
-            else:
-                obs_total_counts = totals
-        
+        # get a list of rows so we can determine unique locations
+        #coord_rows = self.obs_coords.view(np.dtype((np.void, self.obs_coords.dtype.itemsize * self.obs_coords.shape[1])))
+               
+        if self.obs_coords.dtype=='int': # duplicate locations allowed, one count at each array entry
+            self.count_observations(obs_coords, n_obs, poscounts, totals)
+
+        elif self.obs_coords.dtype=='float': # No duplicate locations
+            self.obs_values = poscounts[:, np.newaxis]
+            self.obs_total_counts = totals[:, np.newaxis]
+
         if self.verbose:
-            logging.debug("Number of observed locations =" + str(len(obs_pos_counts)))
+            logging.debug("Number of observed locations =" + str(self.obs_values.shape[0]))
         
-#         exaggerate = 10.0
-#         obs_total_counts *= exaggerate
-#         obs_pos_counts *= exaggerate
-        
-        self.obs_total_counts = obs_total_counts
-        
-        #Difference between observed value and prior mean
-        # Is this right at this point? Should it be moderated by prior pseudo-counts? Because we are treating this as a noisy observation of kappa.
-        obs_probs = obs_pos_counts/self.obs_total_counts
-        self.z = obs_probs
+        self.observations_to_z()
         
         #Update to produce training matrices only over known points
-        obsx_tiled = np.tile(self.obsx, (len(self.obsx),1))
-        obsy_tiled = np.tile(self.obsy, (len(self.obsy),1))
-        self.obs_ddx = np.array(obsx_tiled.T - obsx_tiled, dtype=np.float64)
-        self.obs_ddy = np.array(obsy_tiled.T - obsy_tiled, dtype=np.float64)
+        self.obs_distances = self.obs_coords.reshape((n_obs, 1, len(self.dims)))
+        for d in range(len(self.dims)):
+            self.obs_distances[:, :, d] = self.obs_distances[:, :, d].T - self.obs_distances[:, :, d]
+        self.obs_distances = self.obs_distances.astype(float)
     
-        # Mean probability at observed points given local observations
-        self.obs_mean_prob = (obs_pos_counts + self.nu0[1]) / (obs_total_counts + np.sum(self.nu0))
-        #self.obs_mean_prob = (obs_pos_counts + 1) / (obs_total_counts + 2)
-        # Noise in observations
-        
-        var_obs_mean_probs = self.obs_mean_prob * (1-self.obs_mean_prob) / (obs_total_counts + 1)
-        
-        self.Q = np.diagflat((self.obs_mean_prob * (1 - self.obs_mean_prob) - var_obs_mean_probs) / obs_total_counts) 
+        self.init_obs_f()
+        self.estimate_obs_noise()
                     
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
@@ -265,7 +239,7 @@ class GPGrid(object):
 #         pz = np.sum(self.logpz())
 #         print pz
         
-        rho_samples = sigmoid(norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f))))
+        rho_samples = self.forward_model(norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f))))
         lognotrho_samples = np.log(1 - rho_samples)
         logrho_samples = np.log(rho_samples)
         logrho = np.mean(logrho_samples, axis=0)[:, np.newaxis]
@@ -300,7 +274,7 @@ class GPGrid(object):
             Q = np.diag(self.Q)[:, np.newaxis]
             z = np.zeros(self.obs_f.shape) + z
             
-        am_plus_b = sigmoid(self.obs_f)
+        am_plus_b = self.forward_model(self.obs_f)
         G = np.diag(self.G)[:, np.newaxis]
         logpz = -0.5 * ( np.log(Q) + np.log(2*np.pi) + (z - am_plus_b)**2 / Q  + 
                          G**2 * np.diag(self.obs_C)[:, np.newaxis] / Q )
@@ -352,7 +326,7 @@ class GPGrid(object):
         # make sure we start again
         self.reset_s()
         self.obs_f = []
-        self.fit((self.obsx, self.obsy), self.obs_values, expectedlog=expectedlog, process_obs=False, update_s=True)
+        self.fit(self.obs_coords, self.obs_values, expectedlog=expectedlog, process_obs=False, update_s=True)
         if self.verbose:
             logging.debug("Inverse output scale: %f" % self.s)        
         
@@ -367,9 +341,7 @@ class GPGrid(object):
         return -lml
     
     def optimize(self, obs_coords, obs_values, expectedlog=True, maxfun=20, use_MAP=False):
-        obsx = obs_coords[0]
-        obsy = obs_coords[1]
-        self.process_observations(obsx, obsy, obs_values) # process the data here so we don't repeat each call
+        self.process_observations(obs_coords, obs_values) # process the data here so we don't repeat each call
         
         for d, ls in enumerate(self.ls):
             if ls == 1:
@@ -393,54 +365,53 @@ class GPGrid(object):
         logging.debug(msg)   
         return self.mean_prob_obs, opt_hyperparams
 
-    def sq_exp_cov(self, xvals, yvals):
-        Kx = np.exp( -xvals**2 / self.ls[0] )
-        Ky = np.exp( -yvals**2 / self.ls[1] )
-        K = Kx * Ky
+    def sq_exp_cov(self, distances):
+        if distances.ndim==2:
+            distances = distances[:, :, np.newaxis]
+        K = np.zeros(distances.shape)
+        for d in range(distances.shape[2]):
+            K[:, :, d] = np.exp( -distances**2 / self.ls[d] )
+        K = np.prod(K, axis=2)
         return K
     
-    def matern_3_2(self, xvals, yvals):
-        Kx = np.abs(xvals) * 3**0.5 / self.ls[0]
-        Kx = (1 + Kx) * np.exp(-Kx)
-        Ky = np.abs(yvals) * 3**0.5 / self.ls[1]
-        Ky = (1 + Ky) * np.exp(-Ky)        
-        K = Kx * Ky
+    def matern_3_2(self, distances):
+        K = np.zeros(distances.shape)
+        for d in range(distances.shape[2]):
+            K[:, :, d] = np.abs(distances) * 3**0.5 / self.ls[d]
+            K[:, :, d] = (1 + K[:, :, d]) * np.exp(-K[:, :, d])
+        K = np.prod(K, axis=2)
         return K
 
     def expec_fC(self, G_update_rate=1.0):        
-        mean_X = sigmoid(self.obs_f.flatten())
-        self.G = G_update_rate * np.diag(mean_X * (1-mean_X)) + (1 - G_update_rate) * self.G
+        mean_X = self.update_jacobian(G_update_rate)
         
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
         
-        # instead of z0 here we can use:
-        #z0 = self.z0 # use initial value for prior mean
-        z0 = sigmoid(self.obs_f) + self.G.dot(self.mu0 - self.obs_f) # use the estimate given by the Taylor series expansion
+        # use the estimate given by the Taylor series expansion
+        z0 = self.forward_model(self.obs_f) + self.G.dot(self.mu0 - self.obs_f) 
         
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-        self.obs_f = self.KsG.dot(self.A, out=self.obs_f)
+        self.obs_f = self.KsG.dot(self.A, out=self.obs_f) + self.mu0 # need to add the prior mean here?
         V = solve_triangular(self.L, self.KsG.T, lower=True, overwrite_b=True, check_finite=False)
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
         return mean_X
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True):
         # Initialise the objects that store the observation data
-        obsx = obs_coords[0]
-        obsy = obs_coords[1]
         if process_obs:
-            self.process_observations(obsx, obsy, obs_values, totals)
+            self.process_observations(obs_coords, obs_values, totals)
             
             # Get the correct covariance matrix
-            self.K = self.kernel_func(self.obs_ddx, self.obs_ddy)
+            self.K = self.kernel_func(self.obs_distances)
             self.K += 1e-6 * np.eye(len(self.K)) # jitter
             self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
             
-            self.shape_s = self.shape_s0 + len(self.obsx)/2.0 # reset!
+            self.shape_s = self.shape_s0 + self.obs_coords.shape[0]/2.0 # reset!
             
-        if self.obsx==[]:
+        if not np.any(self.obs_coords):
             mPr = 0.5
             stdPr = 0.25       
             return mPr, stdPr
@@ -448,14 +419,13 @@ class GPGrid(object):
         if self.verbose: 
             logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )        
         
+        G_update_rate = 1.0 # start with full size updates
+        
         # Initialise objects
-        if not np.any(self.obs_f) or len(self.obs_f) != len(self.obsx):
+        if not np.any(self.obs_f) or len(self.obs_f) != self.obs_coords.shape[0]:
             # Case where we have a completely new dataset or new observations
-            self.obs_f = logit(self.obs_mean_prob)
             self.obs_C = self.K / self.s
-            mean_X = self.obs_mean_prob.flatten() 
-            self.G = np.diag(mean_X*(1-mean_X))
-            prev_mean_X = mean_X    
+            mean_X = self.update_jacobian(G_update_rate)
             
             # Initialise here to speed up dot product            
             self.Cov = np.zeros(self.G.shape)
@@ -470,7 +440,8 @@ class GPGrid(object):
             if self.verbose:
                 logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
         else:
-            mean_X = self.obs_mean_prob.flatten()        
+#             mean_X = self.obs_mean_prob.flatten()
+            mean_X = self.update_jacobian(G_update_rate)
             
         nIt = 0
         diff = 0
@@ -484,7 +455,6 @@ class GPGrid(object):
                 
             # Iterate a few times to get G to stabilise
             diff_G = 0
-            G_update_rate = 1.0 # start with full size updates
             for inner_nIt in range(self.max_iter_G):
                 oldG = self.G
                 mean_X = self.expec_fC(G_update_rate=G_update_rate)
@@ -500,8 +470,6 @@ class GPGrid(object):
             if inner_nIt >= self.max_iter_G - 1:
                 if self.verbose:
                     logging.debug("G did not converge: diff was %.5f" % diff_G)
-            
-            self.obs_f = self.obs_f + self.mu0            
             
             #update the output scale parameter (also called latent function scale/sigmoid steepness)
             self.old_s = self.s 
@@ -550,42 +518,38 @@ class GPGrid(object):
               
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
-
         
-#         self.changed_obs = (np.abs(self.obs_f - old_obs_f) > 0.05).reshape(-1)
-# 
-#         # draw samples from a Gaussian with mean f and covariance C
-#         if self.expec_sigmoid_method=='sample':
-#             f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=1000) 
-#             rho_samples = sigmoid(f_samples)
-#             rho_neg_samples = 1 - rho_samples
-#             if expectedlog:
-#                 rho_samples = np.log(rho_samples)
-#                 rho_neg_samples = np.log(rho_neg_samples)
-#             mean_prob_obs = np.mean(rho_samples, axis=0)
-#             mean_prob_notobs = np.mean(rho_neg_samples, axis=0)
-#         else:
-#             k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C) / 8.0))
-#             k = k[:, np.newaxis]    
-#             mean_prob_obs = sigmoid(k*self.obs_f)
-#             mean_prob_notobs = 1 - mean_prob_obs
-#             if expectedlog:
-#                 mean_prob_obs = np.log(mean_prob_obs)
-#                 mean_prob_notobs = np.log(mean_prob_notobs)
-# 
-#         self.mean_prob_obs = mean_prob_obs
-#         self.mean_prob_notobs = mean_prob_notobs
-#         return mean_prob_obs.reshape(-1)
+    def post_rough(self, f, v):
+        k = 1.0 / np.sqrt(1 + (np.pi * v / 8.0))
+        m_post = sigmoid(k*f)
+        not_m_post = sigmoid(-k*f)
+        v_post = (sigmoid(f + np.sqrt(v)) - m_post)**2 + (sigmoid(f - np.sqrt(v)) - m_post)**2 / 2.0
+        
+        return m_post, not_m_post, v_post
+    
+    def post_sample(self, f, v, expectedlog): 
+        # draw samples from a Gaussian with mean f and variance v
+        f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 1000))
+        rho_samples = sigmoid(f_samples)
+        rho_not_samples = sigmoid(-f_samples)
+        if expectedlog:
+            rho_samples = np.log(rho_samples)
+            rho_not_samples = np.log(rho_not_samples)
+        m_post = np.mean(rho_samples, axis=1)[:, np.newaxis]
+        not_m_post = np.mean(rho_not_samples, axis=1)[:, np.newaxis]
+        v_post = np.mean((rho_samples - m_post)**2, axis=1)[:, np.newaxis]
+        
+        return m_post, not_m_post, v_post    
     
     def predict_obs(self, variance_method='rough', expectedlog=False, return_not=False):
         f = self.obs_f
         v = np.diag(self.obs_C)[:, np.newaxis]
         if variance_method=='rough' and not expectedlog:
-            m_post, not_m_post, v_post = post_rough(f, v)
+            m_post, not_m_post, v_post = self.post_rough(f, v)
         else:
             if variance_method == 'rough':
                 logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
-            m_post, not_m_post, v_post = post_sample(f, v, variance_method)
+            m_post, not_m_post, v_post = self.post_sample(f, v, variance_method)
         if return_not:
             return m_post, not_m_post, v_post
         else:
@@ -596,22 +560,23 @@ class GPGrid(object):
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
         '''
-        self.outputx = output_coords[0].astype(float)
-        if self.outputx.ndim==1:
-            self.outputx = self.outputx[:, np.newaxis]
-        self.outputy = output_coords[1].astype(float)
-        if self.outputy.ndim==1:
-            self.outputy = self.outputy[:, np.newaxis]
+        
+        # if no output_coords provided, give predictions at the fitted locations
+        if not np.any(output_coords):
+            return self.predict_obs(variance_method, expectedlog, return_not)
+        
+        self.output_coords = np.array(output_coords).astype(float)
+        noutputs = self.output_coords.shape[0]
 
-        self.f = np.empty((len(self.outputx), 1), dtype=float)
-        self.v = np.empty((len(self.outputx), 1), dtype=float)
+        self.f = np.empty((noutputs, 1), dtype=float)
+        self.v = np.empty((noutputs, 1), dtype=float)
 
         if variance_method=='sample':
-            m_post = np.empty((len(self.outputx), 1), dtype=float)
-            not_m_post = np.empty((len(self.outputx), 1), dtype=float)
-            v_post = np.empty((len(self.outputx), 1), dtype=float)
+            m_post = np.empty((noutputs, 1), dtype=float)
+            not_m_post = np.empty((noutputs, 1), dtype=float)
+            v_post = np.empty((noutputs, 1), dtype=float)
 
-        nblocks = int(np.ceil(float(len(self.outputx)) / max_block_size))
+        nblocks = int(np.ceil(float(noutputs) / max_block_size))
         
         KsG = self.Ks.dot(self.G.T, self.KsG)        
         self.Cov = KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
@@ -622,16 +587,17 @@ class GPGrid(object):
                 logging.debug("GPGrid predicting block %i of %i" % (block, nblocks))
             
             maxidx = (block + 1) * max_block_size
-            if maxidx > len(self.outputx):
-                maxidx = len(self.outputx)
+            if maxidx > noutputs:
+                maxidx = noutputs
             blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
             
-            blockx = self.outputx[blockidxs]
-            blocky = self.outputy[blockidxs]
+            block_coords = self.output_coords[blockidxs]
 
-            ddx = blockx - self.obsx[np.newaxis, :]
-            ddy = blocky - self.obsy[np.newaxis, :]
-            Kpred = self.kernel_func(ddx, ddy)
+            distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
+            for d in range(len(self.dims)):
+                distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+            
+            Kpred = self.kernel_func(distances)
             Kpred /= self.s
         
             self.f[blockidxs, :] = Kpred.dot(self.G.T).dot(self.A)
@@ -659,10 +625,10 @@ class GPGrid(object):
             # Approximate the expected value of the variable transformed through the sigmoid.
             if variance_method == 'sample' or expectedlog:
                 m_post[blockidxs, :], v_post[blockidxs, :], not_m_post[blockidxs, :] = \
-                    post_sample(self.f[blockidxs, :], self.v[blockidxs, :], expectedlog)
+                    self.post_sample(self.f[blockidxs, :], self.v[blockidxs, :], expectedlog)
                 
         if variance_method == 'rough' and not expectedlog:
-            m_post, v_post, not_m_post = post_rough(self.f, self.v)
+            m_post, v_post, not_m_post = self.post_rough(self.f, self.v)
         elif variance_method == 'rough':
             logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
             
@@ -677,7 +643,7 @@ class GPGrid(object):
         :return:
         '''
         k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
-        m_post = sigmoid(k * (self.f + self.mu0))
+        m_post = self.forward_model(k * (self.f + self.mu0))
         return m_post
     
 if __name__ == '__main__':
