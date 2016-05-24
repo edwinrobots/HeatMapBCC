@@ -164,7 +164,7 @@ class GPGrid(object):
         #a = 1.0
         self.nu0 = np.array([b, a])
         logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
-    
+
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
         ravelled_coords = np.ravel_multi_index(obs_coords, dims=self.dims)
         grid_obs_counts = coo_matrix((totals, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()            
@@ -175,18 +175,18 @@ class GPGrid(object):
         n_obs = self.obs_coords[0].shape[0]
         self.obs_values = grid_obs_pos_counts[ravelled_coords][:, np.newaxis]
         self.obs_total_counts = grid_obs_counts[ravelled_coords][:, np.newaxis]        
+        return n_obs
                     
     def process_observations(self, obs_coords, obs_values, totals=None): 
         if obs_values==[]:
             return [],[]      
         
         self.obs_coords = np.array(obs_coords)
-        n_obs = self.obs_coords.shape[0]
-                 
-        if self.verbose:
-            logging.debug("GP grid for " + str(obs_coords.shape[0]) + " observations.")
-            
         obs_values = np.array(obs_values)
+        n_obs = obs_values.shape[0]                 
+        
+        if self.verbose:
+            logging.debug("GP grid for %i observations." % n_obs)
         
         if not np.any(totals):
             if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
