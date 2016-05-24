@@ -144,7 +144,7 @@ class GPGrid(object):
     def init_obs_f(self):
         # Mean probability at observed points given local observations
         self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
-        self.obs_f = logit(self.obs_mean)    
+        self.obs_f = logit(self.obs_mean)
     
     def estimate_obs_noise(self):
         # Noise in observations
@@ -166,22 +166,29 @@ class GPGrid(object):
         logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
 
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
-        ravelled_coords = np.ravel_multi_index(obs_coords, dims=self.dims)
-        grid_obs_counts = coo_matrix((totals, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()            
-        grid_obs_pos_counts = coo_matrix((poscounts, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()
+        obs_coords = np.array(obs_coords)
+        if obs_coords.dtype=='int': # duplicate locations should be merged and the number of duplicates counted
+            ravelled_coords = np.ravel_multi_index(obs_coords, dims=self.dims)
+            grid_obs_counts = coo_matrix((totals, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()            
+            grid_obs_pos_counts = coo_matrix((poscounts, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()
         
-        ravelled_coords = grid_obs_counts.nonzero()
-        self.obs_coords = np.array(np.unravel_index(ravelled_coords, shape=self.dims))
-        n_obs = self.obs_coords[0].shape[0]
-        self.obs_values = grid_obs_pos_counts[ravelled_coords][:, np.newaxis]
-        self.obs_total_counts = grid_obs_counts[ravelled_coords][:, np.newaxis]        
-        return n_obs
+            nonzero_idxs = grid_obs_counts.nonzero() # ravelled coordinates with duplicates removed
+            self.obs_coords = np.array(np.unravel_index(nonzero_idxs, shape=self.dims))
+            return grid_obs_pos_counts[nonzero_idxs], grid_obs_counts[nonzero_idxs]
                     
+        elif obs_coords.dtype=='float': # Duplicate locations are not merged
+            self.obs_coords = obs_coords          
+        
+            # if we wanted to merge duplicates when there are floats, we could use this:
+            # get a list of rows so we can determine unique locations
+            #coord_rows = self.obs_coords.view(np.dtype((np.void, self.obs_coords.dtype.itemsize * self.obs_coords.shape[1])))
+            
+            return poscounts, totals # these remain unaltered as we have not de-duplicated
+                       
     def process_observations(self, obs_coords, obs_values, totals=None): 
         if obs_values==[]:
             return [],[]      
         
-        self.obs_coords = np.array(obs_coords)
         obs_values = np.array(obs_values)
         n_obs = obs_values.shape[0]                 
         
@@ -204,24 +211,20 @@ class GPGrid(object):
         if not np.any(self.obs_values):
             poscounts[poscounts == 1] = self.p_rep
             poscounts[poscounts == 0] = 1 - self.p_rep
-             
-        # get a list of rows so we can determine unique locations
-        #coord_rows = self.obs_coords.view(np.dtype((np.void, self.obs_coords.dtype.itemsize * self.obs_coords.shape[1])))
-               
-        if self.obs_coords.dtype=='int': # duplicate locations allowed, one count at each array entry
-            self.count_observations(obs_coords, n_obs, poscounts, totals)
 
-        elif self.obs_coords.dtype=='float': # No duplicate locations
-            self.obs_values = poscounts[:, np.newaxis]
-            self.obs_total_counts = totals[:, np.newaxis]
-
+        # remove duplicates etc.
+        totals, poscounts = self.count_observations(obs_coords, n_obs, poscounts, totals)
+        self.obs_values = poscounts[:, np.newaxis]
+        self.obs_total_counts = totals[:, np.newaxis]
+        n_locations = self.obs_coords[0].shape[0]
+            
         if self.verbose:
             logging.debug("Number of observed locations =" + str(self.obs_values.shape[0]))
         
         self.observations_to_z()
         
         #Update to produce training matrices only over known points
-        self.obs_distances = self.obs_coords.reshape((n_obs, 1, len(self.dims)))
+        self.obs_distances = self.obs_coords.reshape((n_locations, 1, len(self.dims)))
         for d in range(len(self.dims)):
             self.obs_distances[:, :, d] = self.obs_distances[:, :, d].T - self.obs_distances[:, :, d]
         self.obs_distances = self.obs_distances.astype(float)
@@ -555,6 +558,50 @@ class GPGrid(object):
         else:
             return m_post, v_post        
     
+    def predict_block(self, block, max_block_size, noutputs):
+        
+        maxidx = (block + 1) * max_block_size
+        if maxidx > noutputs:
+            maxidx = noutputs
+        blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
+        
+        block_coords = self.output_coords[blockidxs]
+
+        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
+        for d in range(len(self.dims)):
+            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+        
+        Kpred = self.kernel_func(distances)
+        Kpred /= self.s
+    
+        self.f[blockidxs, :] = Kpred.dot(self.G.T).dot(self.A)
+        
+        V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
+        self.v[blockidxs, 0] = self.kernel_func(0, 0) / self.s
+        self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
+        
+        if np.any(self.v[blockidxs] < 0):
+            self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
+            if np.any(self.v[blockidxs] < 0): # anything still below zero?
+                logging.error("Variance has gone negative in GPgrid.predict(), %f" % np.min(self.v[blockidxs]))
+        
+        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0        
+    
+    def init_output_arrays(self, output_coords, max_block_size, variance_method):
+        self.output_coords = np.array(output_coords).astype(float)
+        noutputs = self.output_coords.shape[0]
+
+        self.f = np.empty((noutputs, 1), dtype=float)
+        self.v = np.empty((noutputs, 1), dtype=float)
+
+        nblocks = int(np.ceil(float(noutputs) / max_block_size))
+        
+        KsG = self.Ks.dot(self.G.T, self.KsG)        
+        self.Cov = KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
+        self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
+        
+        return nblocks, noutputs   
+    
     def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
@@ -565,62 +612,17 @@ class GPGrid(object):
         if not np.any(output_coords):
             return self.predict_obs(variance_method, expectedlog, return_not)
         
-        self.output_coords = np.array(output_coords).astype(float)
-        noutputs = self.output_coords.shape[0]
-
-        self.f = np.empty((noutputs, 1), dtype=float)
-        self.v = np.empty((noutputs, 1), dtype=float)
-
+        nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size, variance_method)
+        
         if variance_method=='sample':
             m_post = np.empty((noutputs, 1), dtype=float)
             not_m_post = np.empty((noutputs, 1), dtype=float)
             v_post = np.empty((noutputs, 1), dtype=float)
-
-        nblocks = int(np.ceil(float(noutputs) / max_block_size))
-        
-        KsG = self.Ks.dot(self.G.T, self.KsG)        
-        self.Cov = KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
-        self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         
         for block in range(nblocks):
             if self.verbose:
-                logging.debug("GPGrid predicting block %i of %i" % (block, nblocks))
-            
-            maxidx = (block + 1) * max_block_size
-            if maxidx > noutputs:
-                maxidx = noutputs
-            blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
-            
-            block_coords = self.output_coords[blockidxs]
-
-            distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
-            for d in range(len(self.dims)):
-                distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
-            
-            Kpred = self.kernel_func(distances)
-            Kpred /= self.s
-        
-            self.f[blockidxs, :] = Kpred.dot(self.G.T).dot(self.A)
-            
-            V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
-            self.v[blockidxs, 0] = self.kernel_func(0, 0) / self.s
-            self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
-            #ddx = blockx - blockx.T
-            #ddy = blocky - blocky.T
-            #Kout = self.kernel_func(ddx, ddy)
-            #Kout /= self.s
-            #Kout += 1e-6 * np.eye(len(Kout)) # jitter
-
-            #C = Kout - V.T.dot(V)
-             
-            #self.v[blockidxs, :] = np.diag(C)[:, np.newaxis]
-            
-            if np.any(self.v[blockidxs] < 0):
-                self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
-                if np.any(self.v[blockidxs] < 0): # anything still below zero?
-                    logging.error("Variance has gone negative in GPgrid.predict(), %f" % np.min(self.v[blockidxs]))
-            
-            self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0
+                logging.debug("GPGrid predicting block %i of %i" % (block, nblocks))            
+            blockidxs = self.predict_block(block, max_block_size, noutputs)
                     
             # Approximate the expected value of the variable transformed through the sigmoid.
             if variance_method == 'sample' or expectedlog:
