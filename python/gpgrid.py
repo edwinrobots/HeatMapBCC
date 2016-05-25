@@ -137,9 +137,9 @@ class GPGrid(object):
         return sigmoid(f)
     
     def update_jacobian(self, G_update_rate=1.0):
-        mean_X = self.forward_model(self.obs_f.flatten())
-        self.G = G_update_rate * np.diag(mean_X * (1-mean_X)) + (1 - G_update_rate) * self.G
-        return mean_X
+        g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
+        self.G = G_update_rate * np.diag(g_obs_f * (1-g_obs_f)) + (1 - G_update_rate) * self.G
+        return g_obs_f
     
     def observations_to_z(self):
         obs_probs = self.obs_values/self.obs_total_counts
@@ -150,11 +150,11 @@ class GPGrid(object):
     
     def init_obs_f(self):
         # Mean probability at observed points given local observations
-        self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
         self.obs_f = logit(self.obs_mean)
     
     def estimate_obs_noise(self):
         # Noise in observations
+        self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
         var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + 1) # uncertainty in obs_mean
         self.Q = np.diagflat((self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts) 
                 
@@ -217,7 +217,7 @@ class GPGrid(object):
             poscounts[poscounts == 0] = 1 - self.p_rep
 
         # remove duplicates etc.
-        totals, poscounts = self.count_observations(obs_coords, n_obs, poscounts, totals)
+        poscounts, totals = self.count_observations(obs_coords, n_obs, poscounts, totals)
         self.obs_values = poscounts[:, np.newaxis]
         self.obs_total_counts = totals[:, np.newaxis]
         n_locations = self.obs_coords.shape[0]
@@ -234,8 +234,8 @@ class GPGrid(object):
             self.obs_distances[:, :, d] = obs_coords_3d[:, :, d].T - obs_coords_3d[:, :, d]
         self.obs_distances = self.obs_distances.astype(float)
     
+        self.estimate_obs_noise()    
         self.init_obs_f()
-        self.estimate_obs_noise()
                     
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
@@ -246,12 +246,12 @@ class GPGrid(object):
     def lowerbound(self):
 #         pz = np.sum(self.logpz())
 #         print pz
-        
-        rho_samples = self.forward_model(norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f))))
+        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
+        rho_samples = self.forward_model(f_samples.T)
         lognotrho_samples = np.log(1 - rho_samples)
         logrho_samples = np.log(rho_samples)
-        logrho = np.mean(logrho_samples, axis=0)[:, np.newaxis]
-        lognotrho = np.mean(lognotrho_samples, axis=0)[:, np.newaxis]
+        logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
+        lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
         
         logbc = np.log(binom(self.obs_total_counts, self.z * self.obs_total_counts))
         lpobs = np.sum(self.z*self.obs_total_counts * logrho + self.obs_total_counts*(1-self.z) * lognotrho)
@@ -391,7 +391,7 @@ class GPGrid(object):
         return K
 
     def expec_fC(self, G_update_rate=1.0):        
-        mean_X = self.update_jacobian(G_update_rate)
+        g_obs_f = self.update_jacobian(G_update_rate)
         
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
@@ -405,7 +405,7 @@ class GPGrid(object):
         self.obs_f = self.KsG.dot(self.A, out=self.obs_f) + self.mu0 # need to add the prior mean here?
         V = solve_triangular(self.L, self.KsG.T, lower=True, overwrite_b=True, check_finite=False)
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
-        return mean_X
+        return g_obs_f
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True):
         # Initialise the objects that store the observation data
@@ -433,11 +433,11 @@ class GPGrid(object):
         if not np.any(self.obs_f) or len(self.obs_f) != self.obs_coords.shape[0]:
             # Case where we have a completely new dataset or new observations
             self.obs_C = self.K / self.s
-            mean_X = self.update_jacobian(G_update_rate)
+            g_obs_f = self.update_jacobian(G_update_rate)
             
             # Initialise here to speed up dot product            
-            self.Cov = np.zeros(self.G.shape)
-            self.KsG = np.zeros(self.G.shape)
+            self.Cov = np.zeros(self.Q.shape)
+            self.KsG = np.zeros((self.K.shape[0], self.G.shape[0]))
             
             # initialise s
             self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f - self.mu0)**2)) + self.rate_s0 * self.shape_s / self.shape_s0
@@ -448,8 +448,8 @@ class GPGrid(object):
             if self.verbose:
                 logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
         else:
-#             mean_X = self.obs_mean_prob.flatten()
-            mean_X = self.update_jacobian(G_update_rate)
+#             g_obs_f = self.obs_mean_prob.flatten()
+            g_obs_f = self.update_jacobian(G_update_rate)
             
         nIt = 0
         diff = 0
@@ -459,13 +459,13 @@ class GPGrid(object):
         mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
         
         while not converged and nIt<self.max_iter_VB:    
-            prev_mean_X = mean_X
+            prev_g_obs_f = g_obs_f
                 
             # Iterate a few times to get G to stabilise
             diff_G = 0
             for inner_nIt in range(self.max_iter_G):
                 oldG = self.G
-                mean_X = self.expec_fC(G_update_rate=G_update_rate)
+                g_obs_f = self.expec_fC(G_update_rate=G_update_rate)
                 prev_diff_G = diff_G # save last iteration's difference
                 diff_G = np.max(np.abs(oldG - self.G))
                 # Use a smaller update size if we get stuck oscillating about the solution
@@ -508,10 +508,10 @@ class GPGrid(object):
                     
                 converged = diff < np.abs(L) * self.conv_threshold
             elif np.mod(nIt, 3)==2:
-                diff = np.max([np.max(np.abs(mean_X - prev_mean_X)), 
-                           np.max(np.abs(mean_X*(1-mean_X) - prev_mean_X*(1-prev_mean_X))**0.5)])
+                diff = np.max([np.max(np.abs(g_obs_f - prev_g_obs_f)), 
+                           np.max(np.abs(g_obs_f*(1-g_obs_f) - prev_g_obs_f*(1-prev_g_obs_f))**0.5)])
                 if self.verbose:
-                    logging.debug('GPGRID mean_X diff = %.5f at iteration %.i' % (diff, nIt) )
+                    logging.debug('GPGRID g_obs_f diff = %.5f at iteration %.i' % (diff, nIt) )
                     
                 sdiff = np.abs(self.old_s - self.s) / self.s
                 
