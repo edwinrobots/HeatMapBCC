@@ -6,6 +6,13 @@ from scipy.special import gammaln, psi, binom
 from scipy.stats import norm
 import logging
 
+def coord_arr_to_1d(arr):
+    return arr.view(np.dtype((np.void, arr.dtype.itemsize * arr.shape[1])))
+
+def coord_arr_from_1d(arr, dtype, dims):
+    arr = arr.view(dtype)
+    return arr.reshape(dims)
+
 def sigmoid(f):
     g = 1/(1+np.exp(-f))
     return g
@@ -168,21 +175,18 @@ class GPGrid(object):
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
         obs_coords = np.array(obs_coords)
         if obs_coords.dtype=='int': # duplicate locations should be merged and the number of duplicates counted
-            ravelled_coords = np.ravel_multi_index(obs_coords, dims=self.dims)
-            grid_obs_counts = coo_matrix((totals, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()            
-            grid_obs_pos_counts = coo_matrix((poscounts, (ravelled_coords, np.ones(n_obs))), shape=(np.prod(self.dims), 1)).toarray()
+            ravelled_coords = coord_arr_to_1d(obs_coords)
+            uravelled_coords, idxs = np.unique(ravelled_coords, return_inverse=True)
+            grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs))) ).toarray()            
+            grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
         
             nonzero_idxs = grid_obs_counts.nonzero() # ravelled coordinates with duplicates removed
-            self.obs_coords = np.array(np.unravel_index(nonzero_idxs, shape=self.dims))
+            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype)
             return grid_obs_pos_counts[nonzero_idxs], grid_obs_counts[nonzero_idxs]
                     
         elif obs_coords.dtype=='float': # Duplicate locations are not merged
             self.obs_coords = obs_coords          
         
-            # if we wanted to merge duplicates when there are floats, we could use this:
-            # get a list of rows so we can determine unique locations
-            #coord_rows = self.obs_coords.view(np.dtype((np.void, self.obs_coords.dtype.itemsize * self.obs_coords.shape[1])))
-            
             return poscounts, totals # these remain unaltered as we have not de-duplicated
                        
     def process_observations(self, obs_coords, obs_values, totals=None): 
@@ -216,7 +220,7 @@ class GPGrid(object):
         totals, poscounts = self.count_observations(obs_coords, n_obs, poscounts, totals)
         self.obs_values = poscounts[:, np.newaxis]
         self.obs_total_counts = totals[:, np.newaxis]
-        n_locations = self.obs_coords[0].shape[0]
+        n_locations = self.obs_coords.shape[0]
             
         if self.verbose:
             logging.debug("Number of observed locations =" + str(self.obs_values.shape[0]))
@@ -224,9 +228,10 @@ class GPGrid(object):
         self.observations_to_z()
         
         #Update to produce training matrices only over known points
-        self.obs_distances = self.obs_coords.reshape((n_locations, 1, len(self.dims)))
+        self.obs_distances = np.zeros((n_locations, n_locations, len(self.dims)))
+        obs_coords_3d = self.obs_coords.reshape((n_locations, 1, len(self.dims)))
         for d in range(len(self.dims)):
-            self.obs_distances[:, :, d] = self.obs_distances[:, :, d].T - self.obs_distances[:, :, d]
+            self.obs_distances[:, :, d] = obs_coords_3d[:, :, d].T - obs_coords_3d[:, :, d]
         self.obs_distances = self.obs_distances.astype(float)
     
         self.init_obs_f()
@@ -380,7 +385,7 @@ class GPGrid(object):
     def matern_3_2(self, distances):
         K = np.zeros(distances.shape)
         for d in range(distances.shape[2]):
-            K[:, :, d] = np.abs(distances) * 3**0.5 / self.ls[d]
+            K[:, :, d] = np.abs(distances[:, :, d]) * 3**0.5 / self.ls[d]
             K[:, :, d] = (1 + K[:, :, d]) * np.exp(-K[:, :, d])
         K = np.prod(K, axis=2)
         return K
