@@ -7,6 +7,7 @@ from scipy.stats import norm
 import logging
 
 def coord_arr_to_1d(arr):
+    arr = np.ascontiguousarray(arr)
     return arr.view(np.dtype((np.void, arr.dtype.itemsize * arr.shape[1])))
 
 def coord_arr_from_1d(arr, dtype, dims):
@@ -26,6 +27,12 @@ def target_var(f,s,v):
     u = mean*(1-mean)
     v = v*s*s
     return u/(1/(u*v) + 1)
+
+def temper_extreme_probs(probs):
+    probs[probs > 1-1e-7] = 1-1e-7
+    probs[probs < 1e-7] = 1e-7
+    
+    return probs
 
 class GPGrid(object):
     verbose = False
@@ -243,21 +250,26 @@ class GPGrid(object):
                    + (self.shape_ls-1)*np.log(self.ls) - self.ls*self.rate_ls
         return np.sum(lnp_gp)
     
+    def data_ll(self, logrho, lognotrho):
+        logbc = np.log(binom(self.obs_total_counts, self.z * self.obs_total_counts))
+        lpobs = np.sum(self.z*self.obs_total_counts * logrho + self.obs_total_counts*(1-self.z) * lognotrho)
+        lpobs += np.sum(logbc)
+        
+        data_ll = lpobs    
+        return data_ll    
+    
     def lowerbound(self):
 #         pz = np.sum(self.logpz())
 #         print pz
         f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
         rho_samples = self.forward_model(f_samples.T)
+        rho_samples = temper_extreme_probs(rho_samples)
         lognotrho_samples = np.log(1 - rho_samples)
         logrho_samples = np.log(rho_samples)
         logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
         lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
         
-        logbc = np.log(binom(self.obs_total_counts, self.z * self.obs_total_counts))
-        lpobs = np.sum(self.z*self.obs_total_counts * logrho + self.obs_total_counts*(1-self.z) * lognotrho)
-        lpobs += np.sum(logbc)
-        
-        data_ll = lpobs
+        data_ll = self.data_ll(logrho, lognotrho)
         
         logp_f = self.logpf()
         logq_f = self.logqf() 
@@ -268,7 +280,7 @@ class GPGrid(object):
         if self.verbose:      
             logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
-            logging.debug("f: %.5f. s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+            logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
             
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         return lb
@@ -502,11 +514,11 @@ class GPGrid(object):
                 if self.verbose:
                     logging.debug('GPGRID lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, nIt))
                     
-                if diff < - np.abs(L) * self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
+                if diff < - self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
                     logging.warning('GPGRID Lower Bound = %.5f, changed by %.5f in iteration %i\
                             -- probable approximation error or bug. Output scale=%.3f.' % (L, diff, nIt, self.s))
                     
-                converged = diff < np.abs(L) * self.conv_threshold
+                converged = diff < self.conv_threshold
             elif np.mod(nIt, 3)==2:
                 diff = np.max([np.max(np.abs(g_obs_f - prev_g_obs_f)), 
                            np.max(np.abs(g_obs_f*(1-g_obs_f) - prev_g_obs_f*(1-prev_g_obs_f))**0.5)])
@@ -539,7 +551,8 @@ class GPGrid(object):
         # draw samples from a Gaussian with mean f and variance v
         f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 1000))
         rho_samples = sigmoid(f_samples)
-        rho_not_samples = sigmoid(-f_samples)
+        rho_samples = temper_extreme_probs(rho_samples)
+        rho_not_samples = 1 - rho_samples 
         if expectedlog:
             rho_samples = np.log(rho_samples)
             rho_not_samples = np.log(rho_not_samples)
@@ -582,7 +595,7 @@ class GPGrid(object):
         self.f[blockidxs, :] = Kpred.dot(self.G.T).dot(self.A)
         
         V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
-        self.v[blockidxs, 0] = self.kernel_func(0, 0) / self.s
+        self.v[blockidxs, 0] = 1.0 / self.s #self.kernel_func([0, 0]) / self.s
         self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
         
         if np.any(self.v[blockidxs] < 0):
@@ -631,11 +644,11 @@ class GPGrid(object):
                     
             # Approximate the expected value of the variable transformed through the sigmoid.
             if variance_method == 'sample' or expectedlog:
-                m_post[blockidxs, :], v_post[blockidxs, :], not_m_post[blockidxs, :] = \
+                m_post[blockidxs, :], not_m_post[blockidxs, :], v_post[blockidxs, :] = \
                     self.post_sample(self.f[blockidxs, :], self.v[blockidxs, :], expectedlog)
                 
         if variance_method == 'rough' and not expectedlog:
-            m_post, v_post, not_m_post = self.post_rough(self.f, self.v)
+            m_post, not_m_post, v_post = self.post_rough(self.f, self.v)
         elif variance_method == 'rough':
             logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
             
