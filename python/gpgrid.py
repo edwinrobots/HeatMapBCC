@@ -582,7 +582,7 @@ class GPGrid(object):
         self.f[blockidxs, :] = Kpred.dot(self.G.T).dot(self.A)
         
         V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
-        self.v[blockidxs, 0] = self.kernel_func(0, 0) / self.s
+        self.v[blockidxs, 0] = 1.0 / self.s#self.kernel_func([0, 0]) / self.s
         self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
         
         if np.any(self.v[blockidxs] < 0):
