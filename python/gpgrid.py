@@ -145,7 +145,11 @@ class GPGrid(object):
     
     def update_jacobian(self, G_update_rate=1.0):
         g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
-        self.G = G_update_rate * np.diag(g_obs_f * (1-g_obs_f)) + (1 - G_update_rate) * self.G
+        J = np.diag(g_obs_f * (1-g_obs_f))
+        if not len(self.G) or self.G.shape != J.shape: # either G has not been initialised, or is from different observations
+            self.G = J
+        else:
+            self.G = G_update_rate * J + (1 - G_update_rate) * self.G
         return g_obs_f
     
     def observations_to_z(self):
@@ -429,7 +433,18 @@ class GPGrid(object):
             self.K += 1e-6 * np.eye(len(self.K)) # jitter
             self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
             
+            # initialise s
             self.shape_s = self.shape_s0 + self.obs_coords.shape[0]/2.0 # reset!
+            self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f - self.mu0)**2)) + self.rate_s0 * self.shape_s / self.shape_s0
+            self.s = self.shape_s / self.rate_s        
+            self.Elns = psi(self.shape_s) - np.log(self.rate_s)
+            
+            self.Ks = self.K / self.s
+            self.obs_C = self.K / self.s
+            
+            self.old_s = self.s
+            if self.verbose:
+                logging.debug("Setting the initial precision scale to s=%.3f" % self.s)            
             
         if not np.any(self.obs_coords):
             mPr = 0.5
@@ -440,28 +455,13 @@ class GPGrid(object):
             logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )        
         
         G_update_rate = 1.0 # start with full size updates
+                
+        g_obs_f = self.update_jacobian(G_update_rate)
         
-        # Initialise objects
-        if not np.any(self.obs_f) or len(self.obs_f) != self.obs_coords.shape[0]:
-            # Case where we have a completely new dataset or new observations
-            self.obs_C = self.K / self.s
-            g_obs_f = self.update_jacobian(G_update_rate)
-            
-            # Initialise here to speed up dot product            
+        if process_obs:
+            # Initialise here to speed up dot product -- assume we need to do this whenever there is new data  
             self.Cov = np.zeros(self.Q.shape)
-            self.KsG = np.zeros((self.K.shape[0], self.G.shape[0]))
-            
-            # initialise s
-            self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f - self.mu0)**2)) + self.rate_s0 * self.shape_s / self.shape_s0
-            self.s = self.shape_s / self.rate_s        
-            self.Elns = psi(self.shape_s) - np.log(self.rate_s)
-            self.Ks = self.K / self.s
-            self.old_s = self.s
-            if self.verbose:
-                logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
-        else:
-#             g_obs_f = self.obs_mean_prob.flatten()
-            g_obs_f = self.update_jacobian(G_update_rate)
+            self.KsG = np.zeros((self.Ks.shape[0], self.G.shape[0]))  
             
         nIt = 0
         diff = 0
