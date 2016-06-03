@@ -86,10 +86,10 @@ class GPGrid(object):
         
     p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
     
-    def __init__(self, nx, ny, z0=0.5, shape_s0=None, rate_s0=None, s_initial=None, shape_ls=10, rate_ls=0.1, 
+    def __init__(self, dims, z0=0.5, shape_s0=None, rate_s0=None, s_initial=None, shape_ls=10, rate_ls=0.1, 
                  ls_initial=None, force_update_all_points=False, n_lengthscales=1):
         #Grid size for prediction
-        self.dims = np.array([nx, ny])
+        self.dims = np.array(dims)
         
         self.n_lengthscales = n_lengthscales
                 
