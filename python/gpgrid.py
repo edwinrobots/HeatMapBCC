@@ -210,7 +210,7 @@ class GPGrid(object):
         if self.verbose:
             logging.debug("GP grid for %i observations." % n_obs)
         
-        if not np.any(totals):
+        if not np.any(totals >= 0):
             if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
                 totals = np.ones(n_obs)
             else: # obs_values given as two columns: first is positive counts, second is total counts.
@@ -223,7 +223,7 @@ class GPGrid(object):
         elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts. 
             poscounts = obs_values[:, 0]
             
-        if not np.any(self.obs_values):
+        if not np.any(self.obs_values >= 0):
             poscounts[poscounts == 1] = self.p_rep
             poscounts[poscounts == 0] = 1 - self.p_rep
 
@@ -446,7 +446,7 @@ class GPGrid(object):
             if self.verbose:
                 logging.debug("Setting the initial precision scale to s=%.3f" % self.s)            
             
-        if not np.any(self.obs_coords):
+        if not len(self.obs_coords):
             mPr = 0.5
             stdPr = 0.25       
             return mPr, stdPr
@@ -627,7 +627,7 @@ class GPGrid(object):
         '''
         
         # if no output_coords provided, give predictions at the fitted locations
-        if not np.any(output_coords):
+        if not output_coords == None and not len(output_coords):
             return self.predict_obs(variance_method, expectedlog, return_not)
         
         nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size, variance_method)
