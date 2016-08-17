@@ -136,7 +136,7 @@ class GPGrid(object):
         '''
         self.s = self.s_initial
         if hasattr(self, 'obs_values'):
-            self.obs_f = self.init_obs_f()#logit(self.obs_mean_prob) + self.mu0
+            self.obs_f = self.init_obs_f()
         if hasattr(self, 'K') and np.any(self.K):
             self.obs_C = self.K / self.s
     
@@ -157,7 +157,10 @@ class GPGrid(object):
         self.z = obs_probs        
     
     def init_prior_mean_f(self, z0):
-        self.mu0 = logit(z0)         
+        self.mu0_default = logit(z0)
+        
+    def init_obs_mu0(self):
+        self.mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0_default                 
     
     def init_obs_f(self):
         # Mean probability at observed points given local observations
@@ -167,7 +170,7 @@ class GPGrid(object):
         # Noise in observations
         self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
         var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + 1) # uncertainty in obs_mean
-        self.Q = np.diagflat((self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts) 
+        self.Q = (self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts 
                 
     def init_obs_prior(self):
         f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=50000)
@@ -255,7 +258,8 @@ class GPGrid(object):
         return np.sum(lnp_gp)
     
     def data_ll(self, logrho, lognotrho):
-        logbc = np.log(binom(self.obs_total_counts, self.z * self.obs_total_counts))
+        bc = binom(self.obs_total_counts, self.z * self.obs_total_counts)
+        logbc = np.log(bc)
         lpobs = np.sum(self.z*self.obs_total_counts * logrho + self.obs_total_counts*(1-self.z) * lognotrho)
         lpobs += np.sum(logbc)
         
@@ -292,10 +296,10 @@ class GPGrid(object):
     def logpz(self, z=-1):
         if z==-1:
             z = self.z
-            Q = np.diag(self.Q)[:, np.newaxis]
+            Q = self.Q
         else:
             # expected likelihood of observations given the function f
-            Q = np.diag(self.Q)[:, np.newaxis]
+            Q = self.Q
             z = np.zeros(self.obs_f.shape) + z
             
         am_plus_b = self.forward_model(self.obs_f)
@@ -389,6 +393,22 @@ class GPGrid(object):
         logging.debug(msg)   
         return self.mean_prob_obs, opt_hyperparams
 
+    def select_covariance_function(self, cov_type):
+        if cov_type == 'diagonal':
+            self.kernel_func = self.diagonal
+        elif cov_type == 'matern_3_2':
+            self.kernel_func = self.matern_3_2
+        elif cov_type == 'sq_exp':
+            self.kernel_func = self.sq_exp_cov
+        else:
+            logging.error('GPGrid: Invalid covariance type %s' % cov_type)        
+
+    def diagonal(self, distances):
+        same_locs = np.sum(distances, axis=2) == 0
+        K = np.zeros((distances.shape[0], distances.shape[1]), dtype=float)
+        K[same_locs] = 1.0        
+        return K
+
     def sq_exp_cov(self, distances):
         if distances.ndim==2:
             distances = distances[:, :, np.newaxis]
@@ -410,7 +430,8 @@ class GPGrid(object):
         g_obs_f = self.update_jacobian(G_update_rate)
         
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
-        self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
+        self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
+        self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()
         
         # use the estimate given by the Taylor series expansion
         z0 = self.forward_model(self.obs_f) + self.G.dot(self.mu0 - self.obs_f) 
@@ -423,10 +444,14 @@ class GPGrid(object):
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
         return g_obs_f
 
-    def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True):
+    def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
         if process_obs:
             self.process_observations(obs_coords, obs_values, totals)
+            if mu0 is not None:
+                self.mu0 = mu0
+            else:
+                self.init_obs_mu0()            
             
             # Get the correct covariance matrix
             self.K = self.kernel_func(self.obs_distances)
@@ -460,15 +485,13 @@ class GPGrid(object):
         
         if process_obs:
             # Initialise here to speed up dot product -- assume we need to do this whenever there is new data  
-            self.Cov = np.zeros(self.Q.shape)
+            self.Cov = np.zeros((self.G.shape[0], self.G.shape[0]))
             self.KsG = np.zeros((self.Ks.shape[0], self.G.shape[0]))  
             
         nIt = 0
         diff = 0
         L = -np.inf
         converged = False
-        
-        mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
         
         while not converged and nIt<self.max_iter_VB:    
             prev_g_obs_f = g_obs_f
@@ -495,7 +518,8 @@ class GPGrid(object):
             self.old_s = self.s 
             if update_s: 
                 L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
-                                              - mu0.dot(self.obs_f.T) - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T), trans=True, 
+                                              - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + 
+                                              self.mu0.dot(self.mu0.T), trans=True, 
                                              overwrite_b=True, check_finite=False)
                 LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
                 self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF) 
@@ -603,7 +627,7 @@ class GPGrid(object):
             if np.any(self.v[blockidxs] < 0): # anything still below zero?
                 logging.error("Variance has gone negative in GPgrid.predict(), %f" % np.min(self.v[blockidxs]))
         
-        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0        
+        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0_output
     
     def init_output_arrays(self, output_coords, max_block_size, variance_method):
         self.output_coords = np.array(output_coords).astype(float)
@@ -615,12 +639,14 @@ class GPGrid(object):
         nblocks = int(np.ceil(float(noutputs) / max_block_size))
         
         KsG = self.Ks.dot(self.G.T, self.KsG)        
-        self.Cov = KsG.T.dot(self.G.T, out=self.Cov) + self.Q         
+        self.Cov = KsG.T.dot(self.G.T, out=self.Cov) 
+        self.Cov[range(self.Q.shape[0]), range(self.Q.shape[0])] += self.Q.flatten()       
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         
         return nblocks, noutputs   
     
-    def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False):
+    def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False, 
+                mu0_output=None):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
         kernel
@@ -631,6 +657,11 @@ class GPGrid(object):
             return self.predict_obs(variance_method, expectedlog, return_not)
         
         nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size, variance_method)
+        
+        if mu0_output is None:
+            self.mu0_output = np.zeros((noutputs, 1)) + self.mu0_default
+        else:
+            self.mu0_output = mu0_output
         
         if variance_method=='sample':
             m_post = np.empty((noutputs, 1), dtype=float)
@@ -663,7 +694,7 @@ class GPGrid(object):
         :return:
         '''
         k = 1.0 / np.sqrt(1 + (np.pi * self.v / 8.0))
-        m_post = self.forward_model(k * (self.f + self.mu0))
+        m_post = self.forward_model(k * self.f)
         return m_post
     
 if __name__ == '__main__':
