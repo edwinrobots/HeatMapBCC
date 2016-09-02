@@ -140,8 +140,11 @@ class GPGrid(object):
         if hasattr(self, 'K') and np.any(self.K):
             self.obs_C = self.K / self.s
     
-    def forward_model(self, f):
-        return sigmoid(f)
+    def forward_model(self, f, subset_idxs=[]):
+        if len(subset_idxs):
+            return sigmoid(f)
+        else:
+            return sigmoid(f[subset_idxs])
     
     def update_jacobian(self, G_update_rate=1.0):
         g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
@@ -269,6 +272,9 @@ class GPGrid(object):
     def lowerbound(self):
 #         pz = np.sum(self.logpz())
 #         print pz
+        logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
+        logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C)))
+
         f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
         rho_samples = self.forward_model(f_samples.T)
         rho_samples = temper_extreme_probs(rho_samples)
@@ -285,10 +291,10 @@ class GPGrid(object):
         logp_s = self.logps()
         logq_s = self.logqs()
           
-        if self.verbose:      
-            logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
+        #if self.verbose:      
+        logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
-            logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+        logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
             
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         return lb
@@ -426,9 +432,7 @@ class GPGrid(object):
         K = np.prod(K, axis=2)
         return K
 
-    def expec_fC(self, G_update_rate=1.0):        
-        g_obs_f = self.update_jacobian(G_update_rate)
-        
+    def expec_fC(self, G_update_rate=1.0):                
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
         self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()
@@ -442,7 +446,6 @@ class GPGrid(object):
         self.obs_f = self.KsG.dot(self.A, out=self.obs_f) + self.mu0 # need to add the prior mean here?
         V = solve_triangular(self.L, self.KsG.T, lower=True, overwrite_b=True, check_finite=False)
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
-        return g_obs_f
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
@@ -500,7 +503,8 @@ class GPGrid(object):
             diff_G = 0
             for inner_nIt in range(self.max_iter_G):
                 oldG = self.G
-                g_obs_f = self.expec_fC(G_update_rate=G_update_rate)
+                g_obs_f = self.update_jacobian(G_update_rate)
+                self.expec_fC(G_update_rate=G_update_rate)
                 prev_diff_G = diff_G # save last iteration's difference
                 diff_G = np.max(np.abs(oldG - self.G))
                 # Use a smaller update size if we get stuck oscillating about the solution
@@ -543,7 +547,7 @@ class GPGrid(object):
                             -- probable approximation error or bug. Output scale=%.3f.' % (L, diff, nIt, self.s))
                     
                 converged = diff < self.conv_threshold
-            elif np.mod(nIt, 3)==2:
+            elif np.mod(nIt, self.conv_check_freq)==2:
                 diff = np.max([np.max(np.abs(g_obs_f - prev_g_obs_f)), 
                            np.max(np.abs(g_obs_f*(1-g_obs_f) - prev_g_obs_f*(1-prev_g_obs_f))**0.5)])
                 if self.verbose:
@@ -698,7 +702,7 @@ class GPGrid(object):
         return m_post
     
 if __name__ == '__main__':
-    import scipy.stats.multivariate_normal as mvn
+    from scipy.stats import multivariate_normal as mvn
     # run some tests on the learning algorithm
     
     N = 100.0
