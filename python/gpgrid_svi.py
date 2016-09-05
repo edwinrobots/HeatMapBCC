@@ -48,42 +48,35 @@ class GPGridSVI(GPGrid):
         return g_obs_f
     
     def expec_fC(self, G_update_rate=1.0):
-        Lambda_factor1 = self.inv_Ks_mm.dot(self.Ks_nm.T).dot(self.G.T)
-        self.Lambda_i = Lambda_factor1.dot(self.Q[self.data_obs_idx_i,:][:,self.data_obs_idx_i]).dot(Lambda_factor1.T)
+        
+        Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
+        
+        Lambda_factor1 = self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T)
+        Lambda_i = (Lambda_factor1 / self.Q[self.data_obs_idx_i,:].T).dot(Lambda_factor1.T)
         
         # calculate the learning rate for SVI
         rho_i = (self.svi_iter + self.delay) ** (-self.forgetting_rate)
+        #print "\rho_i = %f " % rho_i
         
-        # try to do it all with step size of 1
-        self.u_invS = (1 - rho_i) * self.u_invS + (rho_i) * self.Lambda_i  
+        # weighting. Lambda and 
+        w_i = self.obs_f.shape[0] / float(self.obs_f_i.shape[0])
         
-        #self.KsG_i = self.Ks_i.dot(self.G.T, out=self.KsG_i)
-        #self.KsG_obs_i = self.Ks_obs_i.dot(self.G.T, out=self.KsG_obs_i)  
-        #self.Cov = self.KsG_obs_i.T.dot(self.G.T, out=self.Cov)
-        #self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()[self.data_obs_idx_i]
+        # S is the variational covariance parameter for the inducing points, u. Canonical parameter theta_2 = -0.5 * S^-1.
+        # The variational update to theta_2 is (1-rho)*S^-1 + rho*Lambda. Since Lambda includes a sum of Lambda_i over 
+        # all data points i, the stochastic update weights a sample sum of Lambda_i over a mini-batch.  
+        self.u_invS = (1 - rho_i) * self.prev_u_invS + rho_i * (w_i * Lambda_i  + self.inv_Ks_mm)
         
         # use the estimate given by the Taylor series expansion
         z0 = self.forward_model(self.obs_f, subset_idxs=self.data_idx_i) + self.G.dot(self.mu0_i - self.obs_f_i)
-        y = self.z_i - z0 
-        self.Lambda_m = (1 - rho_i) * self.Lambda_m + (rho_i) * self.inv_Ks_mm.dot(self.Ks_nm.T).dot(self.G.T).dot(y)
+        y = self.z_i - z0
         
-        #self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
-        #B = solve_triangular(self.L, y, lower=True, overwrite_b=True, check_finite=False)
-        #self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-        
-        #old_obs_f = (1 - rho_i) * self.obs_f
-        #scalefactor = float(self.z.shape[0]) / self.z_i.shape[0]
-        #self.obs_f = old_obs_f + rho_i * (scalefactor * self.KsG_i.dot(self.A, out=self.obs_f) + self.mu0)
+        # Variational update to theta_1 is (1-rho)*S^-1m + rho*beta*K_mm^-1.K_mn.y  
+        self.u_invSm = (1 - rho_i) * self.prev_u_invSm + \
+                                    w_i * rho_i * self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T).dot(y)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
-        
-        inv_Lambda = np.linalg.inv(self.u_invS)
-        
-        self.obs_f = self.Ks_nm.dot(self.inv_Ks_mm).dot(inv_Lambda).dot()
-        
-        V = solve_triangular(self.L, self.KsG_i.T, lower=True, overwrite_b=True, check_finite=False)
-        old_obs_C = (1 - rho_i) * self.obs_C
-        self.obs_C = old_obs_C + rho_i * (self.Ks - scalefactor * V.T.dot(V, out=self.obs_C))
+        self.obs_f = self.Ks_nm.dot(self.u_invSm) + self.mu0
+        self.obs_C = self.Ks - self.Ks_nm.dot(np.linalg.inv(self.u_invS)).dot(self.Ks_nm.T) 
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
@@ -113,7 +106,6 @@ class GPGridSVI(GPGrid):
                 logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
                 
             # For SVI
-            
             # choose a set of inducing points -- for testing we will set these to the same as the observation points.
             self.inducing_distances = self.obs_distances
             K_mm = self.K
@@ -122,9 +114,8 @@ class GPGridSVI(GPGrid):
             self.Ks_mm = K_mm / self.s
             self.inv_Ks_mm  = invK_mm * self.s
             self.Ks_nm = K_nm / self.s
-            self.Lambda_m = np.zeros(self.f.shape, dtype=float) # theta_1
-            self.u_invS = np.zeros(self.obs_C.shape, dtype=float) # theta_2
-            self.u_invS[:] = self.Ks_mm      
+            self.prev_u_invSm = np.zeros(self.obs_f.shape, dtype=float) # theta_1
+            self.prev_u_invS = np.zeros(self.obs_C.shape, dtype=float) # theta_2
                         
         if not len(self.obs_coords):
             mPr = 0.5
@@ -152,7 +143,7 @@ class GPGridSVI(GPGrid):
             self.svi_iter = nIt
             
             # change the randomly selected observation points
-            self.data_idx_i = np.random.choice(nobs, update_size, replace=False)
+            self.data_idx_i = np.arange(update_size)#np.random.choice(nobs, update_size, replace=False)
             
             self.update_jacobian(G_update_rate, self.data_idx_i)            
 #            update_obs_size = self.G.shape[0] 
@@ -187,6 +178,10 @@ class GPGridSVI(GPGrid):
                 if self.verbose:
                     logging.debug("G did not converge: diff was %.5f" % diff_G)
             
+            # once the iterations over G are complete, we accept this stochastic VB update
+            self.prev_u_invSm = self.u_invSm
+            self.prev_u_invS = self.u_invS
+            
             #update the output scale parameter (also called latent function scale/sigmoid steepness)
             self.old_s = self.s 
             if update_s: 
@@ -202,7 +197,7 @@ class GPGridSVI(GPGrid):
                 if self.verbose:
                     logging.debug("Updated inverse output scale: " + str(self.s))
                 self.Ks = self.K / self.s       
-                self.Ks_mm = self.K_mm / self.s      
+                self.Ks_mm = K_mm / self.s      
                 self.Ks_nm = K_nm / self.s
                                             
             if self.uselowerbound and np.mod(nIt, self.conv_check_freq)==self.conv_check_freq-1:
