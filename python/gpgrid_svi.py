@@ -72,11 +72,27 @@ class GPGridSVI(GPGrid):
         
         # Variational update to theta_1 is (1-rho)*S^-1m + rho*beta*K_mm^-1.K_mn.y  
         self.u_invSm = (1 - rho_i) * self.prev_u_invSm + \
-                                    w_i * rho_i * self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T).dot(y)
+                        w_i * rho_i * self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T/self.Q[self.data_obs_idx_i,:].T).dot(y)
+        
+        uS = np.linalg.inv(self.u_invS)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
-        self.obs_f = self.Ks_nm.dot(self.u_invSm) + self.mu0
-        self.obs_C = self.Ks - self.Ks_nm.dot(np.linalg.inv(self.u_invS)).dot(self.Ks_nm.T) 
+        covpair = self.Ks_nm.dot(self.inv_Ks_mm)
+        self.obs_f = covpair.dot(uS).dot(self.u_invSm) + self.mu0
+        self.obs_C = self.Ks + covpair.dot(uS - self.Ks_mm).dot(covpair.T) 
+        
+        KsG = self.Ks.dot(self.G.T)        
+        Cov = KsG.T.dot(self.G.T)
+        Cov[range(Cov.shape[0]), range(Cov.shape[0])] += self.Q.flatten()
+        
+        self.L = cholesky(Cov, lower=True, check_finite=False, overwrite_a=True)
+        B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
+        self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
+        obs_f = KsG.dot(self.A) + self.mu0 # need to add the prior mean here?
+        V = solve_triangular(self.L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
+        obs_C = self.Ks - V.T.dot(V) 
+        
+        print np.sum(np.abs(obs_f - self.obs_f))
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
@@ -199,6 +215,7 @@ class GPGridSVI(GPGrid):
                 self.Ks = self.K / self.s       
                 self.Ks_mm = K_mm / self.s      
                 self.Ks_nm = K_nm / self.s
+                self.inv_Ks_mm  = invK_mm * self.s
                                             
             if self.uselowerbound and np.mod(nIt, self.conv_check_freq)==self.conv_check_freq-1:
                 oldL = L
