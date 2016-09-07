@@ -24,10 +24,30 @@ class GPGridSVI(GPGrid):
         # initialise the forgetting rate and delay for SVI
         self.forgetting_rate = 0.9
         self.delay = 1.0
+        
+        # number of inducing points
+        self.ninducing = 1000
                 
         super(GPGridSVI, self).__init__(dims, z0, shape_s0, rate_s0, s_initial, shape_ls, rate_ls, ls_initial, 
                                     force_update_all_points, n_lengthscales)
-    
+        
+    def logpf(self):
+        _, logdet_K = np.linalg.slogdet(self.Ks_mm * self.s)
+        D = len(self.um)
+        logdet_Ks = - D * self.Elns + logdet_K
+                
+        invK_expecF = self.inv_Ks_mm_uS + self.inv_Ks_mm.dot(self.um.dot(self.um.T))
+        
+        logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
+        return logpf
+        
+    def logqf(self):
+        # We want to do this, but we can simplify it, since the x and mean values cancel:
+        _, logdet_C = np.linalg.slogdet(self.u_invS)
+        logdet_C = -logdet_C # because we are using the inverse of the covariance
+        D = len(self.um)
+        logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
+        return logqf         
     
     def update_jacobian(self, G_update_rate=1.0, selection=[]):
         if len(selection):
@@ -47,6 +67,13 @@ class GPGridSVI(GPGrid):
             
         return g_obs_f
     
+    def f_given_u(self, Ks_nn, Ks_nm, mu0):
+        covpair =  Ks_nm.dot(self.inv_Ks_mm)
+        covpair_uS = Ks_nm.dot(self.inv_Ks_mm_uS)
+        fhat = covpair_uS.dot(self.u_invSm) + mu0
+        C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
+        return fhat, C 
+            
     def expec_fC(self, G_update_rate=1.0):
         
         Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
@@ -72,27 +99,33 @@ class GPGridSVI(GPGrid):
         
         # Variational update to theta_1 is (1-rho)*S^-1m + rho*beta*K_mm^-1.K_mn.y  
         self.u_invSm = (1 - rho_i) * self.prev_u_invSm + \
-                        w_i * rho_i * self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T/self.Q[self.data_obs_idx_i,:].T).dot(y)
-        
-        uS = np.linalg.inv(self.u_invS)
+            w_i * rho_i * self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T/self.Q[self.data_obs_idx_i,:].T).dot(y)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
-        covpair = self.Ks_nm.dot(self.inv_Ks_mm)
-        self.obs_f = covpair.dot(uS).dot(self.u_invSm) + self.mu0
-        self.obs_C = self.Ks + covpair.dot(uS - self.Ks_mm).dot(covpair.T) 
+        L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
+        B = solve_triangular(L_u_invS, self.inv_Ks_mm.T, lower=True, check_finite=False)
+        A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
+        self.inv_Ks_mm_uS = A.T
         
-        KsG = self.Ks.dot(self.G.T)        
-        Cov = KsG.T.dot(self.G.T)
-        Cov[range(Cov.shape[0]), range(Cov.shape[0])] += self.Q.flatten()
+        #covpair_uS = covpair.dot(np.linalg.inv(self.u_invS))
         
-        self.L = cholesky(Cov, lower=True, check_finite=False, overwrite_a=True)
-        B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
-        self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-        obs_f = KsG.dot(self.A) + self.mu0 # need to add the prior mean here?
-        V = solve_triangular(self.L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
-        obs_C = self.Ks - V.T.dot(V) 
+        self.um = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
+        self.um = solve_triangular(L_u_invS, self.um, lower=True, trans=True, check_finite=False, overwrite_b=True)
         
-        print np.sum(np.abs(obs_f - self.obs_f))
+        self.obs_f, self.obs_C = self.f_given_u(self.Ks, self.Ks_nm, self.mu0)
+        
+#         KsG = self.Ks.dot(self.G.T)        
+#         Cov = KsG.T.dot(self.G.T)
+#         Cov[range(Cov.shape[0]), range(Cov.shape[0])] += self.Q.flatten()
+#         
+#         self.L = cholesky(Cov, lower=True, check_finite=False, overwrite_a=True)
+#         B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
+#         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
+#         obs_f = KsG.dot(self.A) + self.mu0 # need to add the prior mean here?
+#         V = solve_triangular(self.L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
+#         obs_C = self.Ks - V.T.dot(V) 
+#         
+#         print np.sum(np.abs(obs_f - self.obs_f))
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
@@ -106,7 +139,6 @@ class GPGridSVI(GPGrid):
             # Get the correct covariance matrix
             self.K = self.kernel_func(self.obs_distances)
             self.K += 1e-6 * np.eye(len(self.K)) # jitter
-            self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
             
             # initialise s
             self.shape_s = self.shape_s0 + self.obs_coords.shape[0]/2.0 # reset!
@@ -121,17 +153,17 @@ class GPGridSVI(GPGrid):
             if self.verbose:
                 logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
                 
-            # For SVI
-            # choose a set of inducing points -- for testing we will set these to the same as the observation points.
-            self.inducing_distances = self.obs_distances
-            K_mm = self.K
-            invK_mm = np.linalg.inv(K_mm)
-            K_nm = self.K
-            self.Ks_mm = K_mm / self.s
-            self.inv_Ks_mm  = invK_mm * self.s
-            self.Ks_nm = K_nm / self.s
-            self.prev_u_invSm = np.zeros(self.obs_f.shape, dtype=float) # theta_1
-            self.prev_u_invS = np.zeros(self.obs_C.shape, dtype=float) # theta_2
+        nobs = self.obs_f.shape[0]
+        update_size = self.max_update_size # number of inducing points in each stochastic update
+        if update_size > nobs:
+            update_size = nobs  
+                          
+        if self.ninducing > self.obs_coords.shape[0]:
+            self.ninducing = self.obs_coords.shape[0]
+            
+        if process_obs:
+            self.prev_u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
+            self.prev_u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
                         
         if not len(self.obs_coords):
             mPr = 0.5
@@ -141,36 +173,43 @@ class GPGridSVI(GPGrid):
         if self.verbose: 
             logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )        
                 
-        nobs = self.obs_f.shape[0]
-        update_size = self.max_update_size
-        if update_size > nobs:
-            update_size = nobs
+        # choose a set of inducing points -- for testing we will set these to the same as the observation points.
+        self.inducing_coords = self.obs_coords
+
+        mm_dist = np.zeros((self.ninducing, self.ninducing, len(self.dims)))
+        nm_dist = np.zeros((self.ninducing, self.ninducing, len(self.dims)))
+        for d in range(len(self.dims)):
+            mm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
+            nm_dist[:, :, d] = self.obs_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
+         
+        K_mm = self.kernel_func(mm_dist)
+        K_mm += 1e-6 * np.eye(len(K_mm)) # jitter 
         
+        K_nm = self.kernel_func(nm_dist)
+        K_nm += 1e-6 * np.eye(len(K_nm)) # jitter                     
+            
         G_update_rate = 1.0 # start with full size updates
                     
         nIt = 0
         diff = 0
         L = -np.inf
-        converged = False
+        convergedIt = 0
                 
-        while not converged and nIt<self.max_iter_VB:    
+        while convergedIt < 5 and nIt<self.max_iter_VB: # require 5 iterations when we are seemingly converged to allow for small jitters in the stochastic updates    
             prev_obs_f = self.obs_f
             
             self.svi_iter = nIt
             
             # change the randomly selected observation points
-            self.data_idx_i = np.arange(update_size)#np.random.choice(nobs, update_size, replace=False)
+            self.data_idx_i = np.random.choice(nobs, update_size, replace=False)
+            
+            invK_mm = np.linalg.inv(K_mm)
+            self.Ks_mm = K_mm / self.s
+            self.inv_Ks_mm  = invK_mm * self.s
+            self.Ks_nm = K_nm / self.s            
+            self.Ks = self.K / self.s
             
             self.update_jacobian(G_update_rate, self.data_idx_i)            
-#            update_obs_size = self.G.shape[0] 
-#            if process_obs and (nIt==0 or self.KsG_i.shape[1] != self.G.shape[0]):
-#                # Initialise here to speed up dot product -- assume we need to do this whenever there is new data  
-#                 self.Cov = np.zeros((update_obs_size, update_obs_size))
-#                 self.KsG_i = np.zeros((nobs, update_obs_size))
-#                 self.KsG_obs_i = np.zeros((update_size, update_obs_size))
-            
-#             self.Ks_i = self.Ks[:, self.data_idx_i]    
-#             self.Ks_obs_i = self.Ks[self.data_idx_i][:, self.data_idx_i]
             self.obs_f_i = self.obs_f[self.data_idx_i]
             self.z_i = self.z[self.data_obs_idx_i]
             self.mu0_i = self.mu0[self.data_idx_i]
@@ -201,22 +240,22 @@ class GPGridSVI(GPGrid):
             #update the output scale parameter (also called latent function scale/sigmoid steepness)
             self.old_s = self.s 
             if update_s: 
-                L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
-                                              - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + 
-                                              self.mu0.dot(self.mu0.T), trans=True, 
-                                             overwrite_b=True, check_finite=False)
-                LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
-                self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF) 
+                invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + invK_mm.dot(self.um.dot(self.um.T))
+                self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
                 #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
                 self.s = self.shape_s / self.rate_s
                 self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
                 if self.verbose:
                     logging.debug("Updated inverse output scale: " + str(self.s))
-                self.Ks = self.K / self.s       
-                self.Ks_mm = K_mm / self.s      
-                self.Ks_nm = K_nm / self.s
+                self.Ks_mm = K_mm / self.s
                 self.inv_Ks_mm  = invK_mm * self.s
-                                            
+                self.Ks_nm = K_nm / self.s            
+                self.Ks = self.K / self.s
+                
+#                 sdiff = np.abs(self.old_s - self.s) / self.s
+#                 if sdiff > 0.01: # major changes in s -- ignore previous updates
+#                     self.svi_iter = -1
+                                           
             if self.uselowerbound and np.mod(nIt, self.conv_check_freq)==self.conv_check_freq-1:
                 oldL = L
                 L = self.lowerbound()
@@ -229,7 +268,7 @@ class GPGridSVI(GPGrid):
                     logging.warning('GPGRID Lower Bound = %.5f, changed by %.5f in iteration %i\
                             -- probable approximation error or bug. Output scale=%.3f.' % (L, diff, nIt, self.s))
                     
-                converged = diff < self.conv_threshold
+                convergedIt += int((nIt >= self.min_iter_VB) & (diff < self.conv_threshold))
             elif np.mod(nIt, self.conv_check_freq)==2:
                 diff = np.max([np.max(np.abs(self.obs_f - prev_obs_f)), 
                            np.max(np.abs(self.obs_f*(1-self.obs_f) - prev_obs_f*(1-prev_obs_f))**0.5)])
@@ -243,9 +282,8 @@ class GPGridSVI(GPGrid):
                 
                 diff = np.max([diff, sdiff])
                     
-                converged = (diff < self.conv_threshold) & (nIt > 2)
+                convergedIt += int((nIt >= self.min_iter_VB) & (diff < self.conv_threshold) & (nIt > 2))
             nIt += 1
-            converged = converged & (nIt >= self.min_iter_VB)
  
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
@@ -259,70 +297,20 @@ class GPGridSVI(GPGrid):
         
         block_coords = self.output_coords[blockidxs]
 
-        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
+        distances = np.zeros((block_coords.shape[0], self.inducing_coords.shape[0], len(self.dims)))
         for d in range(len(self.dims)):
-            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+            distances[:, :, d] = block_coords[:, d:d+1] - self.inducing_coords[:, d:d+1].T
         
-        Kpred = self.kernel_func(distances)
-        Kpred /= self.s
+        K_out = self.kernel_func(distances)
+        K_out /= self.s
         
-        # iterate to get the variance without having to perform cholesky on a large matrix
-        v_not_converged = True
-        niter_v = 0
-        nobs = self.obs_f.shape[0]
-        update_size = self.max_update_size
-        if update_size > nobs:
-            update_size = nobs
-                
-        while v_not_converged and niter_v < 20:
-            # change the randomly selected observation points
-            self.data_idx_i = np.random.choice(nobs, update_size, replace=False)
-            rho_i = (niter_v + self.delay) ** (-self.forgetting_rate)
-            
-            self.update_jacobian(selection=self.data_idx_i)
-            
-            self.Ks_i = Kpred[:, self.data_idx_i]
-            self.Ks_obs_i = self.Ks[self.data_idx_i][:, self.data_idx_i]            
-            self.obs_f_i = self.obs_f[self.data_idx_i]
-            self.z_i = self.z[self.data_obs_idx_i]
-            self.mu0_i = self.mu0[self.data_idx_i]
-            
-            self.KsG_obs_i = self.Ks_obs_i.dot(self.G.T)
-            self.KsG_i = self.Ks_i.dot(self.G.T)
-            
-            self.Cov = self.KsG_obs_i.T.dot(self.G.T) 
-            self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()[self.data_obs_idx_i]
-            
-            self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)              
-            
-            z0 = self.forward_model(self.obs_f, subset_idxs=self.data_idx_i) + self.G.dot(self.mu0_i - self.obs_f_i)            
-            B = solve_triangular(self.L, (self.z_i - z0), lower=True, overwrite_b=True, check_finite=False)
-            self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-            f_i = self.KsG_i.dot(self.A)
-            oldf = self.f[blockidxs, 0]
-            self.f[blockidxs, 0] = (1 - rho_i) * oldf + rho_i * f_i[:, 0]
-        
-            V = solve_triangular(self.L, self.KsG_i.T, lower=True, overwrite_b=True, check_finite=False)
-            v_i = 1.0 / self.s - np.sum(V**2, axis=0)
-            oldv = self.v[blockidxs, 0].flatten()
-            self.v[blockidxs, 0] = (1 - rho_i) * oldv + rho_i * v_i
-            
-            diff_v = np.max(np.abs(self.v[blockidxs, 0] - oldv))
-            diff_f = np.max(np.abs(self.f[blockidxs, 0] - oldf))
-            if self.verbose:
-                logging.debug("GPGrid predict_block(): SVI diff = %.5f, %.5f" % (diff_v, diff_f))
-            if diff_v < self.conv_threshold and diff_f < self.conv_threshold:
-                v_not_converged = False
-                
-            niter_v += 1
+        self.f[blockidxs, :], C_out = self.f_given_u(1.0 / self.s, K_out, self.mu0_output)
+        self.v[blockidxs, 0] = np.diag(C_out)
         
         if np.any(self.v[blockidxs] < 0):
             self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
             if np.any(self.v[blockidxs] < 0): # anything still below zero?
                 logging.error("Variance has gone negative in GPgrid.predict(), %f" % np.min(self.v[blockidxs]))
-                
-        
-        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0_output        
         
     def init_output_arrays(self, output_coords, max_block_size, variance_method):
         self.output_coords = np.array(output_coords).astype(float)
