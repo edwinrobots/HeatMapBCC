@@ -10,6 +10,7 @@ from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 import logging
 from gpgrid import GPGrid
+from sklearn.cluster import MiniBatchKMeans
 
 class GPGridSVI(GPGrid):
     
@@ -17,7 +18,7 @@ class GPGridSVI(GPGrid):
     changed_selection = True # indicates whether the random subset of data has changed since variables were initialised
     
     def __init__(self, dims, z0=0.5, shape_s0=None, rate_s0=None, s_initial=None, shape_ls=10, rate_ls=0.1, 
-                 ls_initial=None, force_update_all_points=False, n_lengthscales=1, max_update_size=1000):
+                 ls_initial=None, force_update_all_points=False, n_lengthscales=1, max_update_size=1000, ninducing=500):
         
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
         
@@ -26,7 +27,7 @@ class GPGridSVI(GPGrid):
         self.delay = 1.0
         
         # number of inducing points
-        self.ninducing = 1000
+        self.ninducing = ninducing
                 
         super(GPGridSVI, self).__init__(dims, z0, shape_s0, rate_s0, s_initial, shape_ls, rate_ls, ls_initial, 
                                     force_update_all_points, n_lengthscales)
@@ -127,6 +128,12 @@ class GPGridSVI(GPGrid):
 #         
 #         print np.sum(np.abs(obs_f - self.obs_f))
 
+    def choose_inducing_points(self):
+        kmeans = MiniBatchKMeans(n_clusters=self.ninducing)
+        kmeans.fit(self.obs_coords)
+        return kmeans.cluster_centers_
+        #return np.random.randint(0, 100, size=(self.ninducing, 2)).astype(float)#self.obs_coords[:self.ninducing, :]
+
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
         if process_obs:
@@ -174,19 +181,18 @@ class GPGridSVI(GPGrid):
             logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )        
                 
         # choose a set of inducing points -- for testing we will set these to the same as the observation points.
-        self.inducing_coords = self.obs_coords
+        self.inducing_coords = self.choose_inducing_points()
 
         mm_dist = np.zeros((self.ninducing, self.ninducing, len(self.dims)))
-        nm_dist = np.zeros((self.ninducing, self.ninducing, len(self.dims)))
+        nm_dist = np.zeros((nobs, self.ninducing, len(self.dims)))
         for d in range(len(self.dims)):
             mm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
-            nm_dist[:, :, d] = self.obs_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
+            nm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.obs_coords[:, d:d+1].astype(float)
          
         K_mm = self.kernel_func(mm_dist)
         K_mm += 1e-6 * np.eye(len(K_mm)) # jitter 
         
         K_nm = self.kernel_func(nm_dist)
-        K_nm += 1e-6 * np.eye(len(K_nm)) # jitter                     
             
         G_update_rate = 1.0 # start with full size updates
                     
