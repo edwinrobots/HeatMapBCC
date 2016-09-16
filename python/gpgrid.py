@@ -142,9 +142,9 @@ class GPGrid(object):
     
     def forward_model(self, f, subset_idxs=[]):
         if len(subset_idxs):
-            return sigmoid(f)
-        else:
             return sigmoid(f[subset_idxs])
+        else:
+            return sigmoid(f)
     
     def update_jacobian(self, G_update_rate=1.0):
         g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
@@ -191,6 +191,9 @@ class GPGrid(object):
 
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
         obs_coords = np.array(obs_coords)
+        if obs_coords.shape[0] == len(self.dims) and obs_coords.shape[1] != len(self.dims):
+            obs_coords = obs_coords.T
+            
         if obs_coords.dtype=='int': # duplicate locations should be merged and the number of duplicates counted
             ravelled_coords = coord_arr_to_1d(obs_coords)
             uravelled_coords, idxs = np.unique(ravelled_coords, return_inverse=True)
@@ -631,10 +634,15 @@ class GPGrid(object):
             if np.any(self.v[blockidxs] < 0): # anything still below zero?
                 logging.error("Variance has gone negative in GPgrid.predict(), %f" % np.min(self.v[blockidxs]))
         
-        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0_output
+        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0_output[blockidxs, :]
+        
+        return blockidxs
     
     def init_output_arrays(self, output_coords, max_block_size, variance_method):
         self.output_coords = np.array(output_coords).astype(float)
+        if self.output_coords.shape[0] == len(self.dims) and self.output_coords.shape[1] != len(self.dims):
+            self.output_coords = self.output_coords.T
+            
         noutputs = self.output_coords.shape[0]
 
         self.f = np.empty((noutputs, 1), dtype=float)

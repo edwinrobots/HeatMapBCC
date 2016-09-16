@@ -123,7 +123,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
             #start with a homogeneous grid     
-            self.heatGP[j] = GPGrid(self.nx, self.ny, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
+            self.heatGP[j] = GPGrid((self.nx, self.ny), z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
                                 force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
             self.heatGP[j].verbose = self.verbose
@@ -219,8 +219,8 @@ class HeatMapBCC(ibcc.IBCC):
         #Evaluate the function posterior mean and variance at all coordinates in the grid. Use this to calculate
         #values for plotting a heat map. Calculate coordinates:
         nout = self.nx * self.ny
-        outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout, 1)
-        outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout, 1)
+        outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout)
+        outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout)
 
         if self.nclasses==2:
             gprange = [1]

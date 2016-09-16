@@ -38,7 +38,7 @@ class Heatmap(object):
         
     startclean = True #if true, will delete all previous maps before running
     timestep = 65 #max is likely to be 765
-    Nrep_inc = 700 #takes around 4 minutes to run through all updates. There will be 7 updates
+    stepsize = 700 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
 
     #If run_script_only is set to true, it will run the update loop when called until all scripted reports have been included.
@@ -207,7 +207,7 @@ class Heatmap(object):
             if self.timestep >= nupdates and self.run_script_only:
                     self.running = False
             else:
-                self.timestep += self.Nlabel_increment
+                self.timestep += self.stepsize
 
             if self.timestep > nupdates:
                 self.timestep = nupdates
