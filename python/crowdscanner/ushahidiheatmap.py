@@ -74,7 +74,7 @@ class Heatmap(object):
             self.fileprefix = self.webdatadir + fileprefix
                 
         self.alpha0 = np.array([[9.0, 6.0], [6.0, 9.0]])
-        self.nu0 = np.array([1, 1])#np.array([0.5, 0.5])#0.03
+        self.nu0 = np.array([1, 1.2])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         self.targetextractor = maptargets.MapTargets(self)
         if self.startclean:
@@ -96,8 +96,8 @@ class Heatmap(object):
             
     def runBCC_subset(self, C, j=1):
         if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
-            self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K, shape_s0=100.0, rate_s0=600.0)
-                                                            #shape_ls=0.001, rate_ls=1000)#shape_ls=10, rate_ls=0.1)
+            self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K, shape_s0=100.0,
+                                                            rate_s0=600.0, shape_ls=10000.0, rate_ls=100.0)#shape_ls=10, rate_ls=0.1)
             self.heatmapcombiner[j].min_iterations = 5
             self.heatmapcombiner[j].max_iterations = 200
             self.heatmapcombiner[j].conv_threshold = 0.1
@@ -330,7 +330,7 @@ class Heatmap(object):
         prior = self.nu0/float(np.sum(self.nu0))
         prior = prior[0]
         
-        changepoint = prior*cmap.N + 3
+        changepoint = np.round(prior*(cmap.N + 3))
                 
         if removesea:
             alphas = np.linspace(0, 0.75, cmap.N+3)
@@ -338,7 +338,7 @@ class Heatmap(object):
             alphas1 = np.linspace(1, 0.6, changepoint-20)
             alphas2 = np.linspace(0.6, 0, 20)
             alphas3 = np.linspace(0, 0.6, 20)
-            alphas4 = np.linspace(0.6, 1, changepoint - 23)
+            alphas4 = np.linspace(0.6, 1, cmap.N + 3 - changepoint - 20)
             alphas = np.concatenate((alphas1, alphas2, alphas3, alphas4))
         cmap._lut[:,-1] = alphas        
         

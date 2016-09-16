@@ -87,7 +87,7 @@ class GPGrid(object):
     p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
     
     def __init__(self, dims, z0=0.5, shape_s0=None, rate_s0=None, s_initial=None, shape_ls=10, rate_ls=0.1, 
-                 ls_initial=None, force_update_all_points=False, n_lengthscales=1):
+                 ls_initial=None, force_update_all_points=False, n_lengthscales=1, kernel_func='matern_3_2'):
         #Grid size for prediction
         self.dims = np.array(dims)
         
@@ -127,8 +127,14 @@ class GPGrid(object):
         #Algorithm configuration        
         self.update_all_points = force_update_all_points
 
-        #self.kernel_func = self.sq_exp_cov
-        self.kernel_func = self.matern_3_2
+        if kernel_func=="sq_exp":
+            self.kernel_func = self.sq_exp_cov
+        elif kernel_func=='matern_3_2':
+            self.kernel_func = self.matern_3_2
+        elif kernel_func=='diagonal':
+            self.kernel_func = self.diagonal
+        else:
+            logging.error('GPGrid: the selected kernel function does not exist: %s' % kernel_func)
     
     def reset_s(self):
         '''
@@ -419,11 +425,9 @@ class GPGrid(object):
         return K
 
     def sq_exp_cov(self, distances):
-        if distances.ndim==2:
-            distances = distances[:, :, np.newaxis]
         K = np.zeros(distances.shape)
         for d in range(distances.shape[2]):
-            K[:, :, d] = np.exp( -distances**2 / self.ls[d] )
+            K[:, :, d] = np.exp( -distances[:, :, d]**2 / self.ls[d] )
         K = np.prod(K, axis=2)
         return K
     
@@ -656,6 +660,12 @@ class GPGrid(object):
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         
         return nblocks, noutputs   
+    
+    def predict_grid(self, variance_method='rough', max_block_size=1e5, return_not=False, mu0_output=None):    
+        nout = self.nx * self.ny
+        outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout)
+        outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout)
+        self.predict([outputx, outputy], variance_method, max_block_size, return_not=return_not, mu0_output=mu0_output)
     
     def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False, 
                 mu0_output=None):

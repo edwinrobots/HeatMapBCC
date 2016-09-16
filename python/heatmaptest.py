@@ -94,20 +94,10 @@ def runBCC(C,nx,ny,nreceiver):
     alpha0 = np.array([[2, 1], [1, 2]])  
     heatmapcombiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nu0, nreceiver)
     heatmapcombiner.minNoIts = 20
-    bcc_pred = heatmapcombiner.combine_classifications(C)
-    bcc_pred = np.exp(heatmapcombiner.lnkappa)
-    bcc_pred = bcc_pred[1,:,:].reshape((nx,ny))
-    return bcc_pred,heatmapcombiner
-
-def runGPDirectly(C,nx,ny):
-    
-    obs_x = C[:,1]
-    obs_y = C[:,2]
-    obs_points = C[:,3:C.shape[1]]
-    
-    f, Cov, mPr, stdPr, s = gpgrid.infer_gpgrid(obs_x, obs_y, obs_points, nx, ny)
-    
-    return mPr
+    heatmapcombiner.combine_classifications(C)
+    rho = np.exp(heatmapcombiner.lnkappa)
+    rho = rho[1,:,:].reshape((nx,ny))
+    return rho, heatmapcombiner
 
 def plotresults():
     

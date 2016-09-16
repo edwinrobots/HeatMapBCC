@@ -391,10 +391,8 @@ class MapTargets(object):
                 logging.warning("No reports associated with target " + str(i))
             else:
                 for idx in rep_ids_i:
-                    agentid = C[idx,0]
+                    agentid = int(C[idx,0])
                     #logging.info("reporter:  " + str(agentid))
-                    if pi==None:
-                        continue
                     if agentid < pi.shape[2]:
                         pi_list.append(pi[:,:,agentid].tolist())
                     else:

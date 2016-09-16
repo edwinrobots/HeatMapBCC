@@ -52,7 +52,7 @@ class HeatMapBCC(ibcc.IBCC):
     conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
     def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=None, rate_s0=None, shape_ls=10,
-                 rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None):
+                 rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None, kernel_func='sq_exp'):
         if not outputy:
             outputy = []
         if not outputx:
@@ -70,6 +70,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.shape_ls = shape_ls
         self.rate_ls = rate_ls
         self.ls_initial = self.shape_ls / self.rate_ls + np.zeros(nclasses)
+        self.kernel_func = kernel_func
         logging.debug('Setting up a 2-D grid. This should be generalised!')
         nu0 = np.ones(nclasses)     
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
@@ -125,7 +126,8 @@ class HeatMapBCC(ibcc.IBCC):
             #start with a homogeneous grid     
             self.heatGP[j] = GPGrid((self.nx, self.ny), z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
-                                force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales)   
+                                force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales, 
+                                kernel_func=self.kernel_func)   
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
