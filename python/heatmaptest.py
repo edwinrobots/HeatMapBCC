@@ -90,14 +90,13 @@ def genSimData():
     return nreceiver, C, gridx, gridy, pop_grid, fig
 
 def runBCC(C,nx,ny,nreceiver):
-    nu0 = np.array([50.0, 50.0])
+    z0 = 0.5
     alpha0 = np.array([[2, 1], [1, 2]])  
-    heatmapcombiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nu0, nreceiver)
+    heatmapcombiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nreceiver, z0)
     heatmapcombiner.minNoIts = 20
     heatmapcombiner.combine_classifications(C)
-    rho = np.exp(heatmapcombiner.lnkappa)
-    rho = rho[1,:,:].reshape((nx,ny))
-    return rho, heatmapcombiner
+    bcc_pred, _, _ = heatmapcombiner.predict_grid()
+    return bcc_pred[1, :, :], heatmapcombiner
 
 def plotresults():
     

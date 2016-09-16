@@ -206,9 +206,9 @@ class GPGrid(object):
             grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs))) ).toarray()            
             grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
         
-            nonzero_idxs = grid_obs_counts.nonzero() # ravelled coordinates with duplicates removed
-            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype)
-            return grid_obs_pos_counts[nonzero_idxs], grid_obs_counts[nonzero_idxs]
+            nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
+            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, obs_coords.shape)
+            return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
                     
         elif obs_coords.dtype=='float': # Duplicate locations are not merged
             self.obs_coords = obs_coords          
