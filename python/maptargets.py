@@ -62,8 +62,8 @@ class MapTargets(object):
 
     def calculate_targets(self, pgrid, j=1):
         targetsx, targetsy, bgrid = self.find_peaks(pgrid, j)
-        
-        dist = np.zeros((len(targetsx),len(self.targetsx)))
+        ntargets = len(targetsx)
+        dist = np.zeros((ntargets, len(self.targetsx)))
         
         newtargetids = np.zeros(targetsx.shape, dtype=np.int)-1
         newtargetversions = np.zeros(targetsx.shape, dtype=np.int)
@@ -72,12 +72,12 @@ class MapTargets(object):
         if len(self.targetids)<1:
             self.targetsx = targetsx
             self.targetsy = targetsy
-            self.targetids = np.arange(len(targetsx))
+            self.targetids = np.arange(ntargets)
             self.targetversion_nos = np.zeros(self.targetids.shape, dtype=np.int)
             return bgrid
         
         #see if the peaks are close matches to existing targets
-        for t in range(len(targetsx)):
+        for t in range(ntargets):
             x = targetsx[t]
             y = targetsy[t]
             
@@ -87,7 +87,7 @@ class MapTargets(object):
             
         #go through looking for most similar peaks first
         
-        nIterations = len(targetsx)
+        nIterations = ntargets
         num_new_ids = nIterations
         if nIterations>len(self.targetsx):
             nIterations = len(self.targetsx)
@@ -266,7 +266,7 @@ class MapTargets(object):
     def write_targets_prov(self, tlist, C, bundle_id):
         #Initialisation
 #         cs = b.agent('CrowdScanner')
-        
+         
         if self.document_id == -1:
             d = ProvDocument()
             d.add_namespace(AO)
@@ -278,7 +278,7 @@ class MapTargets(object):
                 self.provfilelist.append(provstore_document.id)
                 self.savelocalrecord()
                 self.document_id = provstore_document.id
-        
+         
         b = ProvDocument()  # Create a new document for this update
         b.add_namespace(AO)
         b.set_default_namespace(self.defaultns % self.game_id)            
@@ -363,7 +363,8 @@ class MapTargets(object):
         
     def write_targets_json(self, update_number, alpha, C, j=1, targettypes=None):
         jsonfile = self.heatmap.webdatadir+'/targets_'+str(j)+'.json'
-        
+        if not len(self.targetsx):
+            return 
         #get the data ready
         rep_list = self.rep_list[j]        
         pi = alpha / np.sum(alpha, axis=1).reshape((2,1,alpha.shape[2]))

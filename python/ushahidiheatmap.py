@@ -11,14 +11,14 @@ import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D #Can use if we want to make a 3D plot instead of flat heat map
 from scipy.sparse import coo_matrix
 import os
-import provcleanup
+# import provcleanup
 import shutil
 #from memory_profiler import profile
 
 class Heatmap(object):
 
     sea_map = []
-    combiner = {}
+    heatmapcombiner = {}
 
     webdatadir = './web'
     datadir = './data'
@@ -38,7 +38,7 @@ class Heatmap(object):
         
     startclean = True #if true, will delete all previous maps before running
     timestep = 65 #max is likely to be 765
-    stepsize = 100 #takes around 4 minutes to run through all updates. There will be 7 updates
+    stepsize = 700 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
 
     #If run_script_only is set to true, it will run the update loop when called until all scripted reports have been included.
@@ -73,13 +73,13 @@ class Heatmap(object):
         else:
             self.fileprefix = self.webdatadir + fileprefix
                 
-        self.alpha0 = np.array([[2.0, 1.0], [1.0, 2.0]])
-        self.nu0 = np.array([1,1])#np.array([0.5, 0.5])#0.03
+        self.alpha0 = np.array([[9.0, 6.0], [6.0, 9.0]])
+        self.nu0 = np.array([1, 1])#np.array([0.5, 0.5])#0.03
         self.rep_ids.append(0)
         self.targetextractor = maptargets.MapTargets(self)
         if self.startclean:
             self.initial_cleanup()
-        self.load_ush_data() 
+        self.load_data() 
         self.write_coords_json()     
         
         self.run_script_only = run_script_only   
@@ -91,25 +91,30 @@ class Heatmap(object):
     def runBCC_up_to_time(self, j, timestep):       
         C = self.C[j]
         C = C[0:timestep,:]
-        bcc_pred, _ = self.runBCC_subset(C)
-        return bcc_pred
+        bcc_pred, bcc_var, _ = self.runBCC_subset(C)
+        return bcc_pred, bcc_var
             
     def runBCC_subset(self, C, j=1):
-        if j not in self.combiner or self.combiner[j]==None or self.combiner[j].K<self.K:
-            self.combiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.nu0, self.K)
-            self.combiner[j].min_iterations = 5
-            self.combiner[j].max_iterations = 200
-            self.combiner[j].conv_threshold = 0.1
-            self.combiner[j].uselowerbound = False
+        if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
+            self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K, shape_s0=100.0, rate_s0=600.0)
+                                                            #shape_ls=0.001, rate_ls=1000)#shape_ls=10, rate_ls=0.1)
+            self.heatmapcombiner[j].min_iterations = 5
+            self.heatmapcombiner[j].max_iterations = 200
+            self.heatmapcombiner[j].conv_threshold = 0.1
+            self.heatmapcombiner[j].uselowerbound = False
 
-        bcc_pred = self.combiner[j].combine_classifications(C)
-        bcc_pred = bcc_pred[j,:,:].reshape((self.nx,self.ny))
-        return bcc_pred, self.combiner[j]
+        self.heatmapcombiner[j].combine_classifications(C)
+        print "S = "
+        print self.heatmapcombiner[j].heatGP[j].s
+        bcc_pred, _, bcc_var = self.heatmapcombiner[j].predict_grid()
+        bcc_pred = bcc_pred[j, :, :].reshape((self.nx, self.ny))
+        bcc_var = bcc_var[j, :, :].reshape((self.nx, self.ny))
+        return bcc_pred, bcc_var, self.heatmapcombiner[j]
 
     #@profile
     def loop_iteration(self, j, t):
-        bcc_pred = self.runBCC_up_to_time(j,t)
-        return bcc_pred
+        bcc_pred, bcc_var = self.runBCC_up_to_time(j,t)
+        return bcc_pred, bcc_var
               
     def enlarge_target_blobs(self, target_grid, nsize=5):
         #make neighbouring points also one
@@ -133,7 +138,7 @@ class Heatmap(object):
         with open(targetsjsonfile, 'w') as fp:
             json.dump([], fp)
         
-        provcleanup.cleanup()
+#         provcleanup.cleanup()
                     
     def timed_update_loop(self, j=1):
         logging.info("Run BCC at intervals, loading new reports.")
@@ -153,7 +158,7 @@ class Heatmap(object):
             logging.info("timed_update_loop timestep " + str(self.timestep))
             starttime = time.time()
 
-            bcc_pred = self.loop_iteration(j, self.timestep)
+            bcc_pred, bcc_var = self.loop_iteration(j, self.timestep)
 
             if not self.running:
                 logging.info("Stopping update loop for the heatmap")
@@ -162,7 +167,7 @@ class Heatmap(object):
             self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
-            bcc_stdPred = self.combiner[j].get_sd_kappa()
+            bcc_stdPred = bcc_var**0.5
             #bcc_stdPred = np.sqrt(bcc_pred*(1-bcc_pred))#
             #normalise it
             maxunc = np.max(bcc_stdPred)
@@ -187,7 +192,7 @@ class Heatmap(object):
             lab = 'Predicted target points of type ' + str(j)
             self.plotresults(self.enlarge_target_blobs(target_grid), lab)
             self.write_img("_targets_", j)
-            self.targetextractor.write_targets_json(self.timestep, self.combiner[j].alpha, self.C[j])
+            self.targetextractor.write_targets_json(self.timestep, self.heatmapcombiner[j].alpha, self.C[j])
             
             endtime = time.time()
             
@@ -203,7 +208,6 @@ class Heatmap(object):
                     self.running = False
             else:
                 self.timestep += self.stepsize
-            
 
             if self.timestep > nupdates:
                 self.timestep = nupdates
@@ -212,8 +216,8 @@ class Heatmap(object):
             
     def kill_combiners(self):
         self.running = False
-        for j in self.combiner.keys():
-            self.combiner[j].keeprunning = False
+        for j in self.heatmapcombiner.keys():
+            self.heatmapcombiner[j].keeprunning = False
     
     def reportintensity(self, j, timestep=-1):
         if timestep==-1:
@@ -364,15 +368,15 @@ class Heatmap(object):
         logging.debug('Tranlating our local points back to original lat/long')
         
         #normalise
-        x = np.divide(np.float64(x),self.nx)
-        y = np.divide(np.float64(y),self.ny)
+        x = np.divide(x.astype(float),self.nx)
+        y = np.divide(y.astype(float),self.ny)
         
         latdata = x*(self.maxlat-self.minlat) + self.minlat
         londata = y*(self.maxlon-self.minlon) + self.minlon
         
         return latdata,londata
         
-    def load_ush_data(self):
+    def load_data(self):
         dataFile = self.datadir+'/exported_ushahidi.csv'
         self.K = 1
         #load the data
@@ -487,7 +491,7 @@ class Heatmap(object):
         self.K = len(instantiatedagents)
                      
         self.C = C
-        self.combiner = {} #reset as we have reloaded the data
+        self.heatmapcombiner = {} #reset as we have reloaded the data
         print "Number of type one reports: " + str(self.C[1].shape[0])
         
         self.targetextractor.rep_list = rep_list
@@ -584,7 +588,7 @@ if __name__ == '__main__':
     #High definition with no interpolation
     nx = 1000
     ny = 1000  
-    heatmap.load_ush_data() 
+    heatmap.load_data() 
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
         heatmap.plotresults(rep_pred, label='Predicted Incidents of type '+str(j))
@@ -598,24 +602,24 @@ if __name__ == '__main__':
     #Using BCC - lower res so it is tractable to interpolate
     heatmap.nx = 1000
     heatmap.ny = 1000
-    heatmap.load_ush_data() # in case nx and ny have changed, need to reload
+    heatmap.load_data() # in case nx and ny have changed, need to reload
            
     for j in range(1,2):
         start = time.time()
-        bcc_pred,combiner = heatmap.runBCC(j)
+        bcc_pred,heatmapcombiner = heatmap.runBCC(j)
         fin = time.time()
         print "bcc heatmap prediction timer (no loops): " + str(fin-start)
                         
-        bcc_mpr = combiner.get_mean_kappa()
+        bcc_mpr = heatmapcombiner.get_mean_kappa()
         heatmap.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
         #write_json(bcc_pred, nx,ny,j)
         heatmap.write_img("", j)
                  
         heatmap.plotresults(bcc_mpr,  label='Incident Rate of type '+str(j))
-        #write_json(combiner.mPr, nx,ny,j, label="_mpr_")
+        #write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_")
         heatmap.write_img("_mpr_",j)
          
-        bcc_stdPred = combiner.get_sd_kappa()
+        bcc_stdPred = heatmapcombiner.get_heat_variance()
         heatmap.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_sd_",j)
@@ -623,7 +627,7 @@ if __name__ == '__main__':
     #insert a trusted report at 18.5333 N, -72.3333 W     
     heatmap.nx = 2000
     heatmap.ny = 2000
-    heatmap.load_ush_data()
+    heatmap.load_data()
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
@@ -637,7 +641,7 @@ if __name__ == '__main__':
           
     heatmap.nx = 2000
     heatmap.ny = 2000  
-    heatmap.load_ush_data() 
+    heatmap.load_data() 
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
         bcc_pred2,combiner2 = heatmap.runBCC(j)
@@ -647,10 +651,10 @@ if __name__ == '__main__':
   
         bcc_mpr2 = combiner2.get_mean_kappa()
         heatmap.plotresults(bcc_mpr2, label='Incident Rate of type '+str(j))
-#         write_json(combiner.mPr, nx,ny,j, label="_mpr_expert_")
+#         write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_expert_")
         heatmap.write_img("_mpr_expert_",j)
           
-        bcc_stdPred2 = combiner2.get_sd_kappa()
+        bcc_stdPred2 = combiner2.get_heat_variance()
 
         heatmap.plotresults(bcc_stdPred2, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
 #         write_json(stdPred, nx,ny,j, label="_sd_expert_")        

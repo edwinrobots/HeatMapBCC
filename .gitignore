@@ -1,3 +1,4 @@
 *.pyc
 /mproutput.csv
 /.directory
+/.DS_Store

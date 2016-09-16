@@ -8,7 +8,7 @@ import SimpleHTTPServer, SocketServer, time, logging, threading, cgi
 from ushahidiheatmap import Heatmap
 from socket import error as socket_error
 
-logging.basicConfig(level=logging.INFO)    
+logging.basicConfig(level=logging.DEBUG)    
 map_thread = []
 global heatmap
 
@@ -26,11 +26,17 @@ class Demoserver(SimpleHTTPServer.SimpleHTTPRequestHandler):
         if "start_heatmap" in self.path:
             logging.info("Starting the timed update loop")
             start_new_map_thread()
+            self.send_response(200, "Simulation start")
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
             return
         
         if "reset" in self.path:
             kill_map_thread()
             init_heatmap()
+            self.send_response(200, "Simulation reset")
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
             return
         
         logging.info("======= Processing POST values =======")
