@@ -6,7 +6,7 @@ Created on 9 Sep 2014
 import numpy as np
 import logging, json
 from copy import deepcopy
-from prov.model import ProvDocument, Namespace, PROV
+from prov.model import ProvDocument, Namespace, PROV # pip install provstore-api
 from provstore.api import Api
 import os.path
 import time
