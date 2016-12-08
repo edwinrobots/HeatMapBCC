@@ -270,7 +270,7 @@ class GPGridSVI(GPGrid):
                 if self.verbose:
                     logging.debug('GPGRID lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, nIt))
                     
-                if diff < - self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
+                if diff < - 1e6 * self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
                     logging.warning('GPGRID Lower Bound = %.5f, changed by %.5f in iteration %i\
                             -- probable approximation error or bug. Output scale=%.3f.' % (L, diff, nIt, self.s))
                     

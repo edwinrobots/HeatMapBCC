@@ -196,8 +196,10 @@ class GPGrid(object):
         logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
 
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
-        obs_coords = np.array(obs_coords)
+        obs_coords = np.array(obs_coords)        
         if obs_coords.shape[0] == len(self.dims) and obs_coords.shape[1] != len(self.dims):
+            if obs_coords.ndim == 3 and obs_coords.shape[2] == 1:
+                obs_coords = obs_coords.reshape((obs_coords.shape[0], obs_coords.shape[1]))            
             obs_coords = obs_coords.T
             
         if obs_coords.dtype=='int': # duplicate locations should be merged and the number of duplicates counted
@@ -207,7 +209,8 @@ class GPGrid(object):
             grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
         
             nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
-            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, obs_coords.shape)
+            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, 
+                                                [nonzero_idxs.size, self.dims.size])
             return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
                     
         elif obs_coords.dtype=='float': # Duplicate locations are not merged
@@ -234,7 +237,7 @@ class GPGrid(object):
             logging.warning('GPGrid received two sets of totals; ignoring the second column of the obs_values argument')            
           
         if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
-            poscounts = obs_values
+            poscounts = obs_values.flatten()
         elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts. 
             poscounts = obs_values[:, 0]
             
@@ -281,8 +284,9 @@ class GPGrid(object):
     def lowerbound(self):
 #         pz = np.sum(self.logpz())
 #         print pz
-        logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
-        logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C)))
+        if self.verbose:
+            logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
+            logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C)))
 
         f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
         rho_samples = self.forward_model(f_samples.T)
@@ -300,10 +304,10 @@ class GPGrid(object):
         logp_s = self.logps()
         logq_s = self.logqs()
           
-        #if self.verbose:      
-        logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
+        if self.verbose:      
+            logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
-        logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+            logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
             
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         return lb
@@ -645,6 +649,8 @@ class GPGrid(object):
     def init_output_arrays(self, output_coords, max_block_size, variance_method):
         self.output_coords = np.array(output_coords).astype(float)
         if self.output_coords.shape[0] == len(self.dims) and self.output_coords.shape[1] != len(self.dims):
+            if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
+                self.output_coords = self.output_coords.reshape((self.output_coords.shape[0], self.output_coords.shape[1]))                  
             self.output_coords = self.output_coords.T
             
         noutputs = self.output_coords.shape[0]
