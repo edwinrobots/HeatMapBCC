@@ -281,8 +281,9 @@ class GPGrid(object):
     def lowerbound(self):
 #         pz = np.sum(self.logpz())
 #         print pz
-        logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
-        logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C)))
+        if self.verbose:
+            logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
+            logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C)))
 
         f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
         rho_samples = self.forward_model(f_samples.T)
@@ -300,10 +301,10 @@ class GPGrid(object):
         logp_s = self.logps()
         logq_s = self.logqs()
           
-        #if self.verbose:      
-        logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
+        if self.verbose:      
+            logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
-        logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+            logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
             
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         return lb
