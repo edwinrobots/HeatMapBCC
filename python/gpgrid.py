@@ -517,12 +517,18 @@ class GPGrid(object):
         
         G_update_rate = 1.0 # start with full size updates
                 
-        g_obs_f = self.update_jacobian(G_update_rate)
+        #g_obs_f = self.update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the 
+        # same calculation with the same values, meaning that the convergence check will think nothing changes in the 
+        # first iteration. 
+        Ntrain = self.obs_f.size        
+        g_obs_f = self.forward_model(self.mu0).flatten()
+        if not len(self.G):
+            self.G = np.diag(g_obs_f * (1-g_obs_f))
         
         if process_obs:
-            # Initialise here to speed up dot product -- assume we need to do this whenever there is new data  
-            self.Cov = np.zeros((self.G.shape[0], self.G.shape[0]))
-            self.KsG = np.zeros((self.Ks.shape[0], self.G.shape[0]))  
+            # Initialise here to speed up dot product -- assume we need to do this whenever there is new data
+            self.Cov = np.zeros((Ntrain, Ntrain))
+            self.KsG = np.zeros((self.Ks.shape[0], Ntrain))  
             
         nIt = 0
         diff = 0

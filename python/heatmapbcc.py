@@ -131,7 +131,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
-#             self.heatGP[j].max_iter_G = 1
+            self.heatGP[j].max_iter_G = 1
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
         
     def convergence_measure(self, oldET):
@@ -275,18 +275,22 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)            
         for j in gprange:
             obs_values = self.E_t[:,j]                
-            self.heatGP[j].fit([self.obsx, self.obsy], obs_values, update_s=self.update_s)
+            
+            # only process the data on the first iteration, otherwise variables get reset
+            self.heatGP[j].fit([self.obsx, self.obsy], np.round(obs_values), update_s=self.update_s, 
+                               process_obs=self.nIts==0) 
+            
             self.heatGP[j].verbose = False
-            lnkappaj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
-                                                        expectedlog=True)
+            lnkappaj, lnkappa_notj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
+                                                        expectedlog=True, return_not=True)
             self.heatGP[j].verbose = self.verbose
             self.lnkappa[j] = lnkappaj.flatten()
 #             self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
             #self.lnkappa[j] = self.heatGP[j].logpz(1.0).flatten()
         if self.nclasses==2:
-            kappa0 = 1-np.exp(self.lnkappa[1])
-            self.lnkappa[0][kappa0 > 1e-10] = np.log(kappa0[kappa0 > 1e-10])
-            #self.lnkappa[0] = self.heatGP[1].logpz(0.0).flatten()
+            #kappa0 = 1-np.exp(self.lnkappa[1])
+            #self.lnkappa[0][kappa0 > 1e-10] = np.log(kappa0[kappa0 > 1e-10])
+            self.lnkappa[0] = lnkappa_notj.flatten() #self.heatGP[1].logpz(0.0).flatten()
             
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
@@ -312,6 +316,14 @@ class HeatMapBCC(ibcc.IBCC):
         if self.nclasses==2:
             lnpCTj = self.lnpCT[:, 0] - self.lnkappa[0] + notrhoj.flatten()
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, 0], lnpCTj))
+            
+#         import matplotlib.pyplot as plt
+#         plt.figure(100)
+#         sortedidxs = np.argsort(self.obsx)
+#         plt.plot(self.obsx[sortedidxs], self.heatGP[1].obs_f[sortedidxs], 
+#                  label='HeatmapBCC VB, internal iteration %i, ls=%.2f' % (self.nIts, self.heatGP[1].ls[0]), color='k')
+#         plt.title('f at the training points')    
+#         plt.legend(loc='best')              
             
         return lnpCT
 
