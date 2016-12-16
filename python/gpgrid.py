@@ -200,6 +200,8 @@ class GPGrid(object):
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
         obs_coords = np.array(obs_coords)
         if obs_coords.shape[0] == len(self.dims) and obs_coords.shape[1] != len(self.dims):
+            if obs_coords.ndim == 3 and obs_coords.shape[2] == 1:
+                obs_coords = obs_coords.reshape((obs_coords.shape[0], obs_coords.shape[1]))            
             obs_coords = obs_coords.T
             
         if obs_coords.dtype=='int': # duplicate locations should be merged and the number of duplicates counted
@@ -209,7 +211,8 @@ class GPGrid(object):
             grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
         
             nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
-            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, (nonzero_idxs.size, self.dims.size))
+            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, 
+                                                [nonzero_idxs.size, self.dims.size])
             return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
                     
         elif obs_coords.dtype=='float': # Duplicate locations are not merged
@@ -300,43 +303,9 @@ class GPGrid(object):
 #         lognotrho = np.log(1 - rho)
         
         data_ll = self.data_ll(logrho, lognotrho)
-         
+        
         logp_f = self.logpf()
-        logq_f = self.logqf()
-        
-        logging.debug('old logp_f = %f' % logp_f)
-        logging.debug('old logq_f = %f' % logq_f)
-
-        # the lines below from the laplace method: 
-        # A gaussian -- probability of the f parameter --> trace(invK_expecF)?
-        # - sum over i: log p(y_i | f_i) --> same as term below data_ll
-        # A log determinant --> logdet_C? 
-        # --> The other terms are static if s does not change so can be ignored
-#         lml = -0.5 * a.T.dot(f) \
-#             - np.log(1 + np.exp(-(self.y_train_ * 2 - 1) * f)).sum() \
-#             - np.log(np.diag(L)).sum()               
-
-        _, logdet_K = np.linalg.slogdet(self.K)
-
-        logdet_Ks = - len(self.obs_f) * self.Elns + logdet_K
-        
-        mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0        
-        
-#         invK_expecF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) - \
-#                    mu0.dot(self.obs_f.T) - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T), trans=True, check_finite=False)
-#         invK_expecF = solve_triangular(self.cholK, invK_expecF, check_finite=False)
-#         invK_expecF *= self.s # because we're using self.cholK not cholesky(self.Ks)
-#         invK_expecF = np.trace(invK_expecF)
-        
-        _, logdet_C = np.linalg.slogdet(self.obs_C)
-        D = len(self.obs_f)        
-        
-        #invK_expecF = np.trace(solve_triangular(self.cholK, solve_triangular(self.cholK, (self.obs_f-mu0).dot((self.obs_f - mu0).T) + self.obs_C, trans=True) ) * self.s)#np.trace(invK_expecF)) #- np.log(2*np.pi)*D
-        logp_f = 0.5 * ( - logdet_Ks )#- invK_expecF) 
-        logq_f = 0.5 * ( - logdet_C )#- D)   #- np.log(2*np.pi)*D
-
-        logging.debug('new logp_f = %f' % logp_f)
-        logging.debug('new logq_f = %f' % logq_f)
+        logq_f = self.logqf() 
 
         logp_s = self.logps()
         logq_s = self.logqs()
@@ -702,6 +671,8 @@ class GPGrid(object):
     def init_output_arrays(self, output_coords, max_block_size, variance_method):
         self.output_coords = np.array(output_coords).astype(float)
         if self.output_coords.shape[0] == len(self.dims) and self.output_coords.shape[1] != len(self.dims):
+            if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
+                self.output_coords = self.output_coords.reshape((self.output_coords.shape[0], self.output_coords.shape[1]))                  
             self.output_coords = self.output_coords.T
             
         noutputs = self.output_coords.shape[0]
