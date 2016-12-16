@@ -124,6 +124,8 @@ class GPGrid(object):
             self.ls = self.shape_ls / self.rate_ls
             self.ls = np.zeros(2) + self.ls
 
+        self.ls = self.ls.astype(float)
+
         #Algorithm configuration        
         self.update_all_points = force_update_all_points
 
@@ -207,7 +209,7 @@ class GPGrid(object):
             grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
         
             nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
-            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, obs_coords.shape)
+            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, (nonzero_idxs.size, self.dims.size))
             return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
                     
         elif obs_coords.dtype=='float': # Duplicate locations are not merged
@@ -234,7 +236,7 @@ class GPGrid(object):
             logging.warning('GPGrid received two sets of totals; ignoring the second column of the obs_values argument')            
           
         if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
-            poscounts = obs_values
+            poscounts = obs_values.flatten()
         elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts. 
             poscounts = obs_values[:, 0]
             
@@ -278,25 +280,63 @@ class GPGrid(object):
         data_ll = lpobs    
         return data_ll    
     
-    def lowerbound(self):
+    def lowerbound(self, return_terms=False):
 #         pz = np.sum(self.logpz())
 #         print pz
         if self.verbose:
             logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
-            logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C)))
+            logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C))) 
 
-        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
-        rho_samples = self.forward_model(f_samples.T)
-        rho_samples = temper_extreme_probs(rho_samples)
-        lognotrho_samples = np.log(1 - rho_samples)
-        logrho_samples = np.log(rho_samples)
-        logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
-        lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
+        logrho, lognotrho = self.logpt()
+        
+#         k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C)[:, np.newaxis] / 8.0))
+#         rho_rough = sigmoid(k* self.obs_f)
+#         notrho_rough = sigmoid(-k*self.obs_f)
+#         logrho = np.log(rho_rough)
+#         lognotrho = np.log(notrho_rough)
+#          
+#         rho = self.forward_model(self.obs_f)
+#         logrho = np.log(rho)
+#         lognotrho = np.log(1 - rho)
         
         data_ll = self.data_ll(logrho, lognotrho)
-        
+         
         logp_f = self.logpf()
-        logq_f = self.logqf() 
+        logq_f = self.logqf()
+        
+        logging.debug('old logp_f = %f' % logp_f)
+        logging.debug('old logq_f = %f' % logq_f)
+
+        # the lines below from the laplace method: 
+        # A gaussian -- probability of the f parameter --> trace(invK_expecF)?
+        # - sum over i: log p(y_i | f_i) --> same as term below data_ll
+        # A log determinant --> logdet_C? 
+        # --> The other terms are static if s does not change so can be ignored
+#         lml = -0.5 * a.T.dot(f) \
+#             - np.log(1 + np.exp(-(self.y_train_ * 2 - 1) * f)).sum() \
+#             - np.log(np.diag(L)).sum()               
+
+        _, logdet_K = np.linalg.slogdet(self.K)
+
+        logdet_Ks = - len(self.obs_f) * self.Elns + logdet_K
+        
+        mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0        
+        
+#         invK_expecF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) - \
+#                    mu0.dot(self.obs_f.T) - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T), trans=True, check_finite=False)
+#         invK_expecF = solve_triangular(self.cholK, invK_expecF, check_finite=False)
+#         invK_expecF *= self.s # because we're using self.cholK not cholesky(self.Ks)
+#         invK_expecF = np.trace(invK_expecF)
+        
+        _, logdet_C = np.linalg.slogdet(self.obs_C)
+        D = len(self.obs_f)        
+        
+        #invK_expecF = np.trace(solve_triangular(self.cholK, solve_triangular(self.cholK, (self.obs_f-mu0).dot((self.obs_f - mu0).T) + self.obs_C, trans=True) ) * self.s)#np.trace(invK_expecF)) #- np.log(2*np.pi)*D
+        logp_f = 0.5 * ( - logdet_Ks )#- invK_expecF) 
+        logq_f = 0.5 * ( - logdet_C )#- D)   #- np.log(2*np.pi)*D
+
+        logging.debug('new logp_f = %f' % logp_f)
+        logging.debug('new logq_f = %f' % logq_f)
 
         logp_s = self.logps()
         logq_s = self.logqs()
@@ -305,9 +345,25 @@ class GPGrid(object):
             logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
             logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+            logging.debug("Ignoring the output scale: %.3f" % (data_ll + logp_f - logq_f))
             
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
+        
+        if return_terms:
+            return lb, data_ll, logp_f, logq_f, logp_s, logq_s
+        
         return lb
+    
+    def logpt(self):
+        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.Q)), size=(1000, len(self.obs_f)))
+        rho_samples = self.forward_model(f_samples.T)
+        rho_samples = temper_extreme_probs(rho_samples)
+        lognotrho_samples = np.log(1 - rho_samples)
+        logrho_samples = np.log(rho_samples)
+        logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
+        lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
+        
+        return logrho, lognotrho        
     
     def logpz(self, z=-1):
         if z==-1:
@@ -440,7 +496,7 @@ class GPGrid(object):
         K = np.prod(K, axis=2)
         return K
 
-    def expec_fC(self, G_update_rate=1.0):                
+    def expec_fC(self, G_update_rate=1.0):
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
         self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()
@@ -585,7 +641,7 @@ class GPGrid(object):
     
     def post_sample(self, f, v, expectedlog): 
         # draw samples from a Gaussian with mean f and variance v
-        f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 1000))
+        f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 10000))
         rho_samples = sigmoid(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         rho_not_samples = 1 - rho_samples 

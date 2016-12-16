@@ -52,7 +52,7 @@ class HeatMapBCC(ibcc.IBCC):
     conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
     def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=None, rate_s0=None, shape_ls=10,
-                 rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None, kernel_func='sq_exp'):
+                 rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None, kernel_func='matern_3_2'):
         if not outputy:
             outputy = []
         if not outputx:
@@ -138,7 +138,7 @@ class HeatMapBCC(ibcc.IBCC):
         kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
         sdiff = 0
         for j in self.heatGP:
-            sdiff_j = np.abs( self.heatGP[j].old_s - self.heatGP[j].s ) / self.heatGP[j].old_s
+            sdiff_j = np.abs( self.heatGP[j].old_s - self.heatGP[j].s ) #/ self.heatGP[j].old_s
             if sdiff_j > sdiff:
                 sdiff = sdiff_j
             if self.verbose:
@@ -196,8 +196,11 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = [1]
         else:
             gprange = np.arange(self.nclasses)
+        
+        outputxy = np.concatenate((outputx, outputy), axis=1)
+            
         for j in gprange:
-            mean_kappa, v_kappa = self.heatGP[j].predict([outputx, outputy], variance_method=variance_method)
+            mean_kappa, v_kappa = self.heatGP[j].predict(outputxy, variance_method=variance_method)
             kappa_out[j, :] = mean_kappa.flatten() 
             v_kappa_out[j, :] = v_kappa.flatten() 
         if self.nclasses==2:
@@ -207,7 +210,7 @@ class HeatMapBCC(ibcc.IBCC):
         # Set the predictions for the targets
         self.E_t_out[:,:] = kappa_out
         #observation points that coincide with output points should take into account the labels, not just GP
-        outputcoords = zip(outputx, outputy)
+        outputcoords = zip(outputx.flatten(), outputy.flatten())
         obsin_idxs = np.array([self.crowddict[oc] if oc in self.crowddict else -1 for oc in outputcoords], dtype=int)
         obsout_idxs = obsin_idxs > -1
         obsin_idxs = obsin_idxs[obsout_idxs]
@@ -228,8 +231,9 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = [1]
         else:
             gprange = np.arange(self.nclasses)
+        outputxy = np.concatenate((outputx, outputy), axis=1)
         for j in gprange:
-            kappa_grid_j, v_kappa_grid_j = self.heatGP[j].predict([outputx, outputy])
+            kappa_grid_j, v_kappa_grid_j = self.heatGP[j].predict(outputxy)
             kappa_grid[j, :,:] = kappa_grid_j.reshape((self.nx, self.ny))
             v_kappa_grid[j, :, :] = v_kappa_grid_j.reshape((self.nx, self.ny))
         if self.nclasses==2:
@@ -302,10 +306,11 @@ class HeatMapBCC(ibcc.IBCC):
 #         lnpCT = super(HeatMapBCC, self).post_lnjoint_ct()
         lnpCT = 0
         for j in gprange:
-            lnpCTj = self.lnpCT[:, j] #- self.lnkappa[j] + self.heatGP[j].logpz(1.0).flatten()
+            rhoj, notrhoj = self.heatGP[j].logpt()
+            lnpCTj = self.lnpCT[:, j] - self.lnkappa[j] + rhoj.flatten() 
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, j], lnpCTj))
         if self.nclasses==2:
-            lnpCTj = self.lnpCT[:, 0] #- self.lnkappa[0] + self.heatGP[1].logpz(0.0).flatten()
+            lnpCTj = self.lnpCT[:, 0] - self.lnkappa[0] + notrhoj.flatten()
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, 0], lnpCTj))
             
         return lnpCT
