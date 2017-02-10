@@ -467,7 +467,7 @@ class GPGrid(object):
         return K
 
     def expec_fC(self, G_update_rate=1.0):
-        self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
+        self.KsG = self.Ks.dot(self.G.T, out=self.KsG)
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
         self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()
         
@@ -674,7 +674,7 @@ class GPGrid(object):
         
         return blockidxs
     
-    def init_output_arrays(self, output_coords, max_block_size, variance_method):
+    def init_output_arrays(self, output_coords, max_block_size):
         self.output_coords = np.array(output_coords).astype(float)
         if self.output_coords.shape[0] == len(self.dims) and self.output_coords.shape[1] != len(self.dims):
             if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
@@ -712,7 +712,7 @@ class GPGrid(object):
         if not output_coords == None and not len(output_coords):
             return self.predict_obs(variance_method, expectedlog, return_not)
         
-        nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size, variance_method)
+        nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size)
         
         if mu0_output is None:
             self.mu0_output = np.zeros((noutputs, 1)) + self.mu0_default
