@@ -119,7 +119,7 @@ class GPGrid(object):
         self.shape_ls = shape_ls # prior pseudo counts * 0.5
         self.rate_ls = rate_ls # analogous to a sum of changes between points at a distance of 1
         if np.any(ls_initial):
-            self.ls = ls_initial
+            self.ls = np.array(ls_initial)
         else:
             self.ls = self.shape_ls / self.rate_ls
             self.ls = np.zeros(2) + self.ls
@@ -176,6 +176,7 @@ class GPGrid(object):
     def init_obs_f(self):
         # Mean probability at observed points given local observations
         self.obs_f = logit(self.obs_mean)
+        self.Ntrain = self.obs_f.size                
     
     def estimate_obs_noise(self):
         # Noise in observations
@@ -466,7 +467,7 @@ class GPGrid(object):
         return K
 
     def expec_fC(self, G_update_rate=1.0):
-        self.KsG = self.Ks.dot(self.G.T, out=self.KsG)        
+        self.KsG = self.Ks.dot(self.G.T, out=self.KsG)
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
         self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()
         
@@ -520,15 +521,15 @@ class GPGrid(object):
         #g_obs_f = self.update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the 
         # same calculation with the same values, meaning that the convergence check will think nothing changes in the 
         # first iteration. 
-        Ntrain = self.obs_f.size        
         g_obs_f = self.forward_model(self.mu0).flatten()
         if not len(self.G):
-            self.G = np.diag(g_obs_f * (1-g_obs_f))
+            #self.G = np.diag(g_obs_f * (1-g_obs_f))
+            self.update_jacobian(G_update_rate=1.0)
         
         if process_obs:
             # Initialise here to speed up dot product -- assume we need to do this whenever there is new data
-            self.Cov = np.zeros((Ntrain, Ntrain))
-            self.KsG = np.zeros((self.Ks.shape[0], Ntrain))  
+            self.Cov = np.zeros((self.Ntrain, self.Ntrain))
+            self.KsG = np.zeros((self.Ks.shape[0], self.Ntrain))  
             
         nIt = 0
         diff = 0
@@ -674,7 +675,7 @@ class GPGrid(object):
         
         return blockidxs
     
-    def init_output_arrays(self, output_coords, max_block_size, variance_method):
+    def init_output_arrays(self, output_coords, max_block_size):
         self.output_coords = np.array(output_coords).astype(float)
         if self.output_coords.shape[0] == len(self.dims) and self.output_coords.shape[1] != len(self.dims):
             if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
@@ -712,7 +713,7 @@ class GPGrid(object):
         if not output_coords == None and not len(output_coords):
             return self.predict_obs(variance_method, expectedlog, return_not)
         
-        nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size, variance_method)
+        nblocks, noutputs = self.init_output_arrays(output_coords, max_block_size)
         
         if mu0_output is None:
             self.mu0_output = np.zeros((noutputs, 1)) + self.mu0_default
