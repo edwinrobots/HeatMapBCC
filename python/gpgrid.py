@@ -28,8 +28,10 @@ def target_var(f,s,v):
     v = v*s*s
     return u/(1/(u*v) + 1)
 
-def temper_extreme_probs(probs):
-    probs[probs > 1-1e-7] = 1-1e-7
+def temper_extreme_probs(probs, zero_only=False):
+    if not zero_only:
+        probs[probs > 1-1e-7] = 1-1e-7
+        
     probs[probs < 1e-7] = 1e-7
     
     return probs
@@ -111,10 +113,7 @@ class GPGrid(object):
                 
         # Prior mean
         self.init_prior_mean_f(z0)
-        
-        # Prior noise variance
-        self.init_obs_prior()
-            
+                    
         #Length-scale
         self.shape_ls = shape_ls # prior pseudo counts * 0.5
         self.rate_ls = rate_ls # analogous to a sum of changes between points at a distance of 1
@@ -170,8 +169,8 @@ class GPGrid(object):
     def init_prior_mean_f(self, z0):
         self.mu0_default = logit(z0)
         
-    def init_obs_mu0(self):
-        self.mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0_default                 
+    def init_obs_mu0(self, mu0):
+        self.mu0 = np.zeros((self.n_locs, 1)) + mu0             
     
     def init_obs_f(self):
         # Mean probability at observed points given local observations
@@ -182,7 +181,8 @@ class GPGrid(object):
         # Noise in observations
         self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
         var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + 1) # uncertainty in obs_mean
-        self.Q = (self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts 
+        self.Q = (self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts
+        self.Q = self.Q.flatten()
                 
     def init_obs_prior(self):
         f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=50000)
@@ -221,7 +221,7 @@ class GPGrid(object):
         
             return poscounts, totals # these remain unaltered as we have not de-duplicated
                        
-    def process_observations(self, obs_coords, obs_values, totals=None): 
+    def process_observations(self, obs_coords, obs_values, totals=None, mu0=None): 
         if obs_values==[]:
             return [],[]      
         
@@ -253,6 +253,7 @@ class GPGrid(object):
         self.obs_values = poscounts[:, np.newaxis]
         self.obs_total_counts = totals[:, np.newaxis]
         n_locations = self.obs_coords.shape[0]
+        self.n_locs = n_locations
             
         if self.verbose:
             logging.debug("Number of observed locations =" + str(self.obs_values.shape[0]))
@@ -266,7 +267,14 @@ class GPGrid(object):
             self.obs_distances[:, :, d] = obs_coords_3d[:, :, d].T - obs_coords_3d[:, :, d]
         self.obs_distances = self.obs_distances.astype(float)
     
+        if mu0 is None:
+            mu0 = self.mu0_default 
+        self.init_obs_mu0(mu0)     
+        # Prior noise variance
+        self.init_obs_prior()
+            
         self.estimate_obs_noise()    
+        
         self.init_obs_f()
                     
     def ln_modelprior(self):
@@ -325,7 +333,8 @@ class GPGrid(object):
         return lb
     
     def logpt(self):
-        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.Q)), size=(1000, len(self.obs_f)))
+        # this looks wrong -- should not be Q in here? 
+        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
         rho_samples = self.forward_model(f_samples.T)
         rho_samples = temper_extreme_probs(rho_samples)
         lognotrho_samples = np.log(1 - rho_samples)
@@ -469,7 +478,7 @@ class GPGrid(object):
     def expec_fC(self, G_update_rate=1.0):
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
-        self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q.flatten()
+        self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q
         
         # use the estimate given by the Taylor series expansion
         z0 = self.forward_model(self.obs_f) + self.G.dot(self.mu0 - self.obs_f) 
@@ -484,11 +493,7 @@ class GPGrid(object):
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
         if process_obs:
-            self.process_observations(obs_coords, obs_values, totals)
-            if mu0 is not None:
-                self.mu0 = mu0
-            else:
-                self.init_obs_mu0()            
+            self.process_observations(obs_coords, obs_values, totals, mu0)           
             
             # Get the correct covariance matrix
             self.K = self.kernel_func(self.obs_distances)
@@ -496,7 +501,7 @@ class GPGrid(object):
             self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
             
             # initialise s
-            self.shape_s = self.shape_s0 + self.obs_coords.shape[0]/2.0 # reset!
+            self.shape_s = self.shape_s0 + self.n_locs/2.0 # reset!
             self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f - self.mu0)**2)) + self.rate_s0 * self.shape_s / self.shape_s0
             self.s = self.shape_s / self.rate_s        
             self.Elns = psi(self.shape_s) - np.log(self.rate_s)
@@ -523,12 +528,12 @@ class GPGrid(object):
         # first iteration. 
         g_obs_f = self.forward_model(self.mu0).flatten()
         if not len(self.G):
-            self.update_jacobian(G_update_rate=1.0)
+            self.G = np.zeros((self.Ntrain, self.n_locs))
         
         if process_obs:
             # Initialise here to speed up dot product -- assume we need to do this whenever there is new data
             self.Cov = np.zeros((self.Ntrain, self.Ntrain))
-            self.KsG = np.zeros((self.Ks.shape[0], self.Ntrain))  
+            self.KsG = np.zeros((self.n_locs, self.Ntrain))  
             
         nIt = 0
         diff = 0
@@ -541,8 +546,13 @@ class GPGrid(object):
             # Iterate a few times to get G to stabilise
             diff_G = 0
             for inner_nIt in range(self.max_iter_G):
-                oldG = self.G
+                oldG = self.G                
                 g_obs_f = self.update_jacobian(G_update_rate)
+#                 if np.max(self.G) < 1e-7:
+#                     if self.verbose:
+#                         logging.debug("GPGrid: Breaking inner loop because we have a G with values close to zero.")
+#                     break
+                
                 self.expec_fC(G_update_rate=G_update_rate)
                 prev_diff_G = diff_G # save last iteration's difference
                 diff_G = np.max(np.abs(oldG - self.G))
@@ -690,7 +700,7 @@ class GPGrid(object):
         
         KsG = self.Ks.dot(self.G.T, self.KsG)        
         self.Cov = KsG.T.dot(self.G.T, out=self.Cov) 
-        self.Cov[range(self.Q.shape[0]), range(self.Q.shape[0])] += self.Q.flatten()       
+        self.Cov[range(self.Q.shape[0]), range(self.Q.shape[0])] += self.Q
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         
         return nblocks, noutputs   
