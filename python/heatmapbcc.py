@@ -197,6 +197,11 @@ class HeatMapBCC(ibcc.IBCC):
         else:
             gprange = np.arange(self.nclasses)
         
+        if outputx.ndim == 1:
+            outputx = outputx[:, np.newaxis]
+        if outputy.ndim == 1:
+            outputy = outputy[:, np.newaxis]
+            
         outputxy = np.concatenate((outputx, outputy), axis=1)
             
         for j in gprange:

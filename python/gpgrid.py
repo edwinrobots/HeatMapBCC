@@ -185,7 +185,7 @@ class GPGrid(object):
         self.Q = self.Q.flatten()
                 
     def init_obs_prior(self):
-        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=50000)
+        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=(self.n_locs, 50000))
         rho_samples = self.forward_model(f_samples)
         rho_mean = np.mean(rho_samples)
         rho_var = np.var(rho_samples)
@@ -334,7 +334,7 @@ class GPGrid(object):
     
     def logpt(self):
         # this looks wrong -- should not be Q in here? 
-        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.obs_C)), size=(1000, len(self.obs_f)))
+        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.Q)), size=(1000, len(self.obs_f)))
         rho_samples = self.forward_model(f_samples.T)
         rho_samples = temper_extreme_probs(rho_samples)
         lognotrho_samples = np.log(1 - rho_samples)
