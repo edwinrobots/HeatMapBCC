@@ -334,8 +334,9 @@ class GPGrid(object):
     
     def logpt(self):
         # this looks wrong -- should not be Q in here? 
-        f_samples = norm.rvs(loc=self.obs_f.flatten(), scale=np.sqrt(np.diag(self.Q)), size=(1000, len(self.obs_f)))
-        rho_samples = self.forward_model(f_samples.T)
+        f_samples = norm.rvs(loc=self.obs_f, scale=np.diag(np.sqrt(self.G.T.dot(np.diag(self.Q)).dot(self.G)))[:, np.newaxis], 
+                             size=(self.n_locs, 5000))
+        rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         lognotrho_samples = np.log(1 - rho_samples)
         logrho_samples = np.log(rho_samples)
