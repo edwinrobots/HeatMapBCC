@@ -484,6 +484,8 @@ class GPGrid(object):
         # use the estimate given by the Taylor series expansion
         z0 = self.forward_model(self.obs_f) + self.G.dot(self.mu0 - self.obs_f) 
         
+        print np.linalg.det(self.Cov)
+        
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
