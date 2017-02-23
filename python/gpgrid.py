@@ -180,7 +180,7 @@ class GPGrid(object):
     def estimate_obs_noise(self):
         # Noise in observations
         self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
-        var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + 1) # uncertainty in obs_mean
+        var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + np.sum(self.nu0) + 1) # uncertainty in obs_mean
         self.Q = (self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts
         self.Q = self.Q.flatten()
                 
@@ -333,8 +333,12 @@ class GPGrid(object):
         return lb
     
     def logpt(self):
-        # this looks wrong -- should not be Q in here? 
-        f_samples = norm.rvs(loc=self.obs_f, scale=np.sqrt(np.diag(self.G.T.dot(np.diag(self.Q)).dot(self.G)))[:, np.newaxis], 
+#         rho = self.forward_model(self.obs_f)
+#         rho = temper_extreme_probs(rho)
+#         logrho = np.log(rho)
+#         lognotrho = np.log(1 - rho)
+#     
+        f_samples = norm.rvs(loc=self.obs_f, scale=np.sqrt(np.diag(self.G.T.dot(self.Q).dot(self.G)))[:, np.newaxis], 
                              size=(self.n_locs, 5000))
         rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
@@ -342,23 +346,23 @@ class GPGrid(object):
         logrho_samples = np.log(rho_samples)
         logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
         lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
-        
+     
         return logrho, lognotrho        
     
-    def logpz(self, z=-1):
-        if z==-1:
-            z = self.z
-            Q = self.Q
-        else:
-            # expected likelihood of observations given the function f
-            Q = self.Q
-            z = np.zeros(self.obs_f.shape) + z
-            
-        am_plus_b = self.forward_model(self.obs_f)
-        G = np.diag(self.G)[:, np.newaxis]
-        logpz = -0.5 * ( np.log(Q) + np.log(2*np.pi) + (z - am_plus_b)**2 / Q  + 
-                         G**2 * np.diag(self.obs_C)[:, np.newaxis] / Q )
-        return logpz
+#     def logpz(self, z=-1):
+#         if z==-1:
+#             z = self.z
+#             Q = self.Q
+#         else:
+#             # expected likelihood of observations given the function f
+#             Q = self.Q
+#             z = np.zeros(self.obs_f.shape) + z
+#             
+#         am_plus_b = self.forward_model(self.obs_f)
+#         G = np.diag(self.G)[:, np.newaxis]
+#         logpz = -0.5 * ( np.log(Q) + np.log(2*np.pi) + (z - am_plus_b)**2 / Q  + 
+#                          G**2 * np.diag(self.obs_C)[:, np.newaxis] / Q )
+#         return logpz
 
     def logpf(self):
         _, logdet_K = np.linalg.slogdet(self.K)
@@ -484,8 +488,6 @@ class GPGrid(object):
         # use the estimate given by the Taylor series expansion
         z0 = self.forward_model(self.obs_f) + self.G.dot(self.mu0 - self.obs_f) 
         
-        print np.linalg.det(self.Cov)
-        
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
@@ -572,7 +574,7 @@ class GPGrid(object):
             
             #update the output scale parameter (also called latent function scale/sigmoid steepness)
             self.old_s = self.s 
-            if update_s: 
+            if update_s:
                 L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
                                               - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + 
                                               self.mu0.dot(self.mu0.T), trans=True, 
