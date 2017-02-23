@@ -517,7 +517,12 @@ class GPGrid(object):
             self.old_s = self.s
             if self.verbose:
                 logging.debug("Setting the initial precision scale to s=%.3f" % self.s)            
-            
+        elif mu0 is not None: # updated mean but not updated observations
+            self.init_obs_mu0(mu0)     
+            # Prior noise variance
+            self.init_obs_prior()
+                
+            self.estimate_obs_noise()  
         if not len(self.obs_coords):
             mPr = 0.5
             stdPr = 0.25       
