@@ -179,13 +179,14 @@ class GPGrid(object):
     
     def estimate_obs_noise(self):
         # Noise in observations
-        self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + np.sum(self.nu0))
-        var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + np.sum(self.nu0) + 1) # uncertainty in obs_mean
+        nu0_total = np.sum(self.nu0, axis=0)
+        self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + nu0_total)
+        var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + nu0_total + 1) # uncertainty in obs_mean
         self.Q = (self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts
         self.Q = self.Q.flatten()
                 
     def init_obs_prior(self):
-        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(1.0/self.s), size=(self.n_locs, 50000))
+        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(self.rate_s0/self.shape_s0), size=(self.n_locs, 50000))
         rho_samples = self.forward_model(f_samples)
         rho_mean = np.mean(rho_samples)
         rho_var = np.var(rho_samples)
@@ -197,6 +198,19 @@ class GPGrid(object):
         #a = 1.0
         self.nu0 = np.array([b, a])
         logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
+
+    def init_s(self):
+        self.shape_s = self.shape_s0 + self.n_locs/2.0 # reset!
+        self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f - self.mu0)**2)) + self.rate_s0 * self.shape_s / self.shape_s0            
+        self.s = self.shape_s / self.rate_s        
+        self.Elns = psi(self.shape_s) - np.log(self.rate_s)
+        
+        self.Ks = self.K / self.s
+        self.obs_C = self.K / self.s
+        
+        self.old_s = self.s
+        if self.verbose:
+            logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
 
     def count_observations(self, obs_coords, n_obs, poscounts, totals):
         obs_coords = np.array(obs_coords)
@@ -293,8 +307,6 @@ class GPGrid(object):
         return data_ll    
     
     def lowerbound(self, return_terms=False):
-#         pz = np.sum(self.logpz())
-#         print pz
         if self.verbose:
             logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
             logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C))) 
@@ -318,13 +330,13 @@ class GPGrid(object):
 
         logp_s = self.logps()
         logq_s = self.logqs()
-          
+         
         if self.verbose:      
             logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
             logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
             logging.debug("Ignoring the output scale: %.3f" % (data_ll + logp_f - logq_f))
-            
+
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         
         if return_terms:
@@ -332,13 +344,8 @@ class GPGrid(object):
         
         return lb
     
-    def logpt(self):
-#         rho = self.forward_model(self.obs_f)
-#         rho = temper_extreme_probs(rho)
-#         logrho = np.log(rho)
-#         lognotrho = np.log(1 - rho)
-#     
-        f_samples = norm.rvs(loc=self.obs_f, scale=np.sqrt(np.diag(self.G.T.dot(self.Q).dot(self.G)))[:, np.newaxis], 
+    def logpt(self):    
+        f_samples = norm.rvs(loc=self.obs_f, scale=np.sqrt(np.diag(self.G.T.dot(np.diag(self.Q)).dot(self.G)))[:, np.newaxis], 
                              size=(self.n_locs, 5000))
         rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
@@ -346,7 +353,7 @@ class GPGrid(object):
         logrho_samples = np.log(rho_samples)
         logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
         lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
-     
+
         return logrho, lognotrho        
     
 #     def logpz(self, z=-1):
@@ -506,23 +513,9 @@ class GPGrid(object):
             self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
             
             # initialise s
-            self.shape_s = self.shape_s0 + self.n_locs/2.0 # reset!
-            self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f - self.mu0)**2)) + self.rate_s0 * self.shape_s / self.shape_s0
-            self.s = self.shape_s / self.rate_s        
-            self.Elns = psi(self.shape_s) - np.log(self.rate_s)
-            
-            self.Ks = self.K / self.s
-            self.obs_C = self.K / self.s
-            
-            self.old_s = self.s
-            if self.verbose:
-                logging.debug("Setting the initial precision scale to s=%.3f" % self.s)            
+            self.init_s()            
         elif mu0 is not None: # updated mean but not updated observations
             self.init_obs_mu0(mu0)     
-            # Prior noise variance
-            self.init_obs_prior()
-                
-            self.estimate_obs_noise()  
         if not len(self.obs_coords):
             mPr = 0.5
             stdPr = 0.25       
