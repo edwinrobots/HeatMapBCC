@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import heatmapbcc
-import gpgrid
+import gp_classifier_vb
 # from matplotlib import cm
 
 

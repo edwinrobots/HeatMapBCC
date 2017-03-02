@@ -36,7 +36,7 @@ def temper_extreme_probs(probs, zero_only=False):
     
     return probs
 
-class GPGrid(object):
+class GPClassifierVB(object):
     verbose = False
     
     # hyper-parameters
@@ -72,6 +72,7 @@ class GPGrid(object):
     f = []
     v = []
     
+    n_converged = 1 # number of iterations while the algorithm appears to be converged -- in case of local maxima    
     max_iter_VB = 200#1000
     min_iter_VB = 5
     max_iter_G = 200
@@ -135,7 +136,7 @@ class GPGrid(object):
         elif kernel_func=='diagonal':
             self.kernel_func = self.diagonal
         else:
-            logging.error('GPGrid: the selected kernel function does not exist: %s' % kernel_func)
+            logging.error('GPClassifierVB: the selected kernel function does not exist: %s' % kernel_func)
     
     def reset_s(self):
         '''
@@ -160,7 +161,7 @@ class GPGrid(object):
             self.G = J
         else:
             self.G = G_update_rate * J + (1 - G_update_rate) * self.G
-        return g_obs_f
+        self.g_obs_f = g_obs_f
     
     def observations_to_z(self):
         obs_probs = self.obs_values/self.obs_total_counts
@@ -251,7 +252,7 @@ class GPGrid(object):
             else: # obs_values given as two columns: first is positive counts, second is total counts.
                 totals = obs_values[:, 1]
         elif (obs_values.shape[1]==2):
-            logging.warning('GPGrid received two sets of totals; ignoring the second column of the obs_values argument')            
+            logging.warning('GPClassifierVB received two sets of totals; ignoring the second column of the obs_values argument')            
           
         if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
             poscounts = obs_values.flatten()
@@ -290,6 +291,14 @@ class GPGrid(object):
         self.estimate_obs_noise()    
         
         self.init_obs_f()
+            
+        # Get the correct covariance matrix
+        self.K = self.kernel_func(self.obs_distances)
+        self.K += 1e-6 * np.eye(len(self.K)) # jitter
+        self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
+        
+        # initialise s
+        self.init_s()           
                     
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
@@ -335,7 +344,7 @@ class GPGrid(object):
             logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
 #             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
             logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
-            logging.debug("Ignoring the output scale: %.3f" % (data_ll + logp_f - logq_f))
+            logging.debug("LB terms without the output scale: %.3f" % (data_ll + logp_f - logq_f))
 
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         
@@ -464,7 +473,7 @@ class GPGrid(object):
         elif cov_type == 'sq_exp':
             self.kernel_func = self.sq_exp_cov
         else:
-            logging.error('GPGrid: Invalid covariance type %s' % cov_type)        
+            logging.error('GPClassifierVB: Invalid covariance type %s' % cov_type)        
 
     def diagonal(self, distances):
         same_locs = np.sum(distances, axis=2) == 0
@@ -487,7 +496,7 @@ class GPGrid(object):
         K = np.prod(K, axis=2)
         return K
 
-    def expec_fC(self, G_update_rate=1.0):
+    def update_f(self, G_update_rate=1.0):
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
         self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q
@@ -502,34 +511,97 @@ class GPGrid(object):
         V = solve_triangular(self.L, self.KsG.T, lower=True, overwrite_b=True, check_finite=False)
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C) 
 
+    def expec_s(self):
+        self.old_s = self.s         
+        L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
+                                      - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + 
+                                      self.mu0.dot(self.mu0.T), trans=True, 
+                                     overwrite_b=True, check_finite=False)
+        LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
+        self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF) 
+        #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
+        self.s = self.shape_s / self.rate_s
+        self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
+        if self.verbose:
+            logging.debug("Updated inverse output scale: " + str(self.s))
+        self.Ks = self.K / self.s           
+
+    def check_convergence(self, prev_val):
+        if self.uselowerbound and np.mod(self.vb_iter, self.conv_check_freq)==self.conv_check_freq-1:
+            oldL = prev_val
+            L = self.lowerbound()
+            diff = (L - oldL) / np.abs(L)
+            
+            if self.verbose:
+                logging.debug('GPGRID lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, self.vb_iter))
+                
+            if diff < - self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
+                logging.warning('GPGRID Lower Bound = %.5f, changed by %.5f in iteration %i\
+                        -- probable approximation error or bug. Output scale=%.3f.' % (L, diff, self.vb_iter, self.s))
+                
+            current_value = L
+            converged = diff < self.conv_threshold
+        elif np.mod(self.vb_iter, self.conv_check_freq)==2:
+            diff = np.max([np.max(np.abs(self.g_obs_f - prev_val)), 
+                       np.max(np.abs(self.g_obs_f*(1-self.g_obs_f) - prev_val*(1-prev_val))**0.5)])
+            if self.verbose:
+                logging.debug('GPGRID g_obs_f diff = %.5f at iteration %.i' % (diff, self.vb_iter) )
+                
+            sdiff = np.abs(self.old_s - self.s) / self.s
+            
+            if self.verbose:
+                logging.debug('GPGRID s diff = %.5f' % sdiff)
+            
+            diff = np.max([diff, sdiff])
+                
+            current_value = self.g_obs_f
+                
+            converged = (diff < self.conv_threshold) & (self.vb_iter > 2)
+        else:
+            return False, prev_val # not checking in this iteration, return the old value and don't converge
+
+        return (converged & (self.vb_iter+1 >= self.min_iter_VB)), current_value 
+
+    def expec_f(self):
+        ''' 
+        Compute the expected value of f given current q() distributions for other parameters
+        '''
+        diff_G = 0
+        G_update_rate = 1.0 # start with full size updates
+        # Iterate a few times to get G to stabilise
+        for G_iter in range(self.max_iter_G):
+            oldG = self.G                
+            self.update_jacobian(G_update_rate)                
+            self.update_f(G_update_rate=G_update_rate)
+            prev_diff_G = diff_G # save last iteration's difference
+            diff_G = np.max(np.abs(oldG - self.G))
+            # Use a smaller update size if we get stuck oscillating about the solution
+            if np.abs(diff_G) - np.abs(prev_diff_G) < 1e-6 and G_update_rate > 0.1:
+                G_update_rate *= 0.9
+            if self.verbose:
+                logging.debug("Iterating over G: diff was %.5f in iteration %i" % (diff_G, G_iter))
+            if diff_G < self.conv_threshold_G:
+                break;
+        if G_iter >= self.max_iter_G - 1:
+            if self.verbose:
+                logging.debug("G did not converge: diff was %.5f" % diff_G)        
+
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
         # Initialise the objects that store the observation data
         if process_obs:
             self.process_observations(obs_coords, obs_values, totals, mu0)           
-            
-            # Get the correct covariance matrix
-            self.K = self.kernel_func(self.obs_distances)
-            self.K += 1e-6 * np.eye(len(self.K)) # jitter
-            self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
-            
-            # initialise s
-            self.init_s()            
+         
         elif mu0 is not None: # updated mean but not updated observations
             self.init_obs_mu0(mu0)     
         if not len(self.obs_coords):
-            mPr = 0.5
-            stdPr = 0.25       
-            return mPr, stdPr
+            return
              
         if self.verbose: 
-            logging.debug("gp grid starting training with length-scales %f, %f..." % (self.ls[0], self.ls[1]) )        
+            logging.debug("GP Classifier VB: training with length-scales %s" % (self.ls) )        
         
-        G_update_rate = 1.0 # start with full size updates
-                
         #g_obs_f = self.update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the 
         # same calculation with the same values, meaning that the convergence check will think nothing changes in the 
         # first iteration. 
-        g_obs_f = self.forward_model(self.mu0).flatten()
         if not len(self.G):
             self.G = np.zeros((self.Ntrain, self.n_locs))
         
@@ -538,84 +610,20 @@ class GPGrid(object):
             self.Cov = np.zeros((self.Ntrain, self.Ntrain))
             self.KsG = np.zeros((self.n_locs, self.Ntrain))  
             
-        nIt = 0
-        diff = 0
-        L = -np.inf
-        converged = False
-        
-        while not converged and nIt<self.max_iter_VB:    
-            prev_g_obs_f = g_obs_f
-                
-            # Iterate a few times to get G to stabilise
-            diff_G = 0
-            for inner_nIt in range(self.max_iter_G):
-                oldG = self.G                
-                g_obs_f = self.update_jacobian(G_update_rate)
-#                 if np.max(self.G) < 1e-7:
-#                     if self.verbose:
-#                         logging.debug("GPGrid: Breaking inner loop because we have a G with values close to zero.")
-#                     break
-                
-                self.expec_fC(G_update_rate=G_update_rate)
-                prev_diff_G = diff_G # save last iteration's difference
-                diff_G = np.max(np.abs(oldG - self.G))
-                # Use a smaller update size if we get stuck oscillating about the solution
-                if np.abs(diff_G) - np.abs(prev_diff_G) < 1e-6 and G_update_rate > 0.1:
-                    G_update_rate *= 0.9
-                if self.verbose:
-                    logging.debug("Iterating over G: diff was %.5f in iteration %i" % (diff_G, inner_nIt))
-                if diff_G < self.conv_threshold_G:
-                    break;
-            if inner_nIt >= self.max_iter_G - 1:
-                if self.verbose:
-                    logging.debug("G did not converge: diff was %.5f" % diff_G)
+        self.vb_iter = 0
+        converged_count = 0
+        prev_val = -np.inf
+        while converged_count < self.n_converged and self.vb_iter<self.max_iter_VB:    
+            self.expec_f()
             
             #update the output scale parameter (also called latent function scale/sigmoid steepness)
-            self.old_s = self.s 
             if update_s:
-                L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
-                                              - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + 
-                                              self.mu0.dot(self.mu0.T), trans=True, 
-                                             overwrite_b=True, check_finite=False)
-                LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
-                self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF) 
-                #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
-                self.s = self.shape_s / self.rate_s
-                self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
-                if self.verbose:
-                    logging.debug("Updated inverse output scale: " + str(self.s))
-                self.Ks = self.K / self.s            
-                                    
-            if self.uselowerbound and np.mod(nIt, self.conv_check_freq)==self.conv_check_freq-1:
-                oldL = L
-                L = self.lowerbound()
-                diff = (L - oldL) / np.abs(L)
-                
-                if self.verbose:
-                    logging.debug('GPGRID lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, nIt))
-                    
-                if diff < - self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
-                    logging.warning('GPGRID Lower Bound = %.5f, changed by %.5f in iteration %i\
-                            -- probable approximation error or bug. Output scale=%.3f.' % (L, diff, nIt, self.s))
-                    
-                converged = diff < self.conv_threshold
-            elif np.mod(nIt, self.conv_check_freq)==2:
-                diff = np.max([np.max(np.abs(g_obs_f - prev_g_obs_f)), 
-                           np.max(np.abs(g_obs_f*(1-g_obs_f) - prev_g_obs_f*(1-prev_g_obs_f))**0.5)])
-                if self.verbose:
-                    logging.debug('GPGRID g_obs_f diff = %.5f at iteration %.i' % (diff, nIt) )
-                    
-                sdiff = np.abs(self.old_s - self.s) / self.s
-                
-                if self.verbose:
-                    logging.debug('GPGRID s diff = %.5f' % sdiff)
-                
-                diff = np.max([diff, sdiff])
-                    
-                converged = (diff < self.conv_threshold) & (nIt > 2)
-            nIt += 1
-            converged = converged & (nIt >= self.min_iter_VB)
-              
+                self.expec_s()
+                                   
+            converged, prev_val = self.check_convergence(prev_val)
+            converged_count += converged
+            self.vb_iter += 1    
+
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
         
@@ -656,6 +664,13 @@ class GPGrid(object):
         else:
             return m_post, v_post        
     
+    def expec_f_output(self, K_out, blockidxs):
+        self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A)
+        
+        V = solve_triangular(self.L, self.G.dot(K_out.T), lower=True, overwrite_b=True, check_finite=False)
+        self.v[blockidxs, 0] = 1.0 / self.s#self.kernel_func([0, 0]) / self.s
+        self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
+                
     def predict_block(self, block, max_block_size, noutputs):
         
         maxidx = (block + 1) * max_block_size
@@ -669,14 +684,10 @@ class GPGrid(object):
         for d in range(len(self.dims)):
             distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
         
-        Kpred = self.kernel_func(distances)
-        Kpred /= self.s
+        K_out = self.kernel_func(distances)
+        K_out /= self.s
     
-        self.f[blockidxs, :] = Kpred.dot(self.G.T).dot(self.A)
-        
-        V = solve_triangular(self.L, self.G.dot(Kpred.T), lower=True, overwrite_b=True, check_finite=False)
-        self.v[blockidxs, 0] = 1.0 / self.s#self.kernel_func([0, 0]) / self.s
-        self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
+        self.expec_f_output(K_out, blockidxs)
         
         if np.any(self.v[blockidxs] < 0):
             self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
@@ -701,10 +712,10 @@ class GPGrid(object):
 
         nblocks = int(np.ceil(float(noutputs) / max_block_size))
         
-        KsG = self.Ks.dot(self.G.T, self.KsG)        
-        self.Cov = KsG.T.dot(self.G.T, out=self.Cov) 
-        self.Cov[range(self.Q.shape[0]), range(self.Q.shape[0])] += self.Q
-        self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
+#         KsG = self.Ks.dot(self.G.T, self.KsG)        
+#         self.Cov = KsG.T.dot(self.G.T, out=self.Cov) 
+#         self.Cov[range(self.Q.shape[0]), range(self.Q.shape[0])] += self.Q
+#         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         
         return nblocks, noutputs   
     
@@ -739,7 +750,7 @@ class GPGrid(object):
         
         for block in range(nblocks):
             if self.verbose:
-                logging.debug("GPGrid predicting block %i of %i" % (block, nblocks))            
+                logging.debug("GPClassifierVB predicting block %i of %i" % (block, nblocks))            
             blockidxs = self.predict_block(block, max_block_size, noutputs)
                     
             # Approximate the expected value of the variable transformed through the sigmoid.
@@ -770,7 +781,7 @@ if __name__ == '__main__':
     from scipy.stats import multivariate_normal as mvn
     # run some tests on the learning algorithm
     
-    N = 100.0
+    N = 100
     
     # generate test ground truth
     s = 10
@@ -779,8 +790,8 @@ if __name__ == '__main__':
     gridsize = 1000.0
     ls = 10.0
     
-    x_all = np.arange(N) / N * gridsize 
-    y_all = np.arange(N) / N * gridsize
+    x_all = np.arange(N) / float(N) * gridsize
+    y_all = np.arange(N) / float(N) * gridsize
     
     ddx = x_all[:, np.newaxis] - x_all[np.newaxis, :]
     ddy = y_all[:, np.newaxis] - y_all[np.newaxis, :]
@@ -789,7 +800,7 @@ if __name__ == '__main__':
     Ky = np.exp( -ddy**2 / ls )
     K = Kx * Ky
     
-    K += np.eye(int(N)) * 1e-6
+    K += np.eye(N) * 1e-6
     
     K_over_s = K / s
     invK = np.linalg.inv(K)

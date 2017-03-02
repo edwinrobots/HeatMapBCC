@@ -1,6 +1,6 @@
 
 import ibcc
-from gpgrid import GPGrid
+from gp_classifier_vb import GPClassifierVB
 import numpy as np
 import logging
 
@@ -124,7 +124,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
             #start with a homogeneous grid     
-            self.heatGP[j] = GPGrid((self.nx, self.ny), z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
+            self.heatGP[j] = GPClassifierVB((self.nx, self.ny), z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
                                 force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales, 
                                 kernel_func=self.kernel_func)   
@@ -132,7 +132,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
             self.heatGP[j].max_iter_G = 1
-            self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPGrid function
+            self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPClassifierVB function
         
     def convergence_measure(self, oldET):
         kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
