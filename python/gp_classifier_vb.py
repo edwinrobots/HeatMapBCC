@@ -298,7 +298,13 @@ class GPClassifierVB(object):
         self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
         
         # initialise s
-        self.init_s()           
+        self.init_s()  
+        
+        #g_obs_f = self.update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the 
+        # same calculation with the same values, meaning that the convergence check will think nothing changes in the 
+        # first iteration. 
+        if not len(self.G):
+            self.G = 0
                     
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
@@ -597,13 +603,7 @@ class GPClassifierVB(object):
             return
              
         if self.verbose: 
-            logging.debug("GP Classifier VB: training with length-scales %s" % (self.ls) )        
-        
-        #g_obs_f = self.update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the 
-        # same calculation with the same values, meaning that the convergence check will think nothing changes in the 
-        # first iteration. 
-        if not len(self.G):
-            self.G = np.zeros((self.Ntrain, self.n_locs))
+            logging.debug("GP Classifier VB: training with length-scales %s" % (self.ls) )
         
         if process_obs:
             # Initialise here to speed up dot product -- assume we need to do this whenever there is new data

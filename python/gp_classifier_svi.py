@@ -144,13 +144,13 @@ class GPClassifierSVI(GPClassifierVB):
         if self.verbose:
             logging.debug("Updated inverse output scale: " + str(self.s))
         self.Ks_mm = self.K_mm / self.s
-        self.inv_Ks_mm  = self.inv_K_mm * self.s
+        self.inv_Ks_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s       
                 
     def process_observations(self, obs_coords, obs_values, totals=None, mu0=None):            
         super(GPClassifierSVI, self).process_observations(obs_coords, obs_values, totals, mu0)
-        if self.use_svi:
+        if self.use_svi:            
             self.choose_inducing_points()
 
     def choose_inducing_points(self):
@@ -213,6 +213,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s
         
+        self.G = 0 # reset because we will need to compute afresh with new sample
         self.obs_f_i = self.obs_f[self.data_idx_i]
         self.z_i = self.z[self.data_obs_idx_i]
         self.mu0_i = self.mu0[self.data_idx_i]        
