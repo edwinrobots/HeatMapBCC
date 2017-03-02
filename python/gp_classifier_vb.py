@@ -665,6 +665,15 @@ class GPClassifierVB(object):
             return m_post, v_post        
     
     def expec_f_output(self, K_out, blockidxs):
+        block_coords = self.output_coords[blockidxs]        
+        
+        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
+        for d in range(len(self.dims)):
+            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+        
+        K_out = self.kernel_func(distances)
+        K_out /= self.s        
+        
         self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A)
         
         V = solve_triangular(self.L, self.G.dot(K_out.T), lower=True, overwrite_b=True, check_finite=False)
@@ -677,17 +686,8 @@ class GPClassifierVB(object):
         if maxidx > noutputs:
             maxidx = noutputs
         blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
-        
-        block_coords = self.output_coords[blockidxs]
-
-        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
-        for d in range(len(self.dims)):
-            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
-        
-        K_out = self.kernel_func(distances)
-        K_out /= self.s
-    
-        self.expec_f_output(K_out, blockidxs)
+            
+        self.expec_f_output(blockidxs)
         
         if np.any(self.v[blockidxs] < 0):
             self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0

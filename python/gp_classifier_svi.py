@@ -218,6 +218,15 @@ class GPClassifierSVI(GPClassifierVB):
         self.z_i = self.z[self.data_obs_idx_i]
         self.mu0_i = self.mu0[self.data_idx_i]        
                 
-    def expec_f_output(self, K_out, blockidxs):
+    def expec_f_output(self, blockidxs):
+        block_coords = self.output_coords[blockidxs]        
+        
+        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
+        for d in range(len(self.dims)):
+            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+        
+        K_out = self.kernel_func(distances)
+        K_out /= self.s        
+                
         self.f[blockidxs, :], C_out = self.f_given_u(1.0 / self.s, K_out, self.mu0_output)
         self.v[blockidxs, 0] = np.diag(C_out) 
