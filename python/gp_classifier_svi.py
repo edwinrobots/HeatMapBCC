@@ -19,7 +19,7 @@ class GPClassifierSVI(GPClassifierVB):
     n_converged = 5 # number of iterations while the algorithm appears to be converged -- in case of local maxima    
     
     def __init__(self, dims, z0=0.5, shape_s0=None, rate_s0=None, s_initial=None, shape_ls=10, rate_ls=0.1, 
-                 ls_initial=None, force_update_all_points=False, n_lengthscales=1, max_update_size=1000, ninducing=500,
+                 ls_initial=None, force_update_all_points=False, n_lengthscales=1, max_update_size=10000, ninducing=500,
                  use_svi=True):
         
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
@@ -166,7 +166,10 @@ class GPClassifierSVI(GPClassifierVB):
         else:
             ninducing = self.ninducing                
         
-        kmeans = MiniBatchKMeans(n_clusters=ninducing)
+        init_size = 300
+        if ninducing > init_size:
+            init_size = ninducing
+        kmeans = MiniBatchKMeans(init_size=init_size, n_clusters=ninducing)
         kmeans.fit(self.obs_coords)
         
         #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
@@ -219,11 +222,14 @@ class GPClassifierSVI(GPClassifierVB):
         self.mu0_i = self.mu0[self.data_idx_i]        
                 
     def expec_f_output(self, blockidxs):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self).expec_f_output(blockidxs)
+            
         block_coords = self.output_coords[blockidxs]        
         
-        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
+        distances = np.zeros((block_coords.shape[0], self.inducing_coords.shape[0], len(self.dims)))
         for d in range(len(self.dims)):
-            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+            distances[:, :, d] = block_coords[:, d:d+1] - self.inducing_coords[:, d:d+1].T
         
         K_out = self.kernel_func(distances)
         K_out /= self.s        

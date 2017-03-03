@@ -664,7 +664,7 @@ class GPClassifierVB(object):
         else:
             return m_post, v_post        
     
-    def expec_f_output(self, K_out, blockidxs):
+    def expec_f_output(self, blockidxs):
         block_coords = self.output_coords[blockidxs]        
         
         distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
