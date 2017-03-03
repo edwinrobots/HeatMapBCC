@@ -36,6 +36,27 @@ def temper_extreme_probs(probs, zero_only=False):
     
     return probs
 
+def matern_3_2(distances, ls):
+    K = np.zeros(distances.shape)
+    for d in range(distances.shape[2]):
+        K[:, :, d] = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
+        K[:, :, d] = (1 + K[:, :, d]) * np.exp(-K[:, :, d])
+    K = np.prod(K, axis=2)
+    return K
+
+def matern_3_2_from_raw_vals(vals, ls):
+    distances = np.zeros((vals[0].size, vals[0].size, vals.shape[0]))
+    for i, xvals in enumerate(vals):
+        if xvals.ndim == 1:
+            xvals = xvals[:, np.newaxis]
+        elif xvals.shape[0] == 1 and xvals.shape[1] > 1:
+            xvals = xvals.T
+        xdists = xvals - xvals.T
+        distances[:, :, i] = xdists
+    K = matern_3_2(distances, ls)
+    return K
+
+
 class GPClassifierVB(object):
     verbose = False
     
@@ -157,7 +178,7 @@ class GPClassifierVB(object):
     def update_jacobian(self, G_update_rate=1.0):
         g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
         J = np.diag(g_obs_f * (1-g_obs_f))
-        if not len(self.G) or self.G.shape != J.shape: # either G has not been initialised, or is from different observations
+        if G_update_rate==1 or not len(self.G) or self.G.shape != J.shape: # either G has not been initialised, or is from different observations
             self.G = J
         else:
             self.G = G_update_rate * J + (1 - G_update_rate) * self.G
@@ -593,6 +614,10 @@ class GPClassifierVB(object):
                 logging.debug("G did not converge: diff was %.5f" % diff_G)        
 
     def fit(self, obs_coords, obs_values, totals=None, process_obs=True, update_s=True, mu0=None):
+        '''
+        obs_coords -- coordinates of observations as an N x D array, where N is number of observations, 
+        D is number of dimensions
+        '''
         # Initialise the objects that store the observation data
         if process_obs:
             self.process_observations(obs_coords, obs_values, totals, mu0)           
@@ -724,6 +749,21 @@ class GPClassifierVB(object):
         outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout)
         outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout)
         self.predict([outputx, outputy], variance_method, max_block_size, return_not=return_not, mu0_output=mu0_output)
+    
+    def predict_f(self, items_coords=[], max_block_size=1e5, mu0_output=None):
+        nblocks, noutputs = self.init_output_arrays(items_coords, max_block_size)
+                
+        if mu0_output is not None and len(mu0_output):
+            self.mu0_output = mu0_output
+        else:
+            self.mu0_output = np.zeros((noutputs, 1)) + self.mu0_default
+                
+        for block in range(nblocks):
+            if self.verbose:
+                logging.debug("GPClassifierVB predicting block %i of %i" % (block, nblocks))            
+            self.predict_block(block, max_block_size, noutputs)
+        
+        return self.f, self.v    
     
     def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False, 
                 mu0_output=None):
