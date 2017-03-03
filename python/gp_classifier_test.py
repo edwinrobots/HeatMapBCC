@@ -73,7 +73,9 @@ if __name__ == '__main__':
     
     models = {}
     
-    model = GPClassifierVB([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=[10, 10])
+    ls_initial = np.random.randint(1, 100, 2)#[10, 10] 
+    
+    model = GPClassifierVB([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
     #model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
@@ -85,7 +87,7 @@ if __name__ == '__main__':
     
     models['VB'] = model
     
-    model = GPClassifierSVI([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=[10, 10], use_svi=True)
+    model = GPClassifierSVI([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=True)
     #model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
@@ -97,7 +99,7 @@ if __name__ == '__main__':
        
     models['SVI'] = model
     
-    model = GPClassifierSVI([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=[10, 10], use_svi=False)
+    model = GPClassifierSVI([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=False)
     #model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
@@ -110,16 +112,16 @@ if __name__ == '__main__':
     models['SVI_switched_off'] = model   
     
     if fix_seeds:
-        np.random.seed() # do this if we want to use a different seed each time to test the variation in results
+        np.random.seed() # do this to test the variation in results due to stochastic methods with same data
     
     obs_coords = np.concatenate((xvals[trainidxs, :], yvals[trainidxs, :]), axis=1)
     
     for modelkey in models:
-        print "Running model %s" % modelkey
+        print "--- Running model %s ---" % modelkey
         
         model = models[modelkey]
     
-        model.fit(obs_coords, labels[trainidxs])
+        model.fit(obs_coords, labels[trainidxs], optimize=True)
         print "Final lower bound: %f" % model.lowerbound()
         
         # Predict at the test locations

@@ -18,7 +18,7 @@ class GPClassifierSVI(GPClassifierVB):
     changed_selection = True # indicates whether the random subset of data has changed since variables were initialised
     
     def __init__(self, dims, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None, 
-                 force_update_all_points=False, n_lengthscales=1, kernel_func='matern_3_2', max_update_size=10000, 
+                 force_update_all_points=False, kernel_func='matern_3_2', max_update_size=10000, 
                  ninducing=500, use_svi=True):
         
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
@@ -34,16 +34,16 @@ class GPClassifierSVI(GPClassifierVB):
         self.use_svi = use_svi
                 
         super(GPClassifierSVI, self).__init__(dims, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
-                                    force_update_all_points, n_lengthscales, kernel_func)      
+                                    force_update_all_points, kernel_func)      
 
     # Initialisation --------------------------------------------------------------------------------------------------
         
-    def init_params(self, mu0=None):            
-        super(GPClassifierSVI, self).init_params(mu0)
+    def _init_params(self, mu0=None):            
+        super(GPClassifierSVI, self)._init_params(mu0)
         if self.use_svi:            
-            self.choose_inducing_points()
+            self._choose_inducing_points()
 
-    def choose_inducing_points(self):
+    def _choose_inducing_points(self):
         # choose a set of inducing points -- for testing we can set these to the same as the observation points.
         nobs = self.obs_f.shape[0]       
         
@@ -83,9 +83,9 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
         
-    def update_jacobian(self, G_update_rate=1.0):
+    def _update_jacobian(self, G_update_rate=1.0):
         if not self.use_svi:
-            return super(GPClassifierSVI, self).update_jacobian(G_update_rate)
+            return super(GPClassifierSVI, self)._update_jacobian(G_update_rate)
                 
         if len(self.data_idx_i):
             g_obs_f = self.forward_model(self.obs_f.flatten()[self.data_idx_i]) # first order Taylor series approximation
@@ -106,9 +106,9 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Log Likelihood Computation ------------------------------------------------------------------------------------- 
         
-    def logpf(self):
+    def _logpf(self):
         if not self.use_svi:
-            return super(GPClassifierSVI, self).logpf()
+            return super(GPClassifierSVI, self)._logpf()
             
         _, logdet_K = np.linalg.slogdet(self.Ks_mm * self.s)
         D = len(self.um)
@@ -116,32 +116,32 @@ class GPClassifierSVI(GPClassifierVB):
                 
         invK_expecF = self.inv_Ks_mm_uS + self.inv_Ks_mm.dot(self.um.dot(self.um.T))
         
-        logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
-        return logpf
+        _logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
+        return _logpf
         
-    def logqf(self):
+    def _logqf(self):
         if not self.use_svi:
-            return super(GPClassifierSVI, self).logqf()
+            return super(GPClassifierSVI, self)._logqf()
                 
         # We want to do this, but we can simplify it, since the x and mean values cancel:
         _, logdet_C = np.linalg.slogdet(self.u_invS)
         logdet_C = -logdet_C # because we are using the inverse of the covariance
         D = len(self.um)
-        logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
-        return logqf         
+        _logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
+        return _logqf         
     
     # Training methods ------------------------------------------------------------------------------------------------
           
-    def expec_f(self):
+    def _expec_f(self):
         if self.use_svi:  
             # change the randomly selected observation points
-            self.update_sample()        
+            self._update_sample()        
         
-        super(GPClassifierSVI, self).expec_f()          
+        super(GPClassifierSVI, self)._expec_f()          
             
-    def update_f(self, G_update_rate=1.0):
+    def _update_f(self, G_update_rate=1.0):
         if not self.use_svi:
-            return super(GPClassifierSVI, self).update_f(G_update_rate)
+            return super(GPClassifierSVI, self)._update_f(G_update_rate)
         
         Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
         
@@ -179,18 +179,18 @@ class GPClassifierSVI(GPClassifierVB):
         self.um = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
         self.um = solve_triangular(L_u_invS, self.um, lower=True, trans=True, check_finite=False, overwrite_b=True)
         
-        self.obs_f, self.obs_C = self.f_given_u(self.Ks, self.Ks_nm, self.mu0)
+        self.obs_f, self.obs_C = self._f_given_u(self.Ks, self.Ks_nm, self.mu0)
 
-    def f_given_u(self, Ks_nn, Ks_nm, mu0):
+    def _f_given_u(self, Ks_nn, Ks_nm, mu0):
         covpair =  Ks_nm.dot(self.inv_Ks_mm)
         covpair_uS = Ks_nm.dot(self.inv_Ks_mm_uS)
         fhat = covpair_uS.dot(self.u_invSm) + mu0
         C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
         return fhat, C 
 
-    def expec_s(self):
+    def _expec_s(self):
         if not self.use_svi:
-            return super(GPClassifierSVI, self).expec_s()
+            return super(GPClassifierSVI, self)._expec_s()
                     
         self.old_s = self.s 
         invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um.dot(self.um.T))
@@ -205,14 +205,14 @@ class GPClassifierSVI(GPClassifierVB):
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s     
     
-    def update_sample(self):
+    def _update_sample(self):
         
         # once the iterations over G are complete, we accept this stochastic VB update
         if hasattr(self, 'u_invSm'):
             self.prev_u_invSm = self.u_invSm
             self.prev_u_invS = self.u_invS        
         
-        self.update_sample_idxs()
+        self._update_sample_idxs()
         
         self.Ks_mm = self.K_mm / self.s
         self.inv_Ks_mm  = self.invK_mm * self.s
@@ -224,16 +224,16 @@ class GPClassifierSVI(GPClassifierVB):
         self.z_i = self.z[self.data_obs_idx_i]
         self.mu0_i = self.mu0[self.data_idx_i]     
         
-    def update_sample_idxs(self):
+    def _update_sample_idxs(self):
         nobs = self.obs_f.shape[0]            
         self.data_idx_i = np.random.choice(nobs, self.update_size, replace=False)
         self.data_obs_idx_i = self.data_idx_i  
     
     # Prediction methods ---------------------------------------------------------------------------------------------
                 
-    def expec_f_output(self, blockidxs):
+    def _expec_f_output(self, blockidxs):
         if not self.use_svi:
-            return super(GPClassifierSVI, self).expec_f_output(blockidxs)
+            return super(GPClassifierSVI, self)._expec_f_output(blockidxs)
             
         block_coords = self.output_coords[blockidxs]        
         
@@ -244,5 +244,5 @@ class GPClassifierSVI(GPClassifierVB):
         K_out = self.kernel_func(distances, self.ls)
         K_out /= self.s        
                 
-        self.f[blockidxs, :], C_out = self.f_given_u(1.0 / self.s, K_out, self.mu0_output)
+        self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, K_out, self.mu0_output)
         self.v[blockidxs, 0] = np.diag(C_out) 

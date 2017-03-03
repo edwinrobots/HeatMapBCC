@@ -315,7 +315,7 @@ class HeatMapBCC(ibcc.IBCC):
 #         lnpCT = super(HeatMapBCC, self).post_lnjoint_ct()
         lnpCT = 0
         for j in gprange:
-            rhoj, notrhoj = self.heatGP[j].logpt()
+            rhoj, notrhoj = self.heatGP[j]._logpt()
             lnpCTj = self.lnpCT[:, j] - self.lnkappa[j] + rhoj.flatten() 
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, j], lnpCTj))
         if self.nclasses==2:
@@ -370,14 +370,14 @@ class HeatMapBCC(ibcc.IBCC):
         lnpKappa = 0
         for j in range(self.nclasses):
             if j in self.heatGP:
-                lnpKappa += self.heatGP[j].logps() + self.heatGP[j].logpf()
+                lnpKappa += self.heatGP[j]._logps() + self.heatGP[j]._logpf()
         return lnpKappa                
                 
     def q_lnkappa(self):
         lnqKappa = 0
         for j in range(self.nclasses):
             if j in self.heatGP:
-                lnqKappa += self.heatGP[j].logqs() + self.heatGP[j].logqf()
+                lnqKappa += self.heatGP[j]._logqs() + self.heatGP[j]._logqf()
         return lnqKappa
     
     def ln_modelprior(self):
