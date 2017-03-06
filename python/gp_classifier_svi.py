@@ -139,9 +139,9 @@ class GPClassifierSVI(GPClassifierVB):
         
         super(GPClassifierSVI, self)._expec_f()          
             
-    def _update_f(self, G_update_rate=1.0):
+    def _update_f(self):
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._update_f(G_update_rate)
+            return super(GPClassifierSVI, self)._update_f()
         
         Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
         

@@ -489,7 +489,9 @@ class GPClassifierVB(object):
             converged, prev_val = self._check_convergence(prev_val)
             converged_count += converged
             self.vb_iter += 1    
-
+            
+        self._update_f() # this is needed so that L and A match s
+            
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
@@ -546,7 +548,7 @@ class GPClassifierVB(object):
         for G_iter in range(self.max_iter_G):
             oldG = self.G                
             self._update_jacobian(G_update_rate)                
-            self._update_f(G_update_rate=G_update_rate)
+            self._update_f()
             prev_diff_G = diff_G # save last iteration's difference
             diff_G = np.max(np.abs(oldG - self.G))
             # Use a smaller update size if we get stuck oscillating about the solution
@@ -560,7 +562,7 @@ class GPClassifierVB(object):
             if self.verbose:
                 logging.debug("G did not converge: diff was %.5f" % diff_G)        
 
-    def _update_f(self, G_update_rate=1.0):
+    def _update_f(self):
         self.KsG = self.Ks.dot(self.G.T, out=self.KsG)
         self.Cov = self.KsG.T.dot(self.G.T, out=self.Cov)
         self.Cov[range(self.Cov.shape[0]), range(self.Cov.shape[0])] += self.Q
@@ -732,7 +734,7 @@ class GPClassifierVB(object):
         if np.any(self.v[blockidxs] < 0):
             self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
             if np.any(self.v[blockidxs] < 0): # anything still below zero?
-                logging.error("Variance has gone negative in GPClassifierVB.predict(), %f" % np.min(self.v[blockidxs]))
+                logging.error("Negative variance in GPClassifierVB.predict(), %f" % np.min(self.v[blockidxs]))
         
         self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0_output[blockidxs, :]
         
