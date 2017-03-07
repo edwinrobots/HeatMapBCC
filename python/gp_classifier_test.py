@@ -75,7 +75,7 @@ if __name__ == '__main__':
     
     ls_initial = np.random.randint(1, 100, 2)#[10, 10] 
     
-    model = GPClassifierVB([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
+    model = GPClassifierVB(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
     #model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
@@ -87,7 +87,7 @@ if __name__ == '__main__':
     
     models['VB'] = model
     
-    model = GPClassifierSVI([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=True)
+    model = GPClassifierSVI(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=True)
     #model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
@@ -99,7 +99,7 @@ if __name__ == '__main__':
        
     models['SVI'] = model
     
-    model = GPClassifierSVI([nx, ny], z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=False)
+    model = GPClassifierSVI(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=False)
     #model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5

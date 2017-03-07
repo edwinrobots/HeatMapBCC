@@ -17,7 +17,7 @@ class GPClassifierSVI(GPClassifierVB):
     data_idx_i = [] # data indices to update in the current iteration, i
     changed_selection = True # indicates whether the random subset of data has changed since variables were initialised
     
-    def __init__(self, dims, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None, 
+    def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None, 
                  force_update_all_points=False, kernel_func='matern_3_2', max_update_size=10000, 
                  ninducing=500, use_svi=True):
         
@@ -33,7 +33,7 @@ class GPClassifierSVI(GPClassifierVB):
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
         self.use_svi = use_svi
                 
-        super(GPClassifierSVI, self).__init__(dims, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
+        super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
                                     force_update_all_points, kernel_func)      
 
     # Initialisation --------------------------------------------------------------------------------------------------
@@ -68,9 +68,9 @@ class GPClassifierSVI(GPClassifierVB):
             self.prev_u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
             self.prev_u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
 
-        mm_dist = np.zeros((self.ninducing, self.ninducing, len(self.dims)))
-        nm_dist = np.zeros((nobs, self.ninducing, len(self.dims)))
-        for d in range(len(self.dims)):
+        mm_dist = np.zeros((self.ninducing, self.ninducing, self.ninput_features))
+        nm_dist = np.zeros((nobs, self.ninducing, self.ninput_features))
+        for d in range(self.ninput_features):
             mm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
             nm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.obs_coords[:, d:d+1].astype(float)
          
@@ -237,8 +237,8 @@ class GPClassifierSVI(GPClassifierVB):
             
         block_coords = self.output_coords[blockidxs]        
         
-        distances = np.zeros((block_coords.shape[0], self.inducing_coords.shape[0], len(self.dims)))
-        for d in range(len(self.dims)):
+        distances = np.zeros((block_coords.shape[0], self.inducing_coords.shape[0], self.ninput_features))
+        for d in range(self.ninput_features):
             distances[:, :, d] = block_coords[:, d:d+1] - self.inducing_coords[:, d:d+1].T
         
         K_out = self.kernel_func(distances, self.ls)

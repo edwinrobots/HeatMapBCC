@@ -89,9 +89,6 @@ class GPClassifierVB(object):
     obs_f = []
     obs_C = []
     
-    nx = 0
-    ny = 0
-        
     G = []
     z = []
     K = []
@@ -111,15 +108,15 @@ class GPClassifierVB(object):
     
     p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
     
-    def __init__(self, dims, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None, 
+    def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None, 
                  force_update_all_points=False, kernel_func='matern_3_2'):
         #Grid size for prediction
-        self.dims = np.array(dims)
+        self.ninput_features = ninput_features
         
         if ls_initial is not None:
             self.n_lengthscales = len(ls_initial) # can pass in a single length scale to be used for all dimensions
         else:
-            self.n_lengthscales = len(self.dims)
+            self.n_lengthscales = self.ninput_features
             
         # Output scale (sigmoid scaling)  
         self.shape_s0 = float(shape_s0) # prior pseudo counts * 0.5
@@ -138,7 +135,7 @@ class GPClassifierVB(object):
             self.ls = np.array(ls_initial)
         else:
             self.ls = self.shape_ls / self.rate_ls
-            self.ls = np.zeros(len(self.dims)) + self.ls
+            self.ls = np.zeros(self.ninput_features) + self.ls
 
         self.ls = self.ls.astype(float)
 
@@ -239,7 +236,7 @@ class GPClassifierVB(object):
 
     def _count_observations(self, obs_coords, n_obs, poscounts, totals):
         obs_coords = np.array(obs_coords)
-        if obs_coords.shape[0] == len(self.dims) and obs_coords.shape[1] != len(self.dims):
+        if obs_coords.shape[0] == self.ninput_features and obs_coords.shape[1] != self.ninput_features:
             if obs_coords.ndim == 3 and obs_coords.shape[2] == 1:
                 obs_coords = obs_coords.reshape((obs_coords.shape[0], obs_coords.shape[1]))            
             obs_coords = obs_coords.T
@@ -252,7 +249,7 @@ class GPClassifierVB(object):
         
             nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
             self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, 
-                                                [nonzero_idxs.size, self.dims.size])
+                                                [nonzero_idxs.size, self.ninput_features])
             return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
                     
         elif obs_coords.dtype=='float': # Duplicate locations are not merged
@@ -300,9 +297,9 @@ class GPClassifierVB(object):
         self._observations_to_z()
         
         #Update to produce training matrices only over known points
-        self.obs_distances = np.zeros((n_locations, n_locations, len(self.dims)))
-        obs_coords_3d = self.obs_coords.reshape((n_locations, 1, len(self.dims)))
-        for d in range(len(self.dims)):
+        self.obs_distances = np.zeros((n_locations, n_locations, self.ninput_features))
+        obs_coords_3d = self.obs_coords.reshape((n_locations, 1, self.ninput_features))
+        for d in range(self.ninput_features):
             self.obs_distances[:, :, d] = obs_coords_3d[:, :, d].T - obs_coords_3d[:, :, d]
         self.obs_distances = self.obs_distances.astype(float)
          
@@ -685,10 +682,10 @@ class GPClassifierVB(object):
         else:
             return m_post, v_post       
        
-    def predict_grid(self, variance_method='rough', max_block_size=1e5, return_not=False, mu0_output=None):    
-        nout = self.nx * self.ny
-        outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout)
-        outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout)
+    def predict_grid(self, nx, ny, variance_method='rough', max_block_size=1e5, return_not=False, mu0_output=None):    
+        nout = nx * ny
+        outputx = np.tile(np.arange(nx, dtype=np.float).reshape(nx, 1), (1, ny)).reshape(nout)
+        outputy = np.tile(np.arange(ny, dtype=np.float).reshape(1, ny), (nx, 1)).reshape(nout)
         self.predict([outputx, outputy], variance_method, max_block_size, return_not=return_not, mu0_output=mu0_output)
     
     def predict_f(self, items_coords=[], max_block_size=1e5, mu0_output=None):
@@ -708,7 +705,7 @@ class GPClassifierVB(object):
         
     def _init_output_arrays(self, output_coords, max_block_size):
         self.output_coords = np.array(output_coords).astype(float)
-        if self.output_coords.shape[0] == len(self.dims) and self.output_coords.shape[1] != len(self.dims):
+        if self.output_coords.shape[0] == self.ninput_features and self.output_coords.shape[1] != self.ninput_features:
             if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
                 self.output_coords = self.output_coords.reshape((self.output_coords.shape[0], self.output_coords.shape[1]))                  
             self.output_coords = self.output_coords.T
@@ -743,8 +740,8 @@ class GPClassifierVB(object):
     def _expec_f_output(self, blockidxs):
         block_coords = self.output_coords[blockidxs]        
         
-        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], len(self.dims)))
-        for d in range(len(self.dims)):
+        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], self.ninput_features))
+        for d in range(self.ninput_features):
             distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
         
         K_out = self.kernel_func(distances, self.ls)
