@@ -32,7 +32,9 @@ class GPClassifierSVI(GPClassifierVB):
         
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
         self.use_svi = use_svi
-                
+        
+        self.fixed_sample_idxs = False
+        
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
                                     force_update_all_points, kernel_func)      
 
@@ -224,9 +226,17 @@ class GPClassifierSVI(GPClassifierVB):
         self.z_i = self.z[self.data_obs_idx_i]
         self.mu0_i = self.mu0[self.data_idx_i]     
         
+    def fix_sample_idxs(self, data_idx_i):
+        '''
+        Pass in a set of pre-determined sample idxs rather than changing them stochastically inside this implementation.
+        '''
+        self.data_idx_i = data_idx_i
+        self.fixed_sample_idxs = True
+        
     def _update_sample_idxs(self):
-        nobs = self.obs_f.shape[0]            
-        self.data_idx_i = np.random.choice(nobs, self.update_size, replace=False)
+        if not self.fixed_sample_idxs:
+            nobs = self.obs_f.shape[0]            
+            self.data_idx_i = np.random.choice(nobs, self.update_size, replace=False)
         self.data_obs_idx_i = self.data_idx_i  
     
     # Prediction methods ---------------------------------------------------------------------------------------------
