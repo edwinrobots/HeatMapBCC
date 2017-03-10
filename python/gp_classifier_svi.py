@@ -19,13 +19,13 @@ class GPClassifierSVI(GPClassifierVB):
     
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None, 
                  force_update_all_points=False, kernel_func='matern_3_2', max_update_size=10000, 
-                 ninducing=500, use_svi=True):
+                 ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9):
         
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
         
         # initialise the forgetting rate and delay for SVI
-        self.forgetting_rate = 0.9
-        self.delay = 1.0 # delay must be at least 1
+        self.forgetting_rate = forgetting_rate
+        self.delay = delay # delay must be at least 1
         
         # number of inducing points
         self.ninducing = ninducing
@@ -155,7 +155,7 @@ class GPClassifierSVI(GPClassifierVB):
         #print "\rho_i = %f " % rho_i
         
         # weighting. Lambda and 
-        w_i = self.obs_f.shape[0] / float(self.obs_f_i.shape[0])
+        w_i = np.sum(self.obs_total_counts) / float(np.sum(self.obs_total_counts[self.data_idx_i]))#self.obs_f.shape[0] / float(self.obs_f_i.shape[0])
         
         # S is the variational covariance parameter for the inducing points, u. Canonical parameter theta_2 = -0.5 * S^-1.
         # The variational update to theta_2 is (1-rho)*S^-1 + rho*Lambda. Since Lambda includes a sum of Lambda_i over 
@@ -168,7 +168,7 @@ class GPClassifierSVI(GPClassifierVB):
         
         # Variational update to theta_1 is (1-rho)*S^-1m + rho*beta*K_mm^-1.K_mn.y  
         self.u_invSm = (1 - rho_i) * self.prev_u_invSm + \
-            w_i * rho_i * self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T/self.Q[self.data_obs_idx_i][np.newaxis, :]).dot(y)
+            w_i * rho_i * Lambda_i.dot(self.G.T/self.Q[self.data_obs_idx_i][np.newaxis, :]).dot(y)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
         L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
