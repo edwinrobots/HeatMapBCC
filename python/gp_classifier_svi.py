@@ -233,6 +233,10 @@ class GPClassifierSVI(GPClassifierVB):
         self.data_idx_i = data_idx_i
         self.fixed_sample_idxs = True
         
+    def fix_inducing_points(self, inducing_coords):
+        self.ninducing = inducing_coords.shape[0]
+        self.inducing_coords = inducing_coords
+        
     def _update_sample_idxs(self):
         if not self.fixed_sample_idxs:
             nobs = self.obs_f.shape[0]            

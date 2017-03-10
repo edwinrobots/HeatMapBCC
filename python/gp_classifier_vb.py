@@ -124,6 +124,8 @@ class GPClassifierVB(object):
         self.shape_s = float(shape_s0)
         self.rate_s = float(rate_s0) # init to the priors until we receive data
         self.s = self.shape_s0 / self.rate_s0         
+        
+        self.fixed_s = False#True
                 
         # Prior mean
         self._init_prior_mean_f(z0)
@@ -481,7 +483,8 @@ class GPClassifierVB(object):
             self._expec_f()
             
             #update the output scale parameter (also called latent function scale/sigmoid steepness)
-            self._expec_s()
+            if not self.fixed_s:
+                self._expec_s()
                                    
             converged, prev_val = self._check_convergence(prev_val)
             converged_count += converged
