@@ -733,8 +733,6 @@ class GPClassifierVB(object):
             if np.any(self.v[blockidxs] < 0): # anything still below zero?
                 logging.error("Negative variance in GPClassifierVB.predict(), %f" % np.min(self.v[blockidxs]))
         
-        self.f[blockidxs, :] = self.f[blockidxs, :] + self.mu0_output[blockidxs, :]
-        
         return blockidxs        
         
     def _expec_f_output(self, blockidxs):
@@ -747,7 +745,7 @@ class GPClassifierVB(object):
         K_out = self.kernel_func(distances, self.ls)
         K_out /= self.s        
         
-        self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A)
+        self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :]
         
         V = solve_triangular(self.L, self.G.dot(K_out.T), lower=True, overwrite_b=True, check_finite=False)
         self.v[blockidxs, 0] = 1.0 / self.s#self.kernel_func([0, 0], self.ls) / self.s
