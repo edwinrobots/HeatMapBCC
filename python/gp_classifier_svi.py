@@ -81,7 +81,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.invK_mm = np.linalg.inv(self.K_mm)
         self.K_nm = self.kernel_func(nm_dist, self.ls)
         
-        self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
+        #self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
         
@@ -145,17 +145,21 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._update_f()
         
+        # this is done here not update_sample because it needs to be updated every time obs_f is updated
+        self.obs_f_i = self.obs_f[self.data_idx_i]    
+        
         Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
         
+        Q = self.Q[self.data_obs_idx_i][np.newaxis, :]
         Lambda_factor1 = self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T)
-        Lambda_i = (Lambda_factor1 / self.Q[self.data_obs_idx_i][np.newaxis, :]).dot(Lambda_factor1.T)
+        Lambda_i = (Lambda_factor1 / Q).dot(Lambda_factor1.T)
         
         # calculate the learning rate for SVI
         rho_i = (self.vb_iter + self.delay) ** (-self.forgetting_rate)
         #print "\rho_i = %f " % rho_i
         
         # weighting. Lambda and 
-        w_i = np.sum(self.obs_total_counts) / float(np.sum(self.obs_total_counts[self.data_idx_i]))#self.obs_f.shape[0] / float(self.obs_f_i.shape[0])
+        w_i = np.sum(self.obs_total_counts) / float(np.sum(self.obs_total_counts[self.data_obs_idx_i]))#self.obs_f.shape[0] / float(self.obs_f_i.shape[0])
         
         # S is the variational covariance parameter for the inducing points, u. Canonical parameter theta_2 = -0.5 * S^-1.
         # The variational update to theta_2 is (1-rho)*S^-1 + rho*Lambda. Since Lambda includes a sum of Lambda_i over 
@@ -168,7 +172,7 @@ class GPClassifierSVI(GPClassifierVB):
         
         # Variational update to theta_1 is (1-rho)*S^-1m + rho*beta*K_mm^-1.K_mn.y  
         self.u_invSm = (1 - rho_i) * self.prev_u_invSm + \
-            w_i * rho_i * Lambda_i.dot(self.G.T/self.Q[self.data_obs_idx_i][np.newaxis, :]).dot(y)
+            w_i * rho_i * (Lambda_factor1/Q).dot(y)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
         L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
@@ -181,8 +185,32 @@ class GPClassifierSVI(GPClassifierVB):
         self.um = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
         self.um = solve_triangular(L_u_invS, self.um, lower=True, trans=True, check_finite=False, overwrite_b=True)
         
+#         old_obs_f = self.obs_f
+#         _, g_mean_f = self.forward_model(return_g_f=True)
+        
         self.obs_f, self.obs_C = self._f_given_u(self.Ks, self.Ks_nm, self.mu0)
-
+        
+#         G = 1 / (2*np.pi)**0.5 * np.exp(-g_mean_f**2 / 2.0) * np.sqrt(0.5)
+#         obs_idxs = np.arange(self.n_locs)[np.newaxis, :]
+#         s = (self.pref_v[:, np.newaxis]==obs_idxs).astype(int) - (self.pref_u[:, np.newaxis]==obs_idxs).astype(int)
+#         G = G * s         
+#         KsG = self.Ks.dot(G.T)
+#         Cov = KsG.T.dot(G.T)
+#         Cov[range(Cov.shape[0]), range(Cov.shape[0])] += self.Q
+#         
+#         # use the estimate given by the Taylor series expansion
+#         z0 = self.forward_model(old_obs_f) + G.dot(self.mu0 - old_obs_f) 
+#         
+#         L = cholesky(Cov, lower=True, check_finite=False, overwrite_a=True)
+#         B = solve_triangular(L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
+#         A = solve_triangular(L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
+#         obs_f = KsG.dot(A) + self.mu0
+#         
+#         V = solve_triangular(L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
+#         obs_C = self.Ks - V.T.dot(V)         
+#         
+#         print np.max(np.abs(obs_f - self.obs_f))
+                
     def _f_given_u(self, Ks_nn, Ks_nm, mu0):
         covpair =  Ks_nm.dot(self.inv_Ks_mm)
         covpair_uS = Ks_nm.dot(self.inv_Ks_mm_uS)
@@ -194,14 +222,16 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._expec_s()
                     
-        self.old_s = self.s 
-        invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um.dot(self.um.T))
-        self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
-        #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
-        self.s = self.shape_s / self.rate_s
-        self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
-        if self.verbose:
-            logging.debug("Updated inverse output scale: " + str(self.s))
+        super(GPClassifierSVI, self)._expec_s()
+                    
+#         self.old_s = self.s 
+#         invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um.dot(self.um.T))
+#         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
+#         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
+#         self.s = self.shape_s / self.rate_s
+#         self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
+#         if self.verbose:
+#             logging.debug("Updated inverse output scale: " + str(self.s))
         self.Ks_mm = self.K_mm / self.s
         self.inv_Ks_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            
@@ -221,10 +251,9 @@ class GPClassifierSVI(GPClassifierVB):
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s
         
-        self.G = 0 # reset because we will need to compute afresh with new sample
-        self.obs_f_i = self.obs_f[self.data_idx_i]
+        self.G = 0 # reset because we will need to compute afresh with new sample    
         self.z_i = self.z[self.data_obs_idx_i]
-        self.mu0_i = self.mu0[self.data_idx_i]     
+        self.mu0_i = self.mu0[self.data_idx_i]
         
     def fix_sample_idxs(self, data_idx_i):
         '''
@@ -240,7 +269,7 @@ class GPClassifierSVI(GPClassifierVB):
     def _update_sample_idxs(self):
         if not self.fixed_sample_idxs:
             nobs = self.obs_f.shape[0]            
-            self.data_idx_i = np.random.choice(nobs, self.update_size, replace=False)
+            self.data_idx_i = np.sort(np.random.choice(nobs, self.update_size, replace=False))
         self.data_obs_idx_i = self.data_idx_i  
     
     # Prediction methods ---------------------------------------------------------------------------------------------
