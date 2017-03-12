@@ -748,11 +748,10 @@ class GPClassifierVB(object):
         K_out = self.kernel_func(distances, self.ls)
         K_out /= self.s        
         
-        self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :]
+        self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 
         
         V = solve_triangular(self.L, self.G.dot(K_out.T), lower=True, overwrite_b=True, check_finite=False)
-        self.v[blockidxs, 0] = 1.0 / self.s#self.kernel_func([0, 0], self.ls) / self.s
-        self.v[blockidxs, 0] -= np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
+        self.v[blockidxs, 0] = 1.0 / self.s - np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
         
     def _post_rough(self, f, v):
         k = 1.0 / np.sqrt(1 + (np.pi * v / 8.0))

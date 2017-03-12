@@ -171,8 +171,7 @@ class GPClassifierSVI(GPClassifierVB):
         y = self.z_i - z0
         
         # Variational update to theta_1 is (1-rho)*S^-1m + rho*beta*K_mm^-1.K_mn.y  
-        self.u_invSm = (1 - rho_i) * self.prev_u_invSm + \
-            w_i * rho_i * (Lambda_factor1/Q).dot(y)
+        self.u_invSm = (1 - rho_i) * self.prev_u_invSm + w_i * rho_i * (Lambda_factor1/Q).dot(y)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
         L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
@@ -287,5 +286,5 @@ class GPClassifierSVI(GPClassifierVB):
         K_out = self.kernel_func(distances, self.ls)
         K_out /= self.s        
                 
-        self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, K_out, self.mu0_output)
+        self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, K_out, self.mu0_output[blockidxs, :])
         self.v[blockidxs, 0] = np.diag(C_out) 
