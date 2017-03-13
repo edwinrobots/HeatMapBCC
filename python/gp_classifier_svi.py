@@ -44,7 +44,18 @@ class GPClassifierSVI(GPClassifierVB):
         super(GPClassifierSVI, self)._init_params(mu0)
         if self.use_svi:            
             self._choose_inducing_points()
-
+    
+    def _init_covariance(self):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self)._init_covariance()
+        
+        # Get the correct covariance matrix
+        self.K = self.kernel_func(self.obs_distances, self.ls)
+        self.K += 1e-6 * np.eye(len(self.K)) # jitter
+                
+        self.Ks = self.K / self.s
+        self.obs_C = self.K / self.s
+                    
     def _choose_inducing_points(self):
         # choose a set of inducing points -- for testing we can set these to the same as the observation points.
         nobs = self.obs_f.shape[0]       
@@ -81,7 +92,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.invK_mm = np.linalg.inv(self.K_mm)
         self.K_nm = self.kernel_func(nm_dist, self.ls)
         
-        #self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
+        self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
         
@@ -184,31 +195,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.um = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
         self.um = solve_triangular(L_u_invS, self.um, lower=True, trans=True, check_finite=False, overwrite_b=True)
         
-#         old_obs_f = self.obs_f
-#         _, g_mean_f = self.forward_model(return_g_f=True)
-        
         self.obs_f, self.obs_C = self._f_given_u(self.Ks, self.Ks_nm, self.mu0)
-        
-#         G = 1 / (2*np.pi)**0.5 * np.exp(-g_mean_f**2 / 2.0) * np.sqrt(0.5)
-#         obs_idxs = np.arange(self.n_locs)[np.newaxis, :]
-#         s = (self.pref_v[:, np.newaxis]==obs_idxs).astype(int) - (self.pref_u[:, np.newaxis]==obs_idxs).astype(int)
-#         G = G * s         
-#         KsG = self.Ks.dot(G.T)
-#         Cov = KsG.T.dot(G.T)
-#         Cov[range(Cov.shape[0]), range(Cov.shape[0])] += self.Q
-#         
-#         # use the estimate given by the Taylor series expansion
-#         z0 = self.forward_model(old_obs_f) + G.dot(self.mu0 - old_obs_f) 
-#         
-#         L = cholesky(Cov, lower=True, check_finite=False, overwrite_a=True)
-#         B = solve_triangular(L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
-#         A = solve_triangular(L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-#         obs_f = KsG.dot(A) + self.mu0
-#         
-#         V = solve_triangular(L, KsG.T, lower=True, overwrite_b=True, check_finite=False)
-#         obs_C = self.Ks - V.T.dot(V)         
-#         
-#         print np.max(np.abs(obs_f - self.obs_f))
                 
     def _f_given_u(self, Ks_nn, Ks_nm, mu0):
         covpair =  Ks_nm.dot(self.inv_Ks_mm)
@@ -221,16 +208,15 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._expec_s()
                     
-        super(GPClassifierSVI, self)._expec_s()
-                    
-#         self.old_s = self.s 
-#         invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um.dot(self.um.T))
-#         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
-#         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
-#         self.s = self.shape_s / self.rate_s
-#         self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
-#         if self.verbose:
-#             logging.debug("Updated inverse output scale: " + str(self.s))
+        self.old_s = self.s 
+        invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um.dot(self.um.T))
+        self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
+        #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
+        self.s = self.shape_s / self.rate_s
+        self.Elns = psi(self.shape_s) - np.log(self.rate_s)                      
+        if self.verbose:
+            logging.debug("Updated inverse output scale: " + str(self.s))
+            
         self.Ks_mm = self.K_mm / self.s
         self.inv_Ks_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            

@@ -121,7 +121,7 @@ if __name__ == '__main__':
         
         model = models[modelkey]
     
-        model.fit(obs_coords, labels[trainidxs], optimize=True)
+        model.fit(obs_coords, labels[trainidxs], optimize=False)#True)
         print "Final lower bound: %f" % model.lowerbound()
         
         # Predict at the test locations

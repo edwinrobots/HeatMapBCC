@@ -156,24 +156,29 @@ class GPClassifierVB(object):
         self._estimate_obs_noise()    
         
         self._init_obs_f()
-            
-        # Get the correct covariance matrix
-        self.K = self.kernel_func(self.obs_distances, self.ls)
-        self.K += 1e-6 * np.eye(len(self.K)) # jitter
-        self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
-                    
-        # Initialise here to speed up dot product -- assume we need to do this whenever there is new data
-        self.Cov = np.zeros((self.Ntrain, self.Ntrain))
-        self.KsG = np.zeros((self.n_locs, self.Ntrain))  
-            
-        # initialise s
-        self._init_s()  
+                        
+        self._init_s()
+        
+        self._init_covariance()  
         
         #g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the 
         # same calculation with the same values, meaning that the convergence check will think nothing changes in the 
         # first iteration. 
         if self.G is not 0 and not len(self.G):
             self.G = 0
+                
+    def _init_covariance(self):
+        # Get the correct covariance matrix
+        self.K = self.kernel_func(self.obs_distances, self.ls)
+        self.K += 1e-6 * np.eye(len(self.K)) # jitter
+        self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
+                
+        self.Ks = self.K / self.s
+        self.obs_C = self.K / self.s
+                    
+        # Initialise here to speed up dot product -- assume we need to do this whenever there is new data
+        self.Cov = np.zeros((self.Ntrain, self.Ntrain))
+        self.KsG = np.zeros((self.n_locs, self.Ntrain))  
                 
     def _init_prior_mean_f(self, z0):
         self.mu0_default = logit(z0)
@@ -215,11 +220,7 @@ class GPClassifierVB(object):
         self.shape_s = self.shape_s0 + self.n_locs/2.0 # reset!
         self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f-self.mu0)**2)) + self.rate_s0*self.shape_s/self.shape_s0            
         self.s = self.shape_s / self.rate_s        
-        self.Elns = psi(self.shape_s) - np.log(self.rate_s)
-        
-        self.Ks = self.K / self.s
-        self.obs_C = self.K / self.s
-        
+        self.Elns = psi(self.shape_s) - np.log(self.rate_s)        
         self.old_s = self.s
         if self.verbose:
             logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
