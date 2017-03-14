@@ -30,6 +30,9 @@ class GPClassifierSVI(GPClassifierVB):
         # number of inducing points
         self.ninducing = ninducing
         
+        # default state before initialisation, unless some inducing coordinates are set by external call 
+        self.inducing_coords = None
+        
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
         self.use_svi = use_svi
         
@@ -64,7 +67,7 @@ class GPClassifierSVI(GPClassifierVB):
         if self.update_size > nobs:
             self.update_size = nobs  
              
-        if not hasattr(self, 'inducing_coods'):             
+        if self.inducing_coords is None:             
             if self.ninducing > self.obs_coords.shape[0]:
                 self.ninducing = self.obs_coords.shape[0]
             
@@ -125,10 +128,10 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._logpf()
             
         _, logdet_K = np.linalg.slogdet(self.Ks_mm * self.s)
-        D = len(self.um)
+        D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
                 
-        invK_expecF = self.inv_Ks_mm_uS + self.inv_Ks_mm.dot(self.um.dot(self.um.T))
+        invK_expecF = self.inv_Ks_mm_uS + self.inv_Ks_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
         
         _logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
         return _logpf
@@ -140,7 +143,7 @@ class GPClassifierSVI(GPClassifierVB):
         # We want to do this, but we can simplify it, since the x and mean values cancel:
         _, logdet_C = np.linalg.slogdet(self.u_invS)
         logdet_C = -logdet_C # because we are using the inverse of the covariance
-        D = len(self.um)
+        D = len(self.um_minus_mu0)
         _logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
         return _logqf         
     
@@ -193,8 +196,9 @@ class GPClassifierSVI(GPClassifierVB):
         
         #covpair_uS = covpair.dot(np.linalg.inv(self.u_invS))
         
-        self.um = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
-        self.um = solve_triangular(L_u_invS, self.um, lower=True, trans=True, check_finite=False, overwrite_b=True)
+        self.um_minus_mu0 = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
+        self.um_minus_mu0 = solve_triangular(L_u_invS, self.um_minus_mu0, lower=True, trans=True, check_finite=False, 
+                                             overwrite_b=True)
         
         self.obs_f, self.obs_C = self._f_given_u(self.Ks, self.Ks_nm, self.mu0)
                 
@@ -210,7 +214,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._expec_s()
                     
         self.old_s = self.s 
-        invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um.dot(self.um.T))
+        invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
