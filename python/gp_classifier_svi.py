@@ -63,19 +63,20 @@ class GPClassifierSVI(GPClassifierVB):
         self.update_size = self.max_update_size # number of inducing points in each stochastic update
         if self.update_size > nobs:
             self.update_size = nobs  
-                          
-        if self.ninducing > self.obs_coords.shape[0]:
-            self.ninducing = self.obs_coords.shape[0]
-        
-        init_size = 300
-        if self.ninducing > init_size:
-            init_size = self.ninducing
-        kmeans = MiniBatchKMeans(init_size=init_size, n_clusters=self.ninducing)
-        kmeans.fit(self.obs_coords)
-        
-        #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
-        self.inducing_coords = kmeans.cluster_centers_
-        #self.inducing_coords = self.obs_coords
+             
+        if not hasattr(self, 'inducing_coods'):             
+            if self.ninducing > self.obs_coords.shape[0]:
+                self.ninducing = self.obs_coords.shape[0]
+            
+            init_size = 300
+            if self.ninducing > init_size:
+                init_size = self.ninducing
+            kmeans = MiniBatchKMeans(init_size=init_size, n_clusters=self.ninducing)
+            kmeans.fit(self.obs_coords)
+            
+            #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
+            self.inducing_coords = kmeans.cluster_centers_
+            #self.inducing_coords = self.obs_coords
                         
         if not hasattr(self, 'prev_u_invSm') or self.prev_u_invSm is None:
             self.prev_u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
