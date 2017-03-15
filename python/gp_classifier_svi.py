@@ -81,9 +81,8 @@ class GPClassifierSVI(GPClassifierVB):
             self.inducing_coords = kmeans.cluster_centers_
             #self.inducing_coords = self.obs_coords
                         
-        if not hasattr(self, 'prev_u_invSm') or self.prev_u_invSm is None:
-            self.prev_u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
-            self.prev_u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
+        self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
+        self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
 
         mm_dist = np.zeros((self.ninducing, self.ninducing, self.ninput_features))
         nm_dist = np.zeros((nobs, self.ninducing, self.ninput_features))
@@ -230,9 +229,8 @@ class GPClassifierSVI(GPClassifierVB):
     def _update_sample(self):
         
         # once the iterations over G are complete, we accept this stochastic VB update
-        if hasattr(self, 'u_invSm'):
-            self.prev_u_invSm = self.u_invSm
-            self.prev_u_invS = self.u_invS        
+        self.prev_u_invSm = self.u_invSm
+        self.prev_u_invS = self.u_invS        
         
         self._update_sample_idxs()
         
