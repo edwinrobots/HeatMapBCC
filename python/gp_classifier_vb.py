@@ -456,13 +456,13 @@ class GPClassifierVB(object):
     # Training methods ------------------------------------------------------------------------------------------------
 
     def fit(self, obs_coords=None, obs_values=None, totals=None, process_obs=True, mu0=None, optimize=False, 
-            maxfun=20, use_MAP=False):
+            maxfun=20, use_MAP=False, nrestarts=1):
         '''
         obs_coords -- coordinates of observations as an N x D array, where N is number of observations, 
         D is number of dimensions
         '''
         if optimize:
-            return self.optimize(obs_coords, obs_values, totals, process_obs, mu0, maxfun, use_MAP)
+            return self.optimize(obs_coords, obs_values, totals, process_obs, mu0, maxfun, use_MAP, nrestarts)
         
         # Initialise the objects that store the observation data
         if process_obs:
