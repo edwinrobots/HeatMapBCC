@@ -362,9 +362,9 @@ class GPClassifierVB(object):
          
         if self.verbose:      
             logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
-#             logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
-            logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
-            logging.debug("LB terms without the output scale: %.3f" % (data_ll + logp_f - logq_f))
+            #logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
+            #logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+            #logging.debug("LB terms without the output scale: %.3f" % (data_ll + logp_f - logq_f))
 
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
         
@@ -741,7 +741,7 @@ class GPClassifierVB(object):
         if np.any(self.v[blockidxs] < 0):
             self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
             if np.any(self.v[blockidxs] < 0): # anything still below zero?
-                logging.error("Negative variance in GPClassifierVB.predict(), %f" % np.min(self.v[blockidxs]))
+                logging.error("Negative variance in GPClassifierVB._predict_block(), %f" % np.min(self.v[blockidxs]))
         
         return blockidxs        
         
