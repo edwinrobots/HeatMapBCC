@@ -57,6 +57,12 @@ def matern_3_2(distances, ls):
     K = np.prod(K, axis=2)
     return K
 
+def deriv_matern_3_2(distances, ls, dim):
+    ''' 
+    Derivative W.R.T the length scale indicated by dim 
+    '''
+    pass
+
 def matern_3_2_from_raw_vals(vals, ls):
     distances = np.zeros((vals[0].size, vals[0].size, vals.shape[0]))
     for i, xvals in enumerate(vals):
