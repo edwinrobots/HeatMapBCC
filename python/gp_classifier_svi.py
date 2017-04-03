@@ -89,6 +89,7 @@ class GPClassifierSVI(GPClassifierVB):
         for d in range(self.ninput_features):
             mm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
             nm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.obs_coords[:, d:d+1].astype(float)
+        self.inducing_distances = mm_dist
          
         self.K_mm = self.kernel_func(mm_dist, self.ls)
         self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter 
@@ -146,6 +147,24 @@ class GPClassifierSVI(GPClassifierVB):
         _logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
         return _logqf         
     
+    def lowerbound_gradient(self, dim):
+        '''
+        Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
+        '''
+        if not self.use_svi:
+            return super(GPClassifierSVI, self).lowerbound_gradient(dim)
+        fhat = self.um_minus_mu0
+        dKdls = self.kernel_der(self.inducing_distances, self.ls, dim)  / self.s 
+        
+        invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
+        firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+        
+        C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
+        secondterm = np.trace(C_invKs_dkdls)
+        
+        gradient = 0.5 * (firstterm - secondterm)
+        return gradient    
+    
     # Training methods ------------------------------------------------------------------------------------------------
           
     def _expec_f(self):
@@ -191,6 +210,7 @@ class GPClassifierSVI(GPClassifierVB):
         L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
         B = solve_triangular(L_u_invS, self.inv_Ks_mm.T, lower=True, check_finite=False)
         A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
+        self.L_u_invS = L_u_invS
         self.inv_Ks_mm_uS = A.T
         
         #covpair_uS = covpair.dot(np.linalg.inv(self.u_invS))

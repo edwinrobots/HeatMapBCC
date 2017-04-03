@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix
-from scipy.optimize import fmin
+from scipy.optimize import minimize
 from scipy.special import gammaln, psi, binom
 from scipy.stats import norm, gamma
 import logging
@@ -49,6 +49,16 @@ def sq_exp_cov(distances, ls):
     K = np.prod(K, axis=2)
     return K
 
+def deriv_sq_exp_cov(distances, ls, dim):
+    K_notdim = np.ones(distances.shape)
+    for d in range(distances.shape[2]):
+        if d == dim:
+            K_dim = np.exp( -distances[:, :, d]**2 / ls[d] ) * -distances[:, :, d]**2 / ls[d]**2
+            continue
+        K_notdim[:, :, d] = np.exp( -distances[:, :, d]**2 / ls[d] )
+    K_notdim = np.prod(K_notdim, axis=2)
+    return K_notdim * K_dim
+
 def matern_3_2(distances, ls):
     K = np.zeros(distances.shape)
     for d in range(distances.shape[2]):
@@ -61,7 +71,18 @@ def deriv_matern_3_2(distances, ls, dim):
     ''' 
     Derivative W.R.T the length scale indicated by dim 
     '''
-    pass
+    K_notdim = np.ones(distances.shape)
+    for d in range(distances.shape[2]):
+        if d == dim:
+            K_dim = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
+            K_dim = (K_dim**2 / ls[d]) * np.exp(-K_dim)
+            continue
+        
+        K_notdim[:, :, d] = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
+        K_notdim[:, :, d] = (1 + K_notdim[:, :, d]) * np.exp(-K_notdim[:, :, d])
+    K_notdim = np.prod(K_notdim, axis=2)
+    return K_notdim * K_dim
+    
 
 def matern_3_2_from_raw_vals(vals, ls):
     distances = np.zeros((vals[0].size, vals[0].size, vals.shape[0]))
@@ -234,10 +255,15 @@ class GPClassifierVB(object):
     def _select_covariance_function(self, cov_type):
         if cov_type == 'diagonal':
             self.kernel_func = diagonal
+            def zerocovder(distance, ls, dim): 
+                return 0
+            self.kernel_der = zerocovder 
         elif cov_type == 'matern_3_2':
             self.kernel_func = matern_3_2
+            self.kernel_der = deriv_matern_3_2
         elif cov_type == 'sq_exp':
             self.kernel_func = sq_exp_cov
+            self.kernel_der = deriv_sq_exp_cov
         else:
             logging.error('GPClassifierVB: Invalid covariance type %s' % cov_type)        
 
@@ -373,6 +399,27 @@ class GPClassifierVB(object):
         
         return lb
     
+    def lowerbound_gradient(self, dim):
+        '''
+        Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
+        '''
+        fhat = (self.obs_f - self.mu0)
+        dKdls = self.kernel_der(self.obs_distances, self.ls, dim)  / self.s 
+        
+        invKs_fhat = solve_triangular(self.cholK, fhat, trans=True, check_finite=False)
+        invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
+        invKs_fhat *= self.s
+                
+        firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+        
+        invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
+        invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
+        invKs_dkdls *= self.s
+        secondterm = np.trace(self.obs_C.dot(invKs_dkdls))
+        
+        gradient = 0.5 * (firstterm - secondterm)
+        return gradient
+    
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
         lnp_gp = - gammaln(self.shape_ls) + self.shape_ls*np.log(self.rate_ls) \
@@ -459,6 +506,20 @@ class GPClassifierVB(object):
         logging.debug("LML: %f, with Length-scales: %s" % (lml, self.ls))
         return -lml
     
+    def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
+        needs_fitting = False
+        if np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-8:
+            self.ls[dimension] = np.exp(hyperparams)
+            needs_fitting = True
+        if needs_fitting:
+            self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)        
+        
+        gradient = self.lowerbound_gradient(dimension)
+        if use_MAP:
+            logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.") 
+            
+        return - gradient
+    
     # Training methods ------------------------------------------------------------------------------------------------
 
     def fit(self, obs_coords=None, obs_values=None, totals=None, process_obs=True, mu0=None, optimize=False, 
@@ -525,10 +586,17 @@ class GPClassifierVB(object):
                 initialguess = np.log(ls)
                 logging.debug("Initial length-scale guess for dimension %i in restart %i: %.3f" % (d, r, ls))
         
-                ftol = self.conv_threshold * 1e2
-                logging.debug("Ftol = %.5f" % ftol)
-                opt_hyperparams, nlml, _, _, _ = fmin(self.neg_marginal_likelihood, initialguess, maxfun=maxfun, 
-                                              ftol=ftol, xtol=ls * 1e100, full_output=True, args=(d, use_MAP,))
+                #ftol = self.conv_threshold * 1e2
+                #logging.debug("Ftol = %.5f" % ftol)
+#                 opt_hyperparams, nlml, _, _, _ = fmin(self.neg_marginal_likelihood, initialguess, maxfun=maxfun, 
+#                                               ftol=ftol, xtol=ls * 1e100, full_output=True, args=(d, use_MAP,))
+
+                res = minimize(self.neg_marginal_likelihood, initialguess, 
+                  args=(d, use_MAP,), jac=self.nml_jacobian, method='CG', 
+                  options={'maxiter':maxfun, 'gtol':self.conv_threshold, 'return_all':True})
+
+                opt_hyperparams = res['x']
+                nlml = res['fun']
 
                 if nlml < min_nlml:
                     min_nlml = nlml
