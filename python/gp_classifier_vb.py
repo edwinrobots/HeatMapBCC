@@ -404,6 +404,7 @@ class GPClassifierVB(object):
         invKs_fhat = solve_triangular(self.cholK, fhat, trans=True, check_finite=False)
         invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
         invKs_fhat *= self.s
+        invKs_fhat = np.linalg.inv(self.K/self.s).dot(fhat)
                 
         firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
         
@@ -411,6 +412,7 @@ class GPClassifierVB(object):
         invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
         invKs_dkdls *= self.s
         secondterm = np.trace(self.obs_C.dot(invKs_dkdls))
+        #secondterm = np.trace(self.obs_C.dot(np.linalg.inv(self.K/self.s)).dot(dKdls))
         
         gradient = 0.5 * (firstterm - secondterm)
         return gradient
@@ -513,6 +515,8 @@ class GPClassifierVB(object):
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.") 
             
+        logging.debug('Jacobian: %.3f' % gradient)
+            
         return - gradient
     
     # Training methods ------------------------------------------------------------------------------------------------
@@ -564,8 +568,13 @@ class GPClassifierVB(object):
         if process_obs:
             self._process_observations(obs_coords, obs_values, totals) # process the data here so we don't repeat each call
             self._init_params(mu0)
+            self.fit(process_obs=False, optimize=False)
+              
+        nfits = 0
+        njacs = 0
                     
-        for d, ls in enumerate(self.ls):
+        for d in np.arange(len(self.ls)):#enumerate(self.ls):
+            ls = self.ls[d]
             min_nlml = np.inf
             best_opt_hyperparams = None
             best_iter = -1            
@@ -587,12 +596,14 @@ class GPClassifierVB(object):
 #                                               ftol=ftol, xtol=ls * 1e100, full_output=True, args=(d, use_MAP,))
 
                 res = minimize(self.neg_marginal_likelihood, initialguess, 
-                  args=(d, use_MAP,), jac=self.nml_jacobian, method='CG', 
-                  options={'maxiter':maxfun, 'gtol':self.conv_threshold, 'return_all':True})
+                  args=(d, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B', 
+                  options={'maxiter':maxfun, 'return_all':True})
 
                 opt_hyperparams = res['x']
                 nlml = res['fun']
-
+                nfits += res['nfev']
+                njacs += res['njev']
+                
                 if nlml < min_nlml:
                     min_nlml = nlml
                     best_opt_hyperparams = opt_hyperparams
@@ -605,7 +616,8 @@ class GPClassifierVB(object):
                 # need to go back to the best result
                 self.neg_marginal_likelihood(best_opt_hyperparams, d, use_MAP=False)
 
-        logging.debug("Optimal hyper-parameters: %s" % self.ls)   
+        logging.debug("Optimal hyper-parameters: %s; found using %i objective fun evals and %i jacobian evals" % 
+                      (self.ls, nfits, njacs))
         return self.ls, -min_nlml # return the log marginal likelihood
 
     def _expec_f(self):

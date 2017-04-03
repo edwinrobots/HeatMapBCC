@@ -83,6 +83,8 @@ class GPClassifierSVI(GPClassifierVB):
                         
         self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
         self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
+        self.um_minus_mu0 = np.zeros((self.ninducing, 1))
+        self.inv_Ks_mm_uS = np.eye(self.ninducing)
 
         mm_dist = np.zeros((self.ninducing, self.ninducing, self.ninput_features))
         nm_dist = np.zeros((nobs, self.ninducing, self.ninput_features))
@@ -153,6 +155,7 @@ class GPClassifierSVI(GPClassifierVB):
         '''
         if not self.use_svi:
             return super(GPClassifierSVI, self).lowerbound_gradient(dim)
+        
         fhat = self.um_minus_mu0
         dKdls = self.kernel_der(self.inducing_distances, self.ls, dim)  / self.s 
         
