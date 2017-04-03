@@ -276,22 +276,17 @@ class GPClassifierVB(object):
                 obs_coords = obs_coords.reshape((obs_coords.shape[0], obs_coords.shape[1]))            
             obs_coords = obs_coords.T
             
-        if obs_coords.dtype=='int': # duplicate locations should be merged and the number of duplicates counted
-            ravelled_coords = coord_arr_to_1d(obs_coords)
-            uravelled_coords, idxs = np.unique(ravelled_coords, return_inverse=True)
-            grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs))) ).toarray()            
-            grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
+        # duplicate locations should be merged and the number of duplicates counted
+        ravelled_coords = coord_arr_to_1d(obs_coords)
+        uravelled_coords, idxs = np.unique(ravelled_coords, return_inverse=True)
+        grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs))) ).toarray()            
+        grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
         
-            nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
-            self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, 
+        nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
+        self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, 
                                                 [nonzero_idxs.size, self.ninput_features])
-            return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
+        return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
                     
-        elif obs_coords.dtype=='float': # Duplicate locations are not merged
-            self.obs_coords = obs_coords          
-        
-            return poscounts, totals # these remain unaltered as we have not de-duplicated
-                       
     def _process_observations(self, obs_coords, obs_values, totals=None): 
         if obs_values==[]:
             return [],[]      
@@ -315,7 +310,7 @@ class GPClassifierVB(object):
         elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts. 
             poscounts = obs_values[:, 0]
             
-        if not np.any(self.obs_values >= 0):
+        if np.any(self.obs_values >= 0):
             poscounts[poscounts == 1] = self.p_rep
             poscounts[poscounts == 0] = 1 - self.p_rep
 
