@@ -528,7 +528,7 @@ class GPClassifierVB(object):
         D is number of dimensions
         '''
         if optimize:
-            return self.optimize(obs_coords, obs_values, totals, process_obs, mu0, maxfun, use_MAP, nrestarts)
+            return self._optimize(obs_coords, obs_values, totals, process_obs, mu0, maxfun, use_MAP, nrestarts)
         
         # Initialise the objects that store the observation data
         if process_obs:
@@ -562,7 +562,7 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
-    def optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=20, use_MAP=False, 
+    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=20, use_MAP=False, 
                  nrestarts=1):
 
         if process_obs:
@@ -597,7 +597,7 @@ class GPClassifierVB(object):
 
                 res = minimize(self.neg_marginal_likelihood, initialguess, 
                   args=(d, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B', 
-                  options={'maxiter':maxfun, 'return_all':True})
+                  options={'maxiter':maxfun})
 
                 opt_hyperparams = res['x']
                 nlml = res['fun']
