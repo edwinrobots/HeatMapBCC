@@ -1,10 +1,20 @@
 import numpy as np
 from scipy.linalg import cholesky, solve_triangular
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix, issparse
 from scipy.optimize import minimize
 from scipy.special import gammaln, psi, binom
 from scipy.stats import norm, gamma
 import logging
+
+def compute_distance(col, row):
+    # create a grid where each element of the row is subtracted from each element of the column
+    if issparse(col) or issparse(row):
+        #col = col[:, np.zeros(row.shape[1])] 
+        #row = row[np.zeros(col.shape[0]), :]
+        col = col.A # we assume the column and row are taken from a larger sparse matrix so converting to nparray is ok
+        row = row.A
+    #else: # this is trivial for a numpy array
+    return col - row
 
 def coord_arr_to_1d(arr):
     arr = np.ascontiguousarray(arr)
@@ -91,7 +101,7 @@ def matern_3_2_from_raw_vals(vals, ls):
             xvals = xvals[:, np.newaxis]
         elif xvals.shape[0] == 1 and xvals.shape[1] > 1:
             xvals = xvals.T
-        xdists = xvals - xvals.T
+        xdists = compute_distance(xvals, xvals.T)
         distances[:, :, i] = xdists
     K = matern_3_2(distances, ls)
     return K
@@ -330,7 +340,7 @@ class GPClassifierVB(object):
         self.obs_distances = np.zeros((n_locations, n_locations, self.ninput_features))
         obs_coords_3d = self.obs_coords.reshape((n_locations, 1, self.ninput_features))
         for d in range(self.ninput_features):
-            self.obs_distances[:, :, d] = obs_coords_3d[:, :, d].T - obs_coords_3d[:, :, d]
+            self.obs_distances[:, :, d] = compute_distance(obs_coords_3d[:, :, d].T, obs_coords_3d[:, :, d])
         self.obs_distances = self.obs_distances.astype(float)
          
     def _observations_to_z(self):
@@ -596,7 +606,7 @@ class GPClassifierVB(object):
 #                                               ftol=ftol, xtol=ls * 1e100, full_output=True, args=(d, use_MAP,))
 
                 res = minimize(self.neg_marginal_likelihood, initialguess, 
-                  args=(d, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B', 
+                  args=(d, use_MAP,), jac=self.nml_jacobian, method='CG', 
                   options={'maxiter':maxfun})
 
                 opt_hyperparams = res['x']
@@ -825,7 +835,7 @@ class GPClassifierVB(object):
         
         distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], self.ninput_features))
         for d in range(self.ninput_features):
-            distances[:, :, d] = block_coords[:, d:d+1] - self.obs_coords[:, d:d+1].T
+            distances[:, :, d] = compute_distance(block_coords[:, d:d+1], self.obs_coords[:, d:d+1].T)
         
         K_out = self.kernel_func(distances, self.ls)
         K_out /= self.s        

@@ -9,7 +9,7 @@ import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 import logging
-from gp_classifier_vb import GPClassifierVB
+from gp_classifier_vb import GPClassifierVB, compute_distance
 from sklearn.cluster import MiniBatchKMeans
 
 class GPClassifierSVI(GPClassifierVB):
@@ -89,8 +89,8 @@ class GPClassifierSVI(GPClassifierVB):
         mm_dist = np.zeros((self.ninducing, self.ninducing, self.ninput_features))
         nm_dist = np.zeros((nobs, self.ninducing, self.ninput_features))
         for d in range(self.ninput_features):
-            mm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.inducing_coords[:, d:d+1]
-            nm_dist[:, :, d] = self.inducing_coords[:, d:d+1].T - self.obs_coords[:, d:d+1].astype(float)
+            mm_dist[:, :, d] = compute_distance(self.inducing_coords[:, d:d+1].T, self.inducing_coords[:, d:d+1])
+            nm_dist[:, :, d] = compute_distance(self.inducing_coords[:, d:d+1].T, self.obs_coords[:, d:d+1]).astype(float)
         self.inducing_distances = mm_dist
          
         self.K_mm = self.kernel_func(mm_dist, self.ls)
@@ -293,7 +293,7 @@ class GPClassifierSVI(GPClassifierVB):
         
         distances = np.zeros((block_coords.shape[0], self.inducing_coords.shape[0], self.ninput_features))
         for d in range(self.ninput_features):
-            distances[:, :, d] = block_coords[:, d:d+1] - self.inducing_coords[:, d:d+1].T
+            distances[:, :, d] = compute_distance(block_coords[:, d:d+1], self.inducing_coords[:, d:d+1].T)
         
         K_out = self.kernel_func(distances, self.ls)
         K_out /= self.s        
