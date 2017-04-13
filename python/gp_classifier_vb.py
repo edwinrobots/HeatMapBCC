@@ -288,14 +288,23 @@ class GPClassifierVB(object):
             
         # duplicate locations should be merged and the number of duplicates counted
         ravelled_coords = coord_arr_to_1d(obs_coords)
-        uravelled_coords, idxs = np.unique(ravelled_coords, return_inverse=True)
+        uravelled_coords, origidxs, idxs = np.unique(ravelled_coords, return_index=True, return_inverse=True)
+        
         grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs))) ).toarray()            
         grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
-        
         nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
-        self.obs_coords = coord_arr_from_1d(uravelled_coords[nonzero_idxs], obs_coords.dtype, 
+        uravelled_coords_nonzero = uravelled_coords[nonzero_idxs]
+        origidxs_nonzero = origidxs[nonzero_idxs]
+        # preserve the original order
+        sortedidxs = np.argsort(origidxs_nonzero)
+        uravelled_coords_nonzero_sorted = uravelled_coords_nonzero[sortedidxs]
+        self.obs_coords = coord_arr_from_1d(uravelled_coords_nonzero_sorted, obs_coords.dtype, 
                                                 [nonzero_idxs.size, self.ninput_features])
-        return grid_obs_pos_counts[nonzero_idxs, 1], grid_obs_counts[nonzero_idxs, 1]
+        
+        pos_counts = grid_obs_pos_counts[nonzero_idxs, 1][sortedidxs]
+        totals = grid_obs_counts[nonzero_idxs, 1][sortedidxs]
+        
+        return pos_counts, totals
                     
     def _process_observations(self, obs_coords, obs_values, totals=None): 
         if obs_values==[]:
