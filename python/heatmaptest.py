@@ -11,7 +11,7 @@ import gp_classifier_vb
 # from matplotlib import cm
 
 
-def genSimData():
+def genSimData(plot_3d_data=True):
     #SIMULATED DATA GENERATION    
     cx = scale * np.array([2, 5, 7])
     cy = scale * np.array([2, 5, 6])
@@ -35,18 +35,19 @@ def genSimData():
     damage_grid = np.exp(-0.05*np.sqrt( np.square(gridx-epi_centrex) + np.square(gridy-epi_centrey)))
     
     fig = plt.figure(1)    
-    ax = fig.add_subplot(2,2,1,projection='3d')
-    surf = ax.plot_surface(gridx, gridy, damage_grid, cstride=1, rstride=1, cmap=plt.get_cmap('spectral'))
-#     zlabel('Probability of damage','FontSize',15)
-    plt.xlabel('Long')
-    plt.ylabel('Lat')
-    ax.set_zlim3d(0, 1)
+    if plot_3d_data:
+        ax = fig.add_subplot(2,2,1,projection='3d')
+        surf = ax.plot_surface(gridx, gridy, damage_grid, cstride=1, rstride=1, cmap=plt.get_cmap('spectral'))
+        #     zlabel('Probability of damage','FontSize',15)
+        plt.xlabel('Long')
+        plt.ylabel('Lat')
+        ax.set_zlim3d(0, 1)
     
-    ax = fig.add_subplot(2, 2, 2, projection='3d')
-    surf = ax.plot_surface(gridx, gridy, pop_grid, cstride=1, rstride=1, cmap=plt.get_cmap('spectral'))
-#     zlabel('Population density','FontSize',15)
-    plt.xlabel('Long')
-    plt.ylabel('Lat')
+        ax = fig.add_subplot(2, 2, 2, projection='3d')
+        surf = ax.plot_surface(gridx, gridy, pop_grid, cstride=1, rstride=1, cmap=plt.get_cmap('spectral'))
+        #     zlabel('Population density','FontSize',15)
+        plt.xlabel('Long')
+        plt.ylabel('Lat')
     
     #Generate some reports
     rec_x = scale * np.array([2, 5, 7, 9]);
@@ -58,7 +59,7 @@ def genSimData():
     
     nresp = np.zeros(nreceiver,dtype=np.int64)
     npresp = np.zeros(nreceiver)
-    C = []
+    C = None
         
     for i in range(nreceiver):
         detection_area = np.where( np.sqrt( np.square(gridx-rec_x[i]) \
@@ -82,10 +83,10 @@ def genSimData():
             else:
                 rep = 0
             Crow = np.matrix([i, repx, repy, rep])
-            if C==[]:
+            if C is None:
                 C = Crow
             else:
-                C = np.concatenate((C, Crow), axis=0)    
+                C = np.concatenate((C, Crow), axis=0)
                 
     return nreceiver, C, gridx, gridy, pop_grid, fig
 
@@ -120,6 +121,6 @@ if __name__ == '__main__':
     nx = scale*10
     ny = scale*10
 
-    nreceiver, C, gridx, gridy, pop_grid, fig = genSimData()
+    nreceiver, C, gridx, gridy, pop_grid, fig = genSimData(plot_3d_data=True)
     bcc_pred,heatmapcombiner = runBCC(C,nx,ny,nreceiver)
     plotresults()

@@ -47,11 +47,9 @@ class HeatMapBCC(ibcc.IBCC):
     
     n_lengthscales = 1
     
-    update_s = 4
-    
     conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=None, rate_s0=None, shape_ls=10,
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None, kernel_func='matern_3_2'):
         if not outputy:
             outputy = []
@@ -123,11 +121,11 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = np.arange(self.nclasses)
         self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
-            #start with a homogeneous grid     
-            self.heatGP[j] = GPClassifierVB((self.nx, self.ny), z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
+            #start with a homogeneous grid  
+            # (self.nx, self.ny)   
+            self.heatGP[j] = GPClassifierVB(2, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
-                                force_update_all_points=self.update_all_points, n_lengthscales=self.n_lengthscales, 
-                                kernel_func=self.kernel_func)   
+                                force_update_all_points=self.update_all_points, kernel_func=self.kernel_func)   
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB = 1
             self.heatGP[j].min_iter_VB = 1
@@ -152,16 +150,7 @@ class HeatMapBCC(ibcc.IBCC):
         if not locally_converged:
             return False
         
-        if not self.update_s:
-            if self.verbose:
-                logging.debug("Switching on the inverse output scale updates.")
-            self.update_s = True
-            return False
-        elif self.update_s < 4: # need to allow at least two more iterations, one to update s, and one more each to 
-            # propagate the change through to t, then to pi, then back to t.
-            self.update_s += 1
-            return False
-        elif self.nIts>self.min_iterations:
+        if self.nIts>self.min_iterations:
             return True
         else:
             return False
@@ -229,8 +218,8 @@ class HeatMapBCC(ibcc.IBCC):
         #Evaluate the function posterior mean and variance at all coordinates in the grid. Use this to calculate
         #values for plotting a heat map. Calculate coordinates:
         nout = self.nx * self.ny
-        outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout)
-        outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout)
+        outputx = np.tile(np.arange(self.nx, dtype=np.float).reshape(self.nx, 1), (1, self.ny)).reshape(nout, 1)
+        outputy = np.tile(np.arange(self.ny, dtype=np.float).reshape(1, self.ny), (self.nx, 1)).reshape(nout, 1)
 
         if self.nclasses==2:
             gprange = [1]
@@ -263,15 +252,6 @@ class HeatMapBCC(ibcc.IBCC):
 
         return self.E_t
     
-    def get_mean_kappa(self, j=1):
-        return self.heatGP[j].get_mean_density()
-
-    def get_heat_variance(self, j=1):
-        return self.heatGP[j].v
-    
-    def get_heat_variance_grid(self, j=1):
-        return self.heatGP[j].v.reshape((self.nx, self.ny))
-
     def expec_lnkappa(self):
         if self.nclasses==2:
             gprange = [1]
@@ -282,20 +262,15 @@ class HeatMapBCC(ibcc.IBCC):
             obs_values = self.E_t[:,j]                
             
             # only process the data on the first iteration, otherwise variables get reset
-            self.heatGP[j].fit([self.obsx, self.obsy], np.round(obs_values), update_s=self.update_s, 
-                               process_obs=self.nIts==0) 
+            self.heatGP[j].fit([self.obsx, self.obsy], np.round(obs_values), process_obs=self.nIts==0) 
             
             self.heatGP[j].verbose = False
             lnkappaj, lnkappa_notj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
                                                         expectedlog=True, return_not=True)
             self.heatGP[j].verbose = self.verbose
             self.lnkappa[j] = lnkappaj.flatten()
-#             self.lnkappa[j][self.lnkappa[j] >= 1.0 - 1e-10] = np.log(1.0 - 1e-10) # make sure we don't encounter divide by zeros
-            #self.lnkappa[j] = self.heatGP[j].logpz(1.0).flatten()
         if self.nclasses==2:
-            #kappa0 = 1-np.exp(self.lnkappa[1])
-            #self.lnkappa[0][kappa0 > 1e-10] = np.log(kappa0[kappa0 > 1e-10])
-            self.lnkappa[0] = lnkappa_notj.flatten() #self.heatGP[1].logpz(0.0).flatten()
+            self.lnkappa[0] = lnkappa_notj.flatten()
             
     def lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
@@ -315,11 +290,13 @@ class HeatMapBCC(ibcc.IBCC):
 #         lnpCT = super(HeatMapBCC, self).post_lnjoint_ct()
         lnpCT = 0
         for j in gprange:
-            rhoj, notrhoj = self.heatGP[j]._logpt()
-            lnpCTj = self.lnpCT[:, j] - self.lnkappa[j] + rhoj.flatten() 
+            lnrhoj, lnnotrhoj = self.heatGP[j]._logpt()
+            lnpCTj = self.lnpCT[:, j] - self.lnkappa[j] + lnrhoj.flatten() # this operation is required because we
+            # need the p(C, T | f) since the terms p(f) and q(f) will also be included in the lower bound. In contrast,
+            # self.lnpCT integrates out f.
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, j], lnpCTj))
         if self.nclasses==2:
-            lnpCTj = self.lnpCT[:, 0] - self.lnkappa[0] + notrhoj.flatten()
+            lnpCTj = self.lnpCT[:, 0] - self.lnkappa[0] + lnnotrhoj.flatten()
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, 0], lnpCTj))
             
 #         import matplotlib.pyplot as plt
