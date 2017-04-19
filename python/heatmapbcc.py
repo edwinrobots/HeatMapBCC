@@ -131,6 +131,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].min_iter_VB = 1
             self.heatGP[j].max_iter_G = 1
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPClassifierVB function
+            logging.debug("Length-scale = %.3f, %.3f" % (self.heatGP[1].ls[0], self.heatGP[1].ls[1]))
         
     def convergence_measure(self, oldET):
         kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
@@ -378,8 +379,7 @@ class HeatMapBCC(ibcc.IBCC):
         elif self.n_lengthscales==2:
             self.ls_initial[0] = np.exp(hyperparams[ - self.n_lengthscales])
             self.ls_initial[1] = np.exp(hyperparams[ - self.n_lengthscales + 1])
-        lengthscales = self.ls_initial
-        logging.debug("Length-scale = %.3f, %.3f" % (self.heatGP[1].ls[0], self.heatGP[1].ls[1]))    
+        lengthscales = self.ls_initial    
         return self.alpha0, self.nu0, lengthscales
 
     def get_hyperparams(self):

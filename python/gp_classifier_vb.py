@@ -84,8 +84,8 @@ def deriv_matern_3_2(distances, ls, dim):
     K_notdim = np.ones(distances.shape)
     for d in range(distances.shape[2]):
         if d == dim:
-            K_dim = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
-            K_dim = (K_dim**2 / ls[d]) * np.exp(-K_dim)
+            K_dim = np.abs(distances[:, :, d]) * 3**0.5
+            K_dim = -(1 + K_dim) * (ls[d] - K_dim) * np.exp(-K_dim / ls[d]) / ls[d]**3# (K_dim**2 / ls[d]) *
             continue
         
         K_notdim[:, :, d] = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
@@ -170,11 +170,14 @@ class GPClassifierVB(object):
         #Length-scale
         self.shape_ls = shape_ls # prior pseudo counts * 0.5
         self.rate_ls = rate_ls # analogous to a sum of changes between points at a distance of 1
-        if np.any(ls_initial):
+        if np.any(ls_initial) and len(ls_initial) > 1:
             self.ls = np.array(ls_initial)
         else:
             self.ls = self.shape_ls / self.rate_ls
-            self.ls = np.zeros(self.ninput_features) + self.ls
+            if np.any(ls_initial):
+                self.ls = np.zeros(self.ninput_features) + ls_initial[0]
+            else:
+                self.ls = np.zeros(self.ninput_features) + self.ls
 
         self.ls = self.ls.astype(float)
 
@@ -418,12 +421,16 @@ class GPClassifierVB(object):
         Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
         '''
         fhat = (self.obs_f - self.mu0)
-        dKdls = self.kernel_der(self.obs_distances, self.ls, dim)  / self.s 
+        
+        dKdls = self.kernel_der(self.obs_distances, self.ls, dim)  / self.s
+        if self.n_lengthscales == 1:
+            for d in range(1, len(self.ls)):
+                dKdls +=  self.kernel_der(self.obs_distances, self.ls, d)  / self.s
         
         invKs_fhat = solve_triangular(self.cholK, fhat, trans=True, check_finite=False)
         invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
         invKs_fhat *= self.s
-        invKs_fhat = np.linalg.inv(self.K/self.s).dot(fhat)
+        #invKs_fhat = np.linalg.inv(self.K/self.s).dot(fhat)
                 
         firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
         
@@ -501,7 +508,10 @@ class GPClassifierVB(object):
         '''
         if np.any(np.isnan(hyperparams)):
             return np.inf
-        self.ls[dimension] = np.exp(hyperparams)
+        if self.n_lengthscales == 1:
+            self.ls[:] = np.exp(hyperparams)
+        else:
+            self.ls[dimension] = np.exp(hyperparams)
         if np.any(np.isinf(self.ls)):
             return np.inf
         
@@ -525,7 +535,10 @@ class GPClassifierVB(object):
     def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
         needs_fitting = False
         if np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-8:
-            self.ls[dimension] = np.exp(hyperparams)
+            if self.n_lengthscales == 1:
+                self.ls[:] = np.exp(hyperparams)
+            else:
+                self.ls[dimension] = np.exp(hyperparams) 
             needs_fitting = True
         if needs_fitting:
             self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)        
@@ -591,8 +604,8 @@ class GPClassifierVB(object):
               
         nfits = 0
         njacs = 0
-                    
-        for d in np.arange(len(self.ls)):#enumerate(self.ls):
+        
+        for d in np.arange(self.n_lengthscales):#enumerate(self.ls):
             ls = self.ls[d]
             min_nlml = np.inf
             best_opt_hyperparams = None
@@ -737,7 +750,7 @@ class GPClassifierVB(object):
         '''
         
         # if no output_coords provided, give predictions at the fitted locations
-        if not output_coords == None and not len(output_coords):
+        if output_coords is None or not len(output_coords):
             return self.predict_obs(variance_method, expectedlog, return_not)
         
         nblocks, noutputs = self._init_output_arrays(output_coords, max_block_size)
