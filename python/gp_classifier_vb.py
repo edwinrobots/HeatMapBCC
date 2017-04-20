@@ -460,7 +460,7 @@ class GPClassifierVB(object):
     
     def _logpt(self):    
         f_samples = norm.rvs(loc=self.obs_f, scale=np.sqrt(np.diag(self.G.T.dot(np.diag(self.Q)).dot(self.G)))[:, np.newaxis], 
-                             size=(self.n_locs, 5000))
+                             size=(self.n_locs, 500))
         rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         lognotrho_samples = np.log(1 - rho_samples)
@@ -877,7 +877,7 @@ class GPClassifierVB(object):
     
     def _post_sample(self, f, v, expectedlog): 
         # draw samples from a Gaussian with mean f and variance v
-        f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 10000))
+        f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 500))
         rho_samples = sigmoid(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         rho_not_samples = 1 - rho_samples 
