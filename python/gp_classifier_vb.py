@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 from scipy.special import gammaln, psi, binom
 from scipy.stats import norm, gamma
 import logging
+from numpy import float16
 
 def compute_distance(col, row):
     # create a grid where each element of the row is subtracted from each element of the column
@@ -69,6 +70,18 @@ def deriv_sq_exp_cov(distances, ls, dim):
     K_notdim = np.prod(K_notdim, axis=2)
     return K_notdim * K_dim
 
+def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
+    xvals *= 3**0.5 / ls_d
+    xvals = xvals.astype(float16)
+    K = compute_distance(xvals, x2vals.T)
+    K = np.abs(K, K)
+    
+    exp_minusK = np.exp(-K)
+    K *= exp_minusK
+    K += exp_minusK
+    
+    return K
+
 def matern_3_2(distances, ls):
     K = np.zeros(distances.shape)
     for d in range(distances.shape[2]):
@@ -93,17 +106,37 @@ def deriv_matern_3_2(distances, ls, dim):
     K_notdim = np.prod(K_notdim, axis=2)
     return K_notdim * K_dim
     
+def deriv_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
+    ''' 
+    Derivative W.R.T the length scale indicated by dim 
+    '''            
+    K = np.abs(compute_distance(vals[d], vals[d].T).astype(float16)) * 3**0.5
+    K = -(1 + K) * (ls[d] - K) * np.exp(-K / ls[d]) / ls[d]**3
+    
+    for i in range(vals.shape[1]):
+        if i == d:
+            continue
+        xvals = vals[:, i:i+1]
+        
+        if vals2 is None:
+            xvals2 = xvals
+        else:
+            xvals2 = vals2[:, i:i+1]
+        K *= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls[i])
+    return K
 
-def matern_3_2_from_raw_vals(vals, ls):
-    distances = np.zeros((vals[0].size, vals[0].size, vals.shape[0]))
-    for i, xvals in enumerate(vals):
-        if xvals.ndim == 1:
-            xvals = xvals[:, np.newaxis]
-        elif xvals.shape[0] == 1 and xvals.shape[1] > 1:
-            xvals = xvals.T
-        xdists = compute_distance(xvals, xvals.T)
-        distances[:, :, i] = xdists
-    K = matern_3_2(distances, ls)
+def matern_3_2_from_raw_vals(vals, ls, vals2=None):
+    K = 1
+    for i in range(vals.shape[1]):
+        xvals = vals[:, i:i+1]
+            
+        if vals2 is None:
+            xvals2 = xvals
+        else:
+            xvals2 = vals2[:, i:i+1]
+                            
+        K_d = matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls[i])
+        K *= K_d
     return K
 
 class GPClassifierVB(object):
