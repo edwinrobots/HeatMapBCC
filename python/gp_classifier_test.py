@@ -16,7 +16,7 @@ def gen_synthetic_classifications(f_prior_mean=None, nx=100, ny=100):
     # Generate some data
     ls = [10, 10]
     sigma = 0.1 
-    N = 1000
+    N = 2000
     #C = 100 # number of labels for training
     s = 1 # inverse precision scale for the latent function.
     
@@ -29,7 +29,7 @@ def gen_synthetic_classifications(f_prior_mean=None, nx=100, ny=100):
             xvals[coord] = np.random.choice(nx, 1)
             yvals[coord] = np.random.choice(ny, 1)           
         
-    K = matern_3_2_from_raw_vals(np.array([xvals, yvals]), ls)
+    K = matern_3_2_from_raw_vals(np.concatenate((xvals, yvals), axis=1), ls)
     if f_prior_mean is None:
         f = mvn.rvs(cov=K/s) # zero mean        
     else:
@@ -121,7 +121,7 @@ if __name__ == '__main__':
         
         model = models[modelkey]
     
-        model.fit(obs_coords, labels[trainidxs], optimize=False)#True)
+        model.fit(obs_coords, labels[trainidxs], optimize=True)
         print "Final lower bound: %f" % model.lowerbound()
         
         # Predict at the test locations

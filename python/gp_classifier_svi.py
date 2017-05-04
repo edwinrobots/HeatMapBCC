@@ -53,7 +53,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._init_covariance()
         
         # Get the correct covariance matrix
-        self.K = self.kernel_func(self.obs_distances, self.ls)
+        self.K = self.kernel_func(self.obs_coords, self.ls)
         self.K += 1e-6 * np.eye(len(self.K)) # jitter
                 
         self.Ks = self.K / self.s
@@ -86,17 +86,10 @@ class GPClassifierSVI(GPClassifierVB):
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
         self.inv_Ks_mm_uS = np.eye(self.ninducing)
 
-        mm_dist = np.zeros((self.ninducing, self.ninducing, self.ninput_features))
-        nm_dist = np.zeros((nobs, self.ninducing, self.ninput_features))
-        for d in range(self.ninput_features):
-            mm_dist[:, :, d] = compute_distance(self.inducing_coords[:, d:d+1].T, self.inducing_coords[:, d:d+1])
-            nm_dist[:, :, d] = compute_distance(self.inducing_coords[:, d:d+1].T, self.obs_coords[:, d:d+1]).astype(float)
-        self.inducing_distances = mm_dist
-         
-        self.K_mm = self.kernel_func(mm_dist, self.ls)
+        self.K_mm = self.kernel_func(self.inducing_coords, self.ls)
         self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter 
         self.invK_mm = np.linalg.inv(self.K_mm)
-        self.K_nm = self.kernel_func(nm_dist, self.ls)
+        self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords)
         
         self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
 
@@ -157,7 +150,13 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self).lowerbound_gradient(dim)
         
         fhat = self.um_minus_mu0
-        dKdls = self.kernel_der(self.inducing_distances, self.ls, dim)  / self.s 
+        
+        if self.n_lengthscales == 1:
+            dKdls = 0
+            for d in range(self.obs_coords.shape[1]):
+                dKdls +=  self.kernel_der(self.inducing_coords, self.ls, d)  / self.s
+        else:
+            dKdls = self.kernel_der(self.inducing_coords, self.ls, dim)  / self.s        
         
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
         firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
@@ -291,11 +290,7 @@ class GPClassifierSVI(GPClassifierVB):
             
         block_coords = self.output_coords[blockidxs]        
         
-        distances = np.zeros((block_coords.shape[0], self.inducing_coords.shape[0], self.ninput_features))
-        for d in range(self.ninput_features):
-            distances[:, :, d] = compute_distance(block_coords[:, d:d+1], self.inducing_coords[:, d:d+1].T)
-        
-        K_out = self.kernel_func(distances, self.ls)
+        K_out = self.kernel_func(block_coords, self.ls, self.inducing_coords)
         K_out /= self.s        
                 
         self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, K_out, self.mu0_output[blockidxs, :])

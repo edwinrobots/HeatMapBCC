@@ -5,7 +5,8 @@ from scipy.optimize import minimize
 from scipy.special import gammaln, psi, binom
 from scipy.stats import norm, gamma
 import logging
-from numpy import float16
+from joblib import Parallel, delayed
+import multiprocessing
 
 def compute_distance(col, row):
     # create a grid where each element of the row is subtracted from each element of the column
@@ -71,8 +72,9 @@ def deriv_sq_exp_cov(distances, ls, dim):
     return K_notdim * K_dim
 
 def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
-    xvals *= 3**0.5 / ls_d
-    xvals = xvals.astype(float16)
+    xvals = xvals * 3**0.5 / ls_d
+    x2vals = x2vals * 3**0.5 / ls_d
+    
     K = compute_distance(xvals, x2vals.T)
     K = np.abs(K, K)
     
@@ -110,7 +112,7 @@ def deriv_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     ''' 
     Derivative W.R.T the length scale indicated by dim 
     '''            
-    K = np.abs(compute_distance(vals[d], vals[d].T).astype(float16)) * 3**0.5
+    K = np.abs(compute_distance(vals[:, d:d+1], vals[:, d:d+1].T)) * 3**0.5
     K = -(1 + K) * (ls[d] - K) * np.exp(-K / ls[d]) / ls[d]**3
     
     for i in range(vals.shape[1]):
@@ -122,21 +124,40 @@ def deriv_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
             xvals2 = xvals
         else:
             xvals2 = vals2[:, i:i+1]
-        K *= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls[i])
+        if len(ls) > 1:
+            ls_i = ls[i]
+        else:
+            ls_i = ls[0]  
+        K *= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
     return K
 
-def matern_3_2_from_raw_vals(vals, ls, vals2=None):
-    K = 1
-    for i in range(vals.shape[1]):
+def compute_K_subset(subset, subset_size, vals, vals2, ls):
+    K_subset = 1
+    range_end = subset_size*(subset+1)
+    if range_end > vals.shape[1]:
+        range_end = vals.shape[1]
+        
+    for i in range(subset_size*subset, range_end):
         xvals = vals[:, i:i+1]
             
         if vals2 is None:
             xvals2 = xvals
         else:
             xvals2 = vals2[:, i:i+1]
-                            
-        K_d = matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls[i])
-        K *= K_d
+            
+        if len(ls) > 1:
+            ls_i = ls[i]
+        else:
+            ls_i = ls[0]
+        K_d = matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+        K_subset *= K_d
+    return K_subset
+    
+def matern_3_2_from_raw_vals(vals, ls, vals2=None):
+    num_jobs = multiprocessing.cpu_count()
+    subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
+    K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls) for i in range(num_jobs))
+    K = np.prod(K, axis=0)
     return K
 
 class GPClassifierVB(object):
@@ -180,6 +201,9 @@ class GPClassifierVB(object):
     
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None, 
                  force_update_all_points=False, kernel_func='matern_3_2', verbose=False):
+        
+        self.verbose = verbose
+        
         #Grid size for prediction
         self.ninput_features = ninput_features
         
@@ -242,7 +266,7 @@ class GPClassifierVB(object):
                 
     def _init_covariance(self):
         # Get the correct covariance matrix
-        self.K = self.kernel_func(self.obs_distances, self.ls)
+        self.K = self.kernel_func(self.obs_coords, self.ls)
         self.K += 1e-6 * np.eye(len(self.K)) # jitter
         self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
                 
@@ -299,19 +323,21 @@ class GPClassifierVB(object):
             logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
 
     def _select_covariance_function(self, cov_type):
-        if cov_type == 'diagonal':
-            self.kernel_func = diagonal
-            def zerocovder(distance, ls, dim): 
-                return 0
-            self.kernel_der = zerocovder 
-        elif cov_type == 'matern_3_2':
-            self.kernel_func = matern_3_2
-            self.kernel_der = deriv_matern_3_2
-        elif cov_type == 'sq_exp':
-            self.kernel_func = sq_exp_cov
-            self.kernel_der = deriv_sq_exp_cov
+        self.cov_type = cov_type
+        if cov_type == 'matern_3_2':
+            self.kernel_func = matern_3_2_from_raw_vals
+            self.kernel_der = deriv_matern_3_2_from_raw_vals
+        # the following implementations no longer work because they need to use kernel functions that work with the raw values
+#         elif cov_type == 'diagonal':
+#             self.kernel_func = diagonal
+#             def zerocovder(distance, ls, dim): 
+#                 return 0
+#             self.kernel_der = zerocovder 
+#         elif cov_type == 'sq_exp':
+#             self.kernel_func = sq_exp_cov
+#             self.kernel_der = deriv_sq_exp_cov
         else:
-            logging.error('GPClassifierVB: Invalid covariance type %s' % cov_type)        
+            logging.error('GPClassifierVB: Invalid covariance type %s' % cov_type)         
 
     # Input data handling ---------------------------------------------------------------------------------------------
 
@@ -381,13 +407,6 @@ class GPClassifierVB(object):
         
         self._observations_to_z()
         
-        #Update to produce training matrices only over known points
-        self.obs_distances = np.zeros((n_locations, n_locations, self.ninput_features))
-        obs_coords_3d = self.obs_coords.reshape((n_locations, 1, self.ninput_features))
-        for d in range(self.ninput_features):
-            self.obs_distances[:, :, d] = compute_distance(obs_coords_3d[:, :, d].T, obs_coords_3d[:, :, d])
-        self.obs_distances = self.obs_distances.astype(float)
-         
     def _observations_to_z(self):
         obs_probs = self.obs_values/self.obs_total_counts
         self.z = obs_probs         
@@ -454,24 +473,34 @@ class GPClassifierVB(object):
         Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
         '''
         fhat = (self.obs_f - self.mu0)
-        
-        dKdls = self.kernel_der(self.obs_distances, self.ls, dim)  / self.s
-        if self.n_lengthscales == 1:
-            for d in range(1, len(self.ls)):
-                dKdls +=  self.kernel_der(self.obs_distances, self.ls, d)  / self.s
-        
+
         invKs_fhat = solve_triangular(self.cholK, fhat, trans=True, check_finite=False)
         invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
         invKs_fhat *= self.s
-        #invKs_fhat = np.linalg.inv(self.K/self.s).dot(fhat)
-                
-        firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
         
-        invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
-        invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
-        invKs_dkdls *= self.s
-        secondterm = np.trace(self.obs_C.dot(invKs_dkdls))
-        #secondterm = np.trace(self.obs_C.dot(np.linalg.inv(self.K/self.s)).dot(dKdls))
+        if self.n_lengthscales == 1:
+            dKdls = 0
+            for d in range(self.obs_coords.shape[1]):
+                dKdls +=  self.kernel_der(self.obs_coords, self.ls, d)  / self.s
+        elif dim == -1:
+            firstterm = np.zeros(self.n_lengthscales)
+            secondterm = np.zeros(self.n_lengthscales)          
+            for d in range(self.n_lengthscales):
+                dKdls = self.kernel_der(self.obs_coords, self.ls, d)  / self.s
+                firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+
+                invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
+                invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
+                invKs_dkdls *= self.s
+                secondterm[d] = np.trace(self.obs_C.dot(invKs_dkdls))
+        else:
+            dKdls = self.kernel_der(self.obs_coords, self.ls, dim)  / self.s
+            firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)    
+        
+            invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
+            invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
+            invKs_dkdls *= self.s
+            secondterm = np.trace(self.obs_C.dot(invKs_dkdls))
         
         gradient = 0.5 * (firstterm - secondterm)
         return gradient
@@ -541,7 +570,7 @@ class GPClassifierVB(object):
         '''
         if np.any(np.isnan(hyperparams)):
             return np.inf
-        if self.n_lengthscales == 1:
+        if dimension == -1 or self.n_lengthscales == 1:
             self.ls[:] = np.exp(hyperparams)
         else:
             self.ls[dimension] = np.exp(hyperparams)
@@ -566,23 +595,21 @@ class GPClassifierVB(object):
         return -lml
     
     def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
-        needs_fitting = False
-        if np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-8:
-            if self.n_lengthscales == 1:
+        if np.any(np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-8):
+            if dimension == -1 or self.n_lengthscales == 1:
                 self.ls[:] = np.exp(hyperparams)
             else:
                 self.ls[dimension] = np.exp(hyperparams) 
-            needs_fitting = True
-        if needs_fitting:
+            
             self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)        
         
         gradient = self.lowerbound_gradient(dimension)
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.") 
             
-        logging.debug('Jacobian: %.3f' % gradient)
+        logging.debug('Jacobian: %s' % gradient)
             
-        return - gradient
+        return -gradient
     
     # Training methods ------------------------------------------------------------------------------------------------
 
@@ -638,48 +665,36 @@ class GPClassifierVB(object):
         nfits = 0
         njacs = 0
         
-        for d in np.arange(self.n_lengthscales):#enumerate(self.ls):
-            ls = self.ls[d]
-            min_nlml = np.inf
-            best_opt_hyperparams = None
-            best_iter = -1            
+        min_nlml = np.inf
+        best_opt_hyperparams = None
+        best_iter = -1            
+        logging.debug("Optimising length-scale for all dimensions")
             
-            logging.debug("Optimising length-scale for %i dimension" % d)
-            
-            # optimise each length-scale sequentially in turn
-            for r in range(nrestarts):
-                if ls == 1:
-                    logging.warning("Changing length-scale of 1 to 2 to avoid optimisation problems.")
-                    ls = 2.0
-            
-                initialguess = np.log(ls)
-                logging.debug("Initial length-scale guess for dimension %i in restart %i: %.3f" % (d, r, ls))
-        
-                #ftol = self.conv_threshold * 1e2
-                #logging.debug("Ftol = %.5f" % ftol)
-#                 opt_hyperparams, nlml, _, _, _ = fmin(self.neg_marginal_likelihood, initialguess, maxfun=maxfun, 
-#                                               ftol=ftol, xtol=ls * 1e100, full_output=True, args=(d, use_MAP,))
-
-                res = minimize(self.neg_marginal_likelihood, initialguess, 
-                  args=(d, use_MAP,), jac=self.nml_jacobian, method='CG', 
-                  options={'maxiter':maxfun})
-
-                opt_hyperparams = res['x']
-                nlml = res['fun']
-                nfits += res['nfev']
-                njacs += res['njev']
-                
-                if nlml < min_nlml:
-                    min_nlml = nlml
-                    best_opt_hyperparams = opt_hyperparams
-                    best_iter = r
-                    
-                # choose a new lengthscale for the initial guess of the next attempt
-                ls = gamma.rvs(self.shape_ls, scale=1.0/self.rate_ls)
+        # optimise each length-scale sequentially in turn
+        for r in range(nrestarts):
+            initialguess = np.log(self.ls)
+            logging.debug("Initial length-scale guess in restart %i: %s" % (r, self.ls))
     
-            if best_iter < r:
-                # need to go back to the best result
-                self.neg_marginal_likelihood(best_opt_hyperparams, d, use_MAP=False)
+            res = minimize(self.neg_marginal_likelihood, initialguess, 
+              args=(-1, use_MAP,), jac=self.nml_jacobian, method='CG', 
+              options={'maxiter':maxfun})
+
+            opt_hyperparams = res['x']
+            nlml = res['fun']
+            nfits += res['nfev']
+            njacs += res['njev']
+            
+            if nlml < min_nlml:
+                min_nlml = nlml
+                best_opt_hyperparams = opt_hyperparams
+                best_iter = r
+                    
+            # choose a new lengthscale for the initial guess of the next attempt
+            self.ls = gamma.rvs(self.shape_ls, scale=1.0/self.rate_ls, size=len(self.ls))
+    
+        if best_iter < r:
+            # need to go back to the best result
+            self.neg_marginal_likelihood(best_opt_hyperparams, -1, use_MAP=False)
 
         logging.debug("Optimal hyper-parameters: %s; found using %i objective fun evals and %i jacobian evals" % 
                       (self.ls, nfits, njacs))
@@ -887,12 +902,7 @@ class GPClassifierVB(object):
         
     def _expec_f_output(self, blockidxs):
         block_coords = self.output_coords[blockidxs]        
-        
-        distances = np.zeros((block_coords.shape[0], self.obs_coords.shape[0], self.ninput_features))
-        for d in range(self.ninput_features):
-            distances[:, :, d] = compute_distance(block_coords[:, d:d+1], self.obs_coords[:, d:d+1].T)
-        
-        K_out = self.kernel_func(distances, self.ls)
+        K_out = self.kernel_func(block_coords, self.ls, self.obs_coords)
         K_out /= self.s        
         
         self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 
