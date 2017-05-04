@@ -179,7 +179,7 @@ class GPClassifierVB(object):
     p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
     
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None, 
-                 force_update_all_points=False, kernel_func='matern_3_2'):
+                 force_update_all_points=False, kernel_func='matern_3_2', verbose=False):
         #Grid size for prediction
         self.ninput_features = ninput_features
         

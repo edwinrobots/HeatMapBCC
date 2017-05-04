@@ -19,7 +19,7 @@ class GPClassifierSVI(GPClassifierVB):
     
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None, 
                  force_update_all_points=False, kernel_func='matern_3_2', max_update_size=10000, 
-                 ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9):
+                 ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False):
         
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
         
@@ -39,7 +39,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.fixed_sample_idxs = False
         
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
-                                    force_update_all_points, kernel_func)      
+                                    force_update_all_points, kernel_func, verbose=verbose)      
 
     # Initialisation --------------------------------------------------------------------------------------------------
         
