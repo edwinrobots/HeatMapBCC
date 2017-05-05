@@ -112,8 +112,12 @@ def deriv_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     ''' 
     Derivative W.R.T the length scale indicated by dim 
     '''            
+    if len(ls) > 1:
+        ls_d = ls[d]
+    else:
+        ls_d = ls[0]    
     K = np.abs(compute_distance(vals[:, d:d+1], vals[:, d:d+1].T)) * 3**0.5
-    K = -(1 + K) * (ls[d] - K) * np.exp(-K / ls[d]) / ls[d]**3
+    K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
     
     for i in range(vals.shape[1]):
         if i == d:
@@ -191,8 +195,8 @@ class GPClassifierVB(object):
     max_iter_VB = 200#1000
     min_iter_VB = 5
     max_iter_G = 10
-    conv_threshold = 1e-5
-    conv_threshold_G = 1e-5
+    conv_threshold = 1e-4
+    conv_threshold_G = 1e-3
     conv_check_freq = 2
     
     uselowerbound = True
@@ -478,11 +482,18 @@ class GPClassifierVB(object):
         invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
         invKs_fhat *= self.s
         
-        if self.n_lengthscales == 1:
-            dKdls = 0
+        if self.n_lengthscales == 1: # sum the partial derivatives over all the dimensions 
+            firstterm = 0
+            secondterm = 0
             for d in range(self.obs_coords.shape[1]):
-                dKdls +=  self.kernel_der(self.obs_coords, self.ls, d)  / self.s
-        elif dim == -1:
+                dKdls =  self.kernel_der(self.obs_coords, self.ls, d)  / self.s
+                firstterm += invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+                invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
+                invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
+                invKs_dkdls *= self.s                
+                secondterm += np.trace(self.obs_C.dot(invKs_dkdls))
+                
+        elif dim == -1: # create an array with values for each dimension
             firstterm = np.zeros(self.n_lengthscales)
             secondterm = np.zeros(self.n_lengthscales)          
             for d in range(self.n_lengthscales):
@@ -493,7 +504,8 @@ class GPClassifierVB(object):
                 invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
                 invKs_dkdls *= self.s
                 secondterm[d] = np.trace(self.obs_C.dot(invKs_dkdls))
-        else:
+                
+        else: # do it for only the dimension dim
             dKdls = self.kernel_der(self.obs_coords, self.ls, dim)  / self.s
             firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)    
         
@@ -607,9 +619,9 @@ class GPClassifierVB(object):
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.") 
             
-        logging.debug('Jacobian: %s' % gradient)
+        logging.debug('Jacobian of NLML: %s' % gradient)
             
-        return -gradient
+        return gradient
     
     # Training methods ------------------------------------------------------------------------------------------------
 
@@ -690,7 +702,8 @@ class GPClassifierVB(object):
                 best_iter = r
                     
             # choose a new lengthscale for the initial guess of the next attempt
-            self.ls = gamma.rvs(self.shape_ls, scale=1.0/self.rate_ls, size=len(self.ls))
+            if r < nrestarts - 1:
+                self.ls = gamma.rvs(self.shape_ls, scale=1.0/self.rate_ls, size=len(self.ls))
     
         if best_iter < r:
             # need to go back to the best result

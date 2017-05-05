@@ -150,19 +150,30 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self).lowerbound_gradient(dim)
         
         fhat = self.um_minus_mu0
+        invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
         
         if self.n_lengthscales == 1:
-            dKdls = 0
+            firstterm = 0
+            secondterm = 0
             for d in range(self.obs_coords.shape[1]):
-                dKdls +=  self.kernel_der(self.inducing_coords, self.ls, d)  / self.s
+                dKdls = self.kernel_der(self.inducing_coords, self.ls, d)  / self.s
+                firstterm += invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+                C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
+                secondterm += np.trace(C_invKs_dkdls)   
+        elif dim == -1:             
+            firstterm = np.zeros(self.n_lengthscales)
+            secondterm = np.zeros(self.n_lengthscales)
+            for d in range(self.obs_coords.shape[1]):
+                dKdls = self.kernel_der(self.inducing_coords, self.ls, d)  / self.s
+                firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+                C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
+                secondterm[d] = np.trace(C_invKs_dkdls)   
         else:
             dKdls = self.kernel_der(self.inducing_coords, self.ls, dim)  / self.s        
+            firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
         
-        invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
-        firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-        
-        C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
-        secondterm = np.trace(C_invKs_dkdls)
+            C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
+            secondterm = np.trace(C_invKs_dkdls)
         
         gradient = 0.5 * (firstterm - secondterm)
         return gradient    
