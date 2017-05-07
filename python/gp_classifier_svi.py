@@ -156,7 +156,7 @@ class GPClassifierSVI(GPClassifierVB):
             firstterm = 0
             secondterm = 0
             for d in range(self.obs_coords.shape[1]):
-                dKdls = self.K * self.kernel_derfactor(self.inducing_coords, self.ls, d)  / self.s
+                dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, d)  / self.s
                 firstterm += invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
                 C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
                 secondterm += np.trace(C_invKs_dkdls)   
@@ -164,12 +164,12 @@ class GPClassifierSVI(GPClassifierVB):
             firstterm = np.zeros(self.n_lengthscales)
             secondterm = np.zeros(self.n_lengthscales)
             for d in range(self.obs_coords.shape[1]):
-                dKdls = self.K * self.kernel_derfactor(self.inducing_coords, self.ls, d)  / self.s
+                dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, d)  / self.s
                 firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
                 C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
                 secondterm[d] = np.trace(C_invKs_dkdls)   
         else:
-            dKdls = self.K * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s        
+            dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s        
             firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
         
             C_invKs_dkdls = (self.inv_Ks_mm_uS).dot(dKdls)
