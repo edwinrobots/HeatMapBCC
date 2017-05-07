@@ -108,6 +108,30 @@ def deriv_matern_3_2(distances, ls, dim):
     K_notdim = np.prod(K_notdim, axis=2)
     return K_notdim * K_dim
     
+def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
+    ''' 
+    To obtain the derivative W.R.T the length scale indicated by dim, multiply the value returned by this function
+    with the kernel. Use this to save recomputing the kernel for each dimension. 
+    '''            
+    if len(ls) > 1:
+        ls_d = ls[d]
+    else:
+        ls_d = ls[0]    
+    K = np.abs(compute_distance(vals[:, d:d+1], vals[:, d:d+1].T)) * 3**0.5
+    K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
+    
+    xvals = vals[:, d:d+1]
+    if vals2 is None:
+        xvals2 = xvals
+    else:
+        xvals2 = vals2[:, d:d+1]
+    if len(ls) > 1:
+        ls_i = ls[d]
+    else:
+        ls_i = ls[0]  
+    K *= 1.0 / matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+    return K
+
 def deriv_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     ''' 
     Derivative W.R.T the length scale indicated by dim 
@@ -330,7 +354,7 @@ class GPClassifierVB(object):
         self.cov_type = cov_type
         if cov_type == 'matern_3_2':
             self.kernel_func = matern_3_2_from_raw_vals
-            self.kernel_der = deriv_matern_3_2_from_raw_vals
+            self.kernel_derfactor = derivfactor_matern_3_2_from_raw_vals
         # the following implementations no longer work because they need to use kernel functions that work with the raw values
 #         elif cov_type == 'diagonal':
 #             self.kernel_func = diagonal
@@ -486,7 +510,7 @@ class GPClassifierVB(object):
             firstterm = 0
             secondterm = 0
             for d in range(self.obs_coords.shape[1]):
-                dKdls =  self.kernel_der(self.obs_coords, self.ls, d)  / self.s
+                dKdls =  self.K * self.kernel_derfactor(self.obs_coords, self.ls, d)  / self.s
                 firstterm += invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
                 invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
                 invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
@@ -497,7 +521,7 @@ class GPClassifierVB(object):
             firstterm = np.zeros(self.n_lengthscales)
             secondterm = np.zeros(self.n_lengthscales)          
             for d in range(self.n_lengthscales):
-                dKdls = self.kernel_der(self.obs_coords, self.ls, d)  / self.s
+                dKdls = self.K * self.kernel_derfactor(self.obs_coords, self.ls, d)  / self.s
                 firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
 
                 invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
@@ -506,7 +530,7 @@ class GPClassifierVB(object):
                 secondterm[d] = np.trace(self.obs_C.dot(invKs_dkdls))
                 
         else: # do it for only the dimension dim
-            dKdls = self.kernel_der(self.obs_coords, self.ls, dim)  / self.s
+            dKdls = self.K * self.kernel_derfactor(self.obs_coords, self.ls, dim)  / self.s
             firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)    
         
             invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
