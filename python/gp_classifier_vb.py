@@ -117,14 +117,17 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
         ls_d = ls[d]
     else:
         ls_d = ls[0]    
-    K = np.abs(compute_distance(vals[:, d:d+1], vals[:, d:d+1].T)) * 3**0.5
-    K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
-    
+
     xvals = vals[:, d:d+1]
     if vals2 is None:
         xvals2 = xvals
     else:
         xvals2 = vals2[:, d:d+1]
+    
+    D = np.abs(compute_distance(xvals, xvals2.T))
+    #K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
+    K = 3 * D**2 * np.exp(-D * 3**0.5 / ls_d) / ls_d**3
+
     if len(ls) > 1:
         ls_i = ls[d]
     else:
@@ -390,6 +393,7 @@ class GPClassifierVB(object):
         uravelled_coords_nonzero_sorted = uravelled_coords_nonzero[sortedidxs]
         self.obs_coords = coord_arr_from_1d(uravelled_coords_nonzero_sorted, obs_coords.dtype, 
                                                 [nonzero_idxs.size, self.ninput_features])
+        self.obs_uidxs = origidxs_nonzero[sortedidxs] # records the mapping from the input data to the obs_coords object
         
         pos_counts = grid_obs_pos_counts[nonzero_idxs, 1][sortedidxs]
         totals = grid_obs_counts[nonzero_idxs, 1][sortedidxs]
