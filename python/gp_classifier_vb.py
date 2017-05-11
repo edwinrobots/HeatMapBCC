@@ -330,7 +330,7 @@ class GPClassifierVB(object):
         self.Q = self.Q.flatten()
                 
     def _init_obs_prior(self):
-        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(self.rate_s0/self.shape_s0), size=(self.n_locs, 50000))
+        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(self.rate_s0/self.shape_s0), size=(self.n_locs, 1000))
         rho_samples = self.forward_model(f_samples)
         rho_mean = np.mean(rho_samples)
         rho_var = np.var(rho_samples)
@@ -560,9 +560,9 @@ class GPClassifierVB(object):
         data_ll = lpobs    
         return data_ll      
     
-    def _logpt(self):    
-        f_samples = norm.rvs(loc=self.obs_f, scale=np.sqrt(np.diag(self.G.T.dot(np.diag(self.Q)).dot(self.G)))[:, np.newaxis], 
-                             size=(self.n_locs, 500))
+    def _logpt(self):
+        sigma = np.sqrt( np.sum( (self.G * self.Q[:, np.newaxis]) * self.G, axis=0) )[:, np.newaxis]
+        f_samples = norm.rvs(loc=self.obs_f, scale=sigma, size=(self.n_locs, 500))
         rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         lognotrho_samples = np.log(1 - rho_samples)
@@ -635,12 +635,13 @@ class GPClassifierVB(object):
         return -lml
     
     def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
-        if np.any(np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-8):
-            if dimension == -1 or self.n_lengthscales == 1:
+        # for the case where this method is called before the model is fitted to the given lengthscale
+        if dimension == -1 or self.n_lengthscales == 1: 
+            if np.any(np.abs(self.ls - np.exp(hyperparams)) > 1e-4):
                 self.ls[:] = np.exp(hyperparams)
-            else:
-                self.ls[dimension] = np.exp(hyperparams) 
-            
+                self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)            
+        elif np.any(np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-4):
+            self.ls[dimension] = np.exp(hyperparams) 
             self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)        
         
         gradient = self.lowerbound_gradient(dimension)
@@ -710,7 +711,6 @@ class GPClassifierVB(object):
         best_iter = -1            
         logging.debug("Optimising length-scale for all dimensions")
             
-        # optimise each length-scale sequentially in turn
         for r in range(nrestarts):
             initialguess = np.log(self.ls)
             logging.debug("Initial length-scale guess in restart %i: %s" % (r, self.ls))
