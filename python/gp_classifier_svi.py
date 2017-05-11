@@ -295,14 +295,14 @@ class GPClassifierSVI(GPClassifierVB):
     
     # Prediction methods ---------------------------------------------------------------------------------------------
                 
-    def _expec_f_output(self, blockidxs):
+    def _expec_f_output(self, block, blockidxs, reset_block=True):
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._expec_f_output(blockidxs)
+            return super(GPClassifierSVI, self)._expec_f_output(block, blockidxs, reset_block)
             
-        block_coords = self.output_coords[blockidxs]        
-        
-        K_out = self.kernel_func(block_coords, self.ls, self.inducing_coords)
-        K_out /= self.s        
+        if block not in self.K_out or reset_block:
+            block_coords = self.output_coords[blockidxs]        
+            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.inducing_coords)
+            self.K_out[block] /= self.s        
                 
-        self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, K_out, self.mu0_output[blockidxs, :])
+        self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, self.K_out[block], self.mu0_output[blockidxs, :])
         self.v[blockidxs, 0] = np.diag(C_out) 

@@ -439,6 +439,8 @@ class GPClassifierVB(object):
         
         self._observations_to_z()
         
+        self.K_out = {} # store the output cov matrix for each block. Reset when we have new observations.        
+        
     def _observations_to_z(self):
         obs_probs = self.obs_values/self.obs_total_counts
         self.z = obs_probs         
@@ -894,7 +896,7 @@ class GPClassifierVB(object):
         outputy = np.tile(np.arange(ny, dtype=np.float).reshape(1, ny), (nx, 1)).reshape(nout)
         self.predict([outputx, outputy], variance_method, max_block_size, return_not=return_not, mu0_output=mu0_output)
     
-    def predict_f(self, items_coords=[], max_block_size=1e5, mu0_output=None):
+    def predict_f(self, items_coords=None, max_block_size=1e5, mu0_output=None):
         nblocks, noutputs = self._init_output_arrays(items_coords, max_block_size)
                 
         if mu0_output is not None and len(mu0_output):
@@ -905,16 +907,17 @@ class GPClassifierVB(object):
         for block in range(nblocks):
             if self.verbose:
                 logging.debug("GPClassifierVB predicting block %i of %i" % (block, nblocks))            
-            self._predict_block(block, max_block_size, noutputs)
+            self._predict_block(block, max_block_size, noutputs, items_coords is not None)
         
         return self.f, self.v       
         
     def _init_output_arrays(self, output_coords, max_block_size):
-        self.output_coords = np.array(output_coords).astype(float)
-        if self.output_coords.shape[0] == self.ninput_features and self.output_coords.shape[1] != self.ninput_features:
-            if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
-                self.output_coords = self.output_coords.reshape((self.output_coords.shape[0], self.output_coords.shape[1]))                  
-            self.output_coords = self.output_coords.T
+        if output_coords is not None:        
+            self.output_coords = np.array(output_coords).astype(float)
+            if self.output_coords.shape[0] == self.ninput_features and self.output_coords.shape[1] != self.ninput_features:
+                if self.output_coords.ndim == 3 and self.output_coords.shape[2] == 1:
+                    self.output_coords = self.output_coords.reshape((self.output_coords.shape[0], self.output_coords.shape[1]))                  
+                self.output_coords = self.output_coords.T
             
         noutputs = self.output_coords.shape[0]
 
@@ -925,14 +928,14 @@ class GPClassifierVB(object):
 
         return nblocks, noutputs          
         
-    def _predict_block(self, block, max_block_size, noutputs):
+    def _predict_block(self, block, max_block_size, noutputs, reset_block=True):
         
         maxidx = (block + 1) * max_block_size
         if maxidx > noutputs:
             maxidx = noutputs
         blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
             
-        self._expec_f_output(blockidxs)
+        self._expec_f_output(block, blockidxs, reset_block)
         
         if np.any(self.v[blockidxs] < 0):
             self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
@@ -941,14 +944,15 @@ class GPClassifierVB(object):
         
         return blockidxs        
         
-    def _expec_f_output(self, blockidxs):
-        block_coords = self.output_coords[blockidxs]        
-        K_out = self.kernel_func(block_coords, self.ls, self.obs_coords)
-        K_out /= self.s        
+    def _expec_f_output(self, block, blockidxs, reset_block=True):
+        if block not in self.K_out or reset_block:
+            block_coords = self.output_coords[blockidxs]
+            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.obs_coords)
+            self.K_out[block] /= self.s        
         
-        self.f[blockidxs, :] = K_out.dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 
+        self.f[blockidxs, :] = self.K_out[block].dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 
         
-        V = solve_triangular(self.L, self.G.dot(K_out.T), lower=True, overwrite_b=True, check_finite=False)
+        V = solve_triangular(self.L, self.G.dot(self.K_out[block].T), lower=True, overwrite_b=True, check_finite=False)
         self.v[blockidxs, 0] = 1.0 / self.s - np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
         
     def _post_rough(self, f, v):
