@@ -512,39 +512,30 @@ class GPClassifierVB(object):
         invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
         invKs_fhat *= self.s
         
-        if self.n_lengthscales == 1: # sum the partial derivatives over all the dimensions 
-            firstterm = 0
-            secondterm = 0
-            for d in range(self.obs_coords.shape[1]):
-                dKdls =  self.K * self.kernel_derfactor(self.obs_coords, self.ls, d)  / self.s
-                firstterm += invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-                invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
-                invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
-                invKs_dkdls *= self.s                
-                secondterm += np.trace(invKs_dkdls - self.obs_C.dot(dKdls))
-                
-        elif dim == -1: # create an array with values for each dimension
-            firstterm = np.zeros(self.n_lengthscales)
-            secondterm = np.zeros(self.n_lengthscales)          
-            for d in range(self.n_lengthscales):
-                dKdls = self.K * self.kernel_derfactor(self.obs_coords, self.ls, d)  / self.s
-                firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-
-                invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
-                invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
-                invKs_dkdls *= self.s
-                secondterm[d] = np.trace(invKs_dkdls - self.obs_C.dot(dKdls))
-                
+        sigmasq = self.G.T.dot(np.diag(self.Q)).dot(self.G)
+        
+        if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
+            dims = range(self.obs_coords.shape[1])
         else: # do it for only the dimension dim
-            dKdls = self.K * self.kernel_derfactor(self.obs_coords, self.ls, dim)  / self.s
-            firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)    
+            dims = [dim]
+            
+        firstterm = np.zeros(len(dims))
+        secondterm = np.zeros(len(dims))
+        for d, dim in enumerate(dims):
+            dKdls =  self.K * self.kernel_derfactor(self.obs_coords, self.ls, dim)  / self.s
+            firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+
+            invKs_C = solve_triangular(self.cholK, self.obs_C, trans=True, check_finite=False)
+            invKs_C = solve_triangular(self.cholK, invKs_C, check_finite=False)
+            invKs_C *= self.s
+            secondterm[d] = np.trace(invKs_C.dot(sigmasq).dot(dKdls))
+
+        if self.n_lengthscales == 1:
+            # sum the partial derivatives over all the dimensions
+            firstterm = np.sum(firstterm)
+            secondterm = np.sum(secondterm) 
         
-            invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
-            invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
-            invKs_dkdls *= self.s
-            secondterm = np.trace(invKs_dkdls - self.obs_C.dot(dKdls))
-        
-        gradient = 0.5 * (firstterm + secondterm)
+        gradient = 0.5 * (firstterm - secondterm)
         return gradient
     
     def ln_modelprior(self):
@@ -652,7 +643,7 @@ class GPClassifierVB(object):
             
         logging.debug('Jacobian of NLML: %s' % gradient)
             
-        return gradient
+        return -gradient
     
     # Training methods ------------------------------------------------------------------------------------------------
 
@@ -718,13 +709,13 @@ class GPClassifierVB(object):
             logging.debug("Initial length-scale guess in restart %i: %s" % (r, self.ls))
     
             res = minimize(self.neg_marginal_likelihood, initialguess, 
-              args=(-1, use_MAP,), jac=self.nml_jacobian, method='CG', 
+              args=(-1, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B', 
               options={'maxiter':maxfun})
 
             opt_hyperparams = res['x']
             nlml = res['fun']
             nfits += res['nfev']
-            njacs += res['njev']
+            #njacs += res['njev']
             
             if nlml < min_nlml:
                 min_nlml = nlml

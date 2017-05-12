@@ -84,7 +84,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
         self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
-        self.inv_Ks_mm_uS = np.eye(self.ninducing)
+        self.invKs_mm_uS = np.eye(self.ninducing)
 
         self.K_mm = self.kernel_func(self.inducing_coords, self.ls)
         self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter 
@@ -126,7 +126,7 @@ class GPClassifierSVI(GPClassifierVB):
         D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
                 
-        invK_expecF = self.inv_Ks_mm_uS + self.inv_Ks_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
+        invK_expecF = self.invKs_mm_uS + self.invKs_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
         
         _logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
         return _logpf
@@ -148,34 +148,31 @@ class GPClassifierSVI(GPClassifierVB):
         '''
         if not self.use_svi:
             return super(GPClassifierSVI, self).lowerbound_gradient(dim)
-        
+         
         fhat = self.um_minus_mu0
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
-        
+         
+        sigmasq = self.invK_mm.dot(self.K_nm.T).dot(self.G.T).dot(np.diag(self.Q)).dot(self.G).dot(self.K_nm).dot(self.invK_mm)
+         
+        if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
+            dims = range(self.obs_coords.shape[1])
+        else: # do it for only the dimension dim
+            dims = [dim]        
+             
+        firstterm = np.zeros(len(dims))
+        secondterm = np.zeros(len(dims))
+        for d, dim in enumerate(dims):                
+            dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s
+            firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+               
+            secondterm[d] = np.trace(self.invKs_mm_uS.dot(sigmasq).dot(dKdls))   
+ 
         if self.n_lengthscales == 1:
-            firstterm = 0
-            secondterm = 0
-            for d in range(self.obs_coords.shape[1]):
-                dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, d)  / self.s
-                firstterm += invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-                C_invKs_dkdls = (self.invK_mm * self.s + self.K_mm.dot(self.inv_Ks_mm_uS)/self.s).dot(dKdls)
-                secondterm += np.trace(C_invKs_dkdls)   
-        elif dim == -1:             
-            firstterm = np.zeros(self.n_lengthscales)
-            secondterm = np.zeros(self.n_lengthscales)
-            for d in range(self.obs_coords.shape[1]):
-                dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, d)  / self.s
-                firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-                C_invKs_dkdls = (self.invK_mm * self.s + self.K_mm.dot(self.inv_Ks_mm_uS)/self.s).dot(dKdls)
-                secondterm[d] = np.trace(C_invKs_dkdls)   
-        else:
-            dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s        
-            firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-
-            C_invKs_dkdls = (self.invK_mm * self.s + self.K_mm.dot(self.inv_Ks_mm_uS)/self.s).dot(dKdls)        
-            secondterm = np.trace(C_invKs_dkdls)
-        
-        gradient = 0.5 * (firstterm + secondterm)
+            # sum the partial derivatives over all the dimensions
+            firstterm = np.sum(firstterm)
+            secondterm = np.sum(secondterm) 
+         
+        gradient = 0.5 * (firstterm - secondterm)
         return gradient    
     
     # Training methods ------------------------------------------------------------------------------------------------
@@ -197,7 +194,7 @@ class GPClassifierSVI(GPClassifierVB):
         Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
         
         Q = self.Q[self.data_obs_idx_i][np.newaxis, :]
-        Lambda_factor1 = self.inv_Ks_mm.dot(Ks_nm_i.T).dot(self.G.T)
+        Lambda_factor1 = self.invKs_mm.dot(Ks_nm_i.T).dot(self.G.T)
         Lambda_i = (Lambda_factor1 / Q).dot(Lambda_factor1.T)
         
         # calculate the learning rate for SVI
@@ -210,7 +207,7 @@ class GPClassifierSVI(GPClassifierVB):
         # S is the variational covariance parameter for the inducing points, u. Canonical parameter theta_2 = -0.5 * S^-1.
         # The variational update to theta_2 is (1-rho)*S^-1 + rho*Lambda. Since Lambda includes a sum of Lambda_i over 
         # all data points i, the stochastic update weights a sample sum of Lambda_i over a mini-batch.  
-        self.u_invS = (1 - rho_i) * self.prev_u_invS + rho_i * (w_i * Lambda_i  + self.inv_Ks_mm)
+        self.u_invS = (1 - rho_i) * self.prev_u_invS + rho_i * (w_i * Lambda_i  + self.invKs_mm)
         
         # use the estimate given by the Taylor series expansion
         z0 = self.forward_model(self.obs_f, subset_idxs=self.data_idx_i) + self.G.dot(self.mu0_i - self.obs_f_i)
@@ -221,10 +218,10 @@ class GPClassifierSVI(GPClassifierVB):
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
         L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
-        B = solve_triangular(L_u_invS, self.inv_Ks_mm.T, lower=True, check_finite=False)
+        B = solve_triangular(L_u_invS, self.invKs_mm.T, lower=True, check_finite=False)
         A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
         self.L_u_invS = L_u_invS
-        self.inv_Ks_mm_uS = A.T
+        self.invKs_mm_uS = A.T
         
         #covpair_uS = covpair.dot(np.linalg.inv(self.u_invS))
         
@@ -235,8 +232,8 @@ class GPClassifierSVI(GPClassifierVB):
         self.obs_f, self.obs_C = self._f_given_u(self.Ks, self.Ks_nm, self.mu0)
                 
     def _f_given_u(self, Ks_nn, Ks_nm, mu0):
-        covpair =  Ks_nm.dot(self.inv_Ks_mm)
-        covpair_uS = Ks_nm.dot(self.inv_Ks_mm_uS)
+        covpair =  Ks_nm.dot(self.invKs_mm)
+        covpair_uS = Ks_nm.dot(self.invKs_mm_uS)
         fhat = covpair_uS.dot(self.u_invSm) + mu0
         C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
         return fhat, C 
@@ -246,7 +243,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._expec_s()
                     
         self.old_s = self.s 
-        invK_mm_expecFF = self.inv_Ks_mm_uS / self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
+        invK_mm_expecFF = self.invKs_mm_uS / self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF) 
         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
@@ -255,7 +252,7 @@ class GPClassifierSVI(GPClassifierVB):
             logging.debug("Updated inverse output scale: " + str(self.s))
             
         self.Ks_mm = self.K_mm / self.s
-        self.inv_Ks_mm  = self.invK_mm * self.s
+        self.invKs_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s     
     
@@ -268,7 +265,7 @@ class GPClassifierSVI(GPClassifierVB):
         self._update_sample_idxs()
         
         self.Ks_mm = self.K_mm / self.s
-        self.inv_Ks_mm  = self.invK_mm * self.s
+        self.invKs_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s
         
