@@ -521,7 +521,7 @@ class GPClassifierVB(object):
                 invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
                 invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
                 invKs_dkdls *= self.s                
-                secondterm += np.trace(self.obs_C.dot(invKs_dkdls))
+                secondterm += np.trace(invKs_dkdls - self.obs_C.dot(dKdls))
                 
         elif dim == -1: # create an array with values for each dimension
             firstterm = np.zeros(self.n_lengthscales)
@@ -533,7 +533,7 @@ class GPClassifierVB(object):
                 invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
                 invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
                 invKs_dkdls *= self.s
-                secondterm[d] = np.trace(self.obs_C.dot(invKs_dkdls))
+                secondterm[d] = np.trace(invKs_dkdls - self.obs_C.dot(dKdls))
                 
         else: # do it for only the dimension dim
             dKdls = self.K * self.kernel_derfactor(self.obs_coords, self.ls, dim)  / self.s
@@ -542,9 +542,9 @@ class GPClassifierVB(object):
             invKs_dkdls = solve_triangular(self.cholK, dKdls, trans=True, check_finite=False)
             invKs_dkdls = solve_triangular(self.cholK, invKs_dkdls, check_finite=False)
             invKs_dkdls *= self.s
-            secondterm = np.trace(self.obs_C.dot(invKs_dkdls))
+            secondterm = np.trace(invKs_dkdls - self.obs_C.dot(dKdls))
         
-        gradient = 0.5 * (firstterm - secondterm)
+        gradient = 0.5 * (firstterm + secondterm)
         return gradient
     
     def ln_modelprior(self):
