@@ -408,7 +408,7 @@ class GPClassifierVB(object):
         n_obs = obs_values.shape[0]                 
         
         if self.verbose:
-            logging.debug("GP grid for %i observations." % n_obs)
+            logging.debug("GP inference with %i observations." % n_obs)
         
         if not np.any(totals >= 0):
             if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
@@ -736,7 +736,8 @@ class GPClassifierVB(object):
 
     def _expec_f(self):
         ''' 
-        Compute the expected value of f given current q() distributions for other parameters
+        Compute the expected value of f given current q() distributions for other parameters. Could plug in a different
+        GP implementation here.
         '''
         diff_G = 0
         G_update_rate = 1.0 # start with full size updates

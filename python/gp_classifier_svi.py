@@ -152,7 +152,8 @@ class GPClassifierSVI(GPClassifierVB):
         fhat = self.um_minus_mu0
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
          
-        sigmasq = self.invK_mm.dot(self.K_nm.T).dot(self.G.T).dot(np.diag(self.Q)).dot(self.G).dot(self.K_nm).dot(self.invK_mm)
+        GTQ = (self.G.T * self.Q[ np.newaxis, :])
+        sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQ).dot(self.G).dot(self.K_nm).dot(self.invK_mm)
          
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
@@ -269,7 +270,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.Ks_nm = self.K_nm / self.s            
         self.Ks = self.K / self.s
         
-        self.G = 0 # reset because we will need to compute afresh with new sample    
+        self.G = 0 # reset because we will need to compute afresh with new sample
         self.z_i = self.z[self.data_obs_idx_i]
         self.mu0_i = self.mu0[self.data_idx_i]
         
