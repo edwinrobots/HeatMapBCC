@@ -55,10 +55,6 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._init_covariance()
         
-        # Get the correct covariance matrix
-        self.K = self.kernel_func(self.obs_coords, self.ls)
-        self.K += 1e-6 * np.eye(len(self.K)) # jitter
-                
     def _choose_inducing_points(self):
         # choose a set of inducing points -- for testing we can set these to the same as the observation points.
         nobs = self.obs_f.shape[0]       
@@ -66,7 +62,6 @@ class GPClassifierSVI(GPClassifierVB):
         self.update_size = self.max_update_size # number of inducing points in each stochastic update
         if self.update_size > nobs:
             self.update_size = nobs  
-             
                
         if self.ninducing > self.obs_coords.shape[0]:
             if self.inducing_coords is not None:
