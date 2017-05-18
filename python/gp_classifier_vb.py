@@ -302,8 +302,8 @@ class GPClassifierVB(object):
         #b = 1.0
         #a = 1.0
         self.nu0 = np.array([b, a])
-        if self.verbose:
-            logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
+        #if self.verbose:
+        #    logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
 
     def _init_s(self):
         self.shape_s = self.shape_s0 + self.n_locs/2.0 # reset!
