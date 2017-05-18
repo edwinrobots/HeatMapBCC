@@ -247,6 +247,10 @@ class GPClassifierSVI(GPClassifierVB):
         else:
             return fhat
 
+       
+    def obs_variance(self):
+        return self._f_given_u(self.Ks_nm, self.mu0, np.diag(np.ones(self.obs_f.shape[0])) / self.s)[1]
+
     def _expec_s(self):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._expec_s()

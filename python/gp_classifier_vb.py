@@ -829,9 +829,12 @@ class GPClassifierVB(object):
         else:
             return m_post, v_post   
        
+    def obs_variance(self):
+        return np.diag(self.obs_C)[:, np.newaxis]
+        
     def predict_obs(self, variance_method='rough', expectedlog=False, return_not=False):
         f = self.obs_f
-        v = np.diag(self.obs_C)[:, np.newaxis]
+        v = self.obs_variance()
         if variance_method=='rough' and not expectedlog:
             m_post, not_m_post, v_post = self._post_rough(f, v)
         else:
