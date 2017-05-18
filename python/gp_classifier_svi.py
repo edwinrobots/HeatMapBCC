@@ -9,7 +9,7 @@ import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 import logging
-from gp_classifier_vb import GPClassifierVB, compute_distance
+from gp_classifier_vb import GPClassifierVB
 from sklearn.cluster import MiniBatchKMeans
 
 class GPClassifierSVI(GPClassifierVB):
@@ -32,6 +32,9 @@ class GPClassifierSVI(GPClassifierVB):
         
         # default state before initialisation, unless some inducing coordinates are set by external call 
         self.inducing_coords = None
+        self.K_mm = None
+        self.invK_mm = None
+        self.K_nm = None
         
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
         self.use_svi = use_svi
@@ -56,9 +59,6 @@ class GPClassifierSVI(GPClassifierVB):
         self.K = self.kernel_func(self.obs_coords, self.ls)
         self.K += 1e-6 * np.eye(len(self.K)) # jitter
                 
-        self.Ks = self.K / self.s
-        self.obs_C = self.K / self.s
-                    
     def _choose_inducing_points(self):
         # choose a set of inducing points -- for testing we can set these to the same as the observation points.
         nobs = self.obs_f.shape[0]       
@@ -67,16 +67,23 @@ class GPClassifierSVI(GPClassifierVB):
         if self.update_size > nobs:
             self.update_size = nobs  
              
-        if self.inducing_coords is None:             
-            if self.ninducing > self.obs_coords.shape[0]:
-                self.ninducing = self.obs_coords.shape[0]
-            
+               
+        if self.ninducing > self.obs_coords.shape[0]:
+            if self.inducing_coords is not None:
+                logging.warning('replacing intial inducing points with observation coordinates because they are smaller.')
+            self.ninducing = self.obs_coords.shape[0]
+            self.inducing_coords = self.obs_coords
+            # invalidate matrices passed in to init_inducing_points() as we need to recompute for new inducing points 
+            self.K_mm = None
+            self.invK_mm  = None
+            self.K_nm = None
+        elif self.inducing_coords is None:
             init_size = 300
             if self.ninducing > init_size:
                 init_size = self.ninducing
             kmeans = MiniBatchKMeans(init_size=init_size, n_clusters=self.ninducing)
             kmeans.fit(self.obs_coords)
-            
+        
             #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
             self.inducing_coords = kmeans.cluster_centers_
             #self.inducing_coords = self.obs_coords
@@ -86,10 +93,13 @@ class GPClassifierSVI(GPClassifierVB):
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
         self.invKs_mm_uS = np.eye(self.ninducing)
 
-        self.K_mm = self.kernel_func(self.inducing_coords, self.ls)
-        self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter 
-        self.invK_mm = np.linalg.inv(self.K_mm)
-        self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords)
+        if self.K_mm is None:
+            self.K_mm = self.kernel_func(self.inducing_coords, self.ls)
+            self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter
+        if self.invK_mm is None: 
+            self.invK_mm = np.linalg.inv(self.K_mm)
+        if self.K_nm is None:
+            self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords)
         
         self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
 
@@ -230,14 +240,17 @@ class GPClassifierSVI(GPClassifierVB):
         self.um_minus_mu0 = solve_triangular(L_u_invS, self.um_minus_mu0, lower=True, trans=True, check_finite=False, 
                                              overwrite_b=True)
         
-        self.obs_f, self.obs_C = self._f_given_u(self.Ks, self.Ks_nm, self.mu0)
+        self.obs_f = self._f_given_u(self.Ks_nm, self.mu0)
                 
-    def _f_given_u(self, Ks_nn, Ks_nm, mu0):
-        covpair =  Ks_nm.dot(self.invKs_mm)
+    def _f_given_u(self, Ks_nm, mu0, Ks_nn=None):
         covpair_uS = Ks_nm.dot(self.invKs_mm_uS)
         fhat = covpair_uS.dot(self.u_invSm) + mu0
-        C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
-        return fhat, C 
+        if Ks_nn is not None:
+            covpair =  Ks_nm.dot(self.invKs_mm)
+            C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
+            return fhat, C
+        else:
+            return fhat
 
     def _expec_s(self):
         if not self.use_svi:
@@ -255,7 +268,6 @@ class GPClassifierSVI(GPClassifierVB):
         self.Ks_mm = self.K_mm / self.s
         self.invKs_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            
-        self.Ks = self.K / self.s     
     
     def _update_sample(self):
         
@@ -268,7 +280,6 @@ class GPClassifierSVI(GPClassifierVB):
         self.Ks_mm = self.K_mm / self.s
         self.invKs_mm  = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s            
-        self.Ks = self.K / self.s
         
         self.G = 0 # reset because we will need to compute afresh with new sample
         self.z_i = self.z[self.data_obs_idx_i]
@@ -281,9 +292,15 @@ class GPClassifierSVI(GPClassifierVB):
         self.data_idx_i = data_idx_i
         self.fixed_sample_idxs = True
         
-    def fix_inducing_points(self, inducing_coords):
+    def init_inducing_points(self, inducing_coords, K_mm=None, invK_mm=None, K_nm=None):
         self.ninducing = inducing_coords.shape[0]
         self.inducing_coords = inducing_coords
+        if K_mm is not None:
+            self.K_mm = K_mm
+        if invK_mm is not None:
+            self.invK_mm = invK_mm
+        if K_nm is not None:
+            self.K_nm = K_nm
         
     def _update_sample_idxs(self):
         if not self.fixed_sample_idxs:
@@ -302,5 +319,5 @@ class GPClassifierSVI(GPClassifierVB):
             self.K_out[block] = self.kernel_func(block_coords, self.ls, self.inducing_coords)
             self.K_out[block] /= self.s        
                 
-        self.f[blockidxs, :], C_out = self._f_given_u(1.0 / self.s, self.K_out[block], self.mu0_output[blockidxs, :])
+        self.f[blockidxs, :], C_out = self._f_given_u(self.K_out[block], self.mu0_output[blockidxs, :], 1.0 / self.s)
         self.v[blockidxs, 0] = np.diag(C_out) 
