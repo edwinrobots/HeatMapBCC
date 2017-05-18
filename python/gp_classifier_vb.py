@@ -48,28 +48,39 @@ def temper_extreme_probs(probs, zero_only=False):
     
     return probs
 
-def diagonal(distances, ls):
-    same_locs = np.sum(distances, axis=2) == 0
-    K = np.zeros((distances.shape[0], distances.shape[1]), dtype=float)
-    K[same_locs] = 1.0        
-    return K
+# Kernels
 
-def sq_exp_cov(distances, ls):
-    K = np.zeros(distances.shape)
-    for d in range(distances.shape[2]):
-        K[:, :, d] = np.exp( -distances[:, :, d]**2 / ls[d] )
-    K = np.prod(K, axis=2)
-    return K
+# Diagonal
 
-def deriv_sq_exp_cov(distances, ls, dim):
-    K_notdim = np.ones(distances.shape)
-    for d in range(distances.shape[2]):
-        if d == dim:
-            K_dim = np.exp( -distances[:, :, d]**2 / ls[d] ) * -distances[:, :, d]**2 / ls[d]**2
-            continue
-        K_notdim[:, :, d] = np.exp( -distances[:, :, d]**2 / ls[d] )
-    K_notdim = np.prod(K_notdim, axis=2)
-    return K_notdim * K_dim
+def derivfactor_diag_from_raw_vals(vals, ls, d, vals2=None):
+    return 0
+
+def diagonal_from_raw_vals(vals, ls, vals2=None):
+    same_locs = np.sum(vals != vals2, axis=1) == 0
+    K = np.zeros((vals.shape[0], vals.shape[1]), dtype=float)
+    K[same_locs] = 1.0
+    return K   
+
+# Squared Exponential -- needs converting to work with raw values
+
+# def sq_exp_cov(distances, ls):
+#     K = np.zeros(distances.shape)
+#     for d in range(distances.shape[2]):
+#         K[:, :, d] = np.exp( -distances[:, :, d]**2 / ls[d] )
+#     K = np.prod(K, axis=2)
+#     return K
+# 
+# def deriv_sq_exp_cov(distances, ls, dim):
+#     K_notdim = np.ones(distances.shape)
+#     for d in range(distances.shape[2]):
+#         if d == dim:
+#             K_dim = np.exp( -distances[:, :, d]**2 / ls[d] ) * -distances[:, :, d]**2 / ls[d]**2
+#             continue
+#         K_notdim[:, :, d] = np.exp( -distances[:, :, d]**2 / ls[d] )
+#     K_notdim = np.prod(K_notdim, axis=2)
+#     return K_notdim * K_dim
+
+# Matern 3/2
 
 def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
     xvals = xvals * 3**0.5 / ls_d
@@ -83,30 +94,6 @@ def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
     K += exp_minusK
     
     return K
-
-def matern_3_2(distances, ls):
-    K = np.zeros(distances.shape)
-    for d in range(distances.shape[2]):
-        K[:, :, d] = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
-        K[:, :, d] = (1 + K[:, :, d]) * np.exp(-K[:, :, d])
-    K = np.prod(K, axis=2)
-    return K
-
-def deriv_matern_3_2(distances, ls, dim):
-    ''' 
-    Derivative W.R.T the length scale indicated by dim 
-    '''
-    K_notdim = np.ones(distances.shape)
-    for d in range(distances.shape[2]):
-        if d == dim:
-            K_dim = np.abs(distances[:, :, d]) * 3**0.5
-            K_dim = -(1 + K_dim) * (ls[d] - K_dim) * np.exp(-K_dim / ls[d]) / ls[d]**3# (K_dim**2 / ls[d]) *
-            continue
-        
-        K_notdim[:, :, d] = np.abs(distances[:, :, d]) * 3**0.5 / ls[d]
-        K_notdim[:, :, d] = (1 + K_notdim[:, :, d]) * np.exp(-K_notdim[:, :, d])
-    K_notdim = np.prod(K_notdim, axis=2)
-    return K_notdim * K_dim
     
 def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     ''' 
@@ -135,34 +122,15 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     K *= 1.0 / matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
     return K
 
-def deriv_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
-    ''' 
-    Derivative W.R.T the length scale indicated by dim 
-    '''            
-    if len(ls) > 1:
-        ls_d = ls[d]
-    else:
-        ls_d = ls[0]    
-    K = np.abs(compute_distance(vals[:, d:d+1], vals[:, d:d+1].T)) * 3**0.5
-    K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
-    
-    for i in range(vals.shape[1]):
-        if i == d:
-            continue
-        xvals = vals[:, i:i+1]
-        
-        if vals2 is None:
-            xvals2 = xvals
-        else:
-            xvals2 = vals2[:, i:i+1]
-        if len(ls) > 1:
-            ls_i = ls[i]
-        else:
-            ls_i = ls[0]  
-        K *= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+def matern_3_2_from_raw_vals(vals, ls, vals2=None):
+    num_jobs = multiprocessing.cpu_count()
+    subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
+    K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
+                                                    matern_3_2_onedimension_from_raw_vals) for i in range(num_jobs))
+    K = np.prod(K, axis=0)
     return K
 
-def compute_K_subset(subset, subset_size, vals, vals2, ls):
+def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
     K_subset = 1
     range_end = subset_size*(subset+1)
     if range_end > vals.shape[1]:
@@ -180,16 +148,9 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls):
             ls_i = ls[i]
         else:
             ls_i = ls[0]
-        K_d = matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+        K_d = fun(xvals, xvals2, ls_i)
         K_subset *= K_d
     return K_subset
-    
-def matern_3_2_from_raw_vals(vals, ls, vals2=None):
-    num_jobs = multiprocessing.cpu_count()
-    subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
-    K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls) for i in range(num_jobs))
-    K = np.prod(K, axis=0)
-    return K
 
 class GPClassifierVB(object):
     verbose = False
@@ -355,16 +316,16 @@ class GPClassifierVB(object):
 
     def _select_covariance_function(self, cov_type):
         self.cov_type = cov_type
+        
         if cov_type == 'matern_3_2':
             self.kernel_func = matern_3_2_from_raw_vals
             self.kernel_derfactor = derivfactor_matern_3_2_from_raw_vals
-        # the following implementations no longer work because they need to use kernel functions that work with the raw values
-#         elif cov_type == 'diagonal':
-#             self.kernel_func = diagonal
-#             def zerocovder(distance, ls, dim): 
-#                 return 0
-#             self.kernel_der = zerocovder 
-#         elif cov_type == 'sq_exp':
+        
+        elif cov_type == 'diagonal':
+            self.kernel_func = diagonal_from_raw_vals
+            self.kernel_der = derivfactor_diag_from_raw_vals
+            
+#         elif cov_type == 'sq_exp': # no longer works -- needs kernel functions that work with the raw values
 #             self.kernel_func = sq_exp_cov
 #             self.kernel_der = deriv_sq_exp_cov
         else:
