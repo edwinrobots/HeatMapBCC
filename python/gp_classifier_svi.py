@@ -14,6 +14,12 @@ import multiprocessing
 from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 
+def _gradient_terms_for_subset(GPC, invKs_fhat, sigmasq, dim):
+    dKdls = GPC.K_mm * GPC.kernel_derfactor(GPC.inducing_coords, GPC.ls, dim)  / GPC.s
+    firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+    secondterm = np.trace(GPC.invKs_mm_uS.dot(sigmasq).dot(dKdls))
+    return 0.5 * (firstterm - secondterm)
+
 class GPClassifierSVI(GPClassifierVB):
     
     data_idx_i = [] # data indices to update in the current iteration, i
@@ -149,12 +155,6 @@ class GPClassifierSVI(GPClassifierVB):
         _logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
         return _logqf         
     
-    def _gradient_terms_for_subset(self, invKs_fhat, sigmasq, dim):
-        dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s
-        firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-        secondterm = np.trace(self.invKs_mm_uS.dot(sigmasq).dot(dKdls))
-        return 0.5 * (firstterm - secondterm)           
-    
     def lowerbound_gradient(self, dim):
         '''
         Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
@@ -174,7 +174,7 @@ class GPClassifierSVI(GPClassifierVB):
             dims = [dim]        
         
         num_jobs = multiprocessing.cpu_count()
-        gradient = Parallel(n_jobs=num_jobs)(delayed(self._gradient_terms_for_subset)(invKs_fhat, sigmasq, dim) 
+        gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self, invKs_fhat, sigmasq, dim) 
                                              for dim in dims)
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
