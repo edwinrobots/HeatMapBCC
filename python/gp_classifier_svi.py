@@ -11,6 +11,8 @@ from gp_classifier_vb import GPClassifierVB
 from sklearn.cluster import MiniBatchKMeans
 from joblib import Parallel, delayed
 import multiprocessing
+from scipy.linalg import cholesky, solve_triangular
+from scipy.special import psi
 
 class GPClassifierSVI(GPClassifierVB):
     
