@@ -119,7 +119,7 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
         ls_i = ls[d]
     else:
         ls_i = ls[0]  
-    K *= 1.0 / matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+    K /= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
     return K
 
 def matern_3_2_from_raw_vals(vals, ls, vals2=None):

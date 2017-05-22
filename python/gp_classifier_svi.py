@@ -6,11 +6,11 @@ of the VB algorithm, only a fixed number of random data points are used to updat
 '''
 
 import numpy as np
-from scipy.linalg import cholesky, solve_triangular
-from scipy.special import psi
 import logging
 from gp_classifier_vb import GPClassifierVB
 from sklearn.cluster import MiniBatchKMeans
+from joblib import Parallel, delayed
+import multiprocessing
 
 class GPClassifierSVI(GPClassifierVB):
     
@@ -147,6 +147,12 @@ class GPClassifierSVI(GPClassifierVB):
         _logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)    
         return _logqf         
     
+    def _gradient_terms_for_subset(self, invKs_fhat, sigmasq, dim):
+        dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s
+        firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+        secondterm = np.trace(self.invKs_mm_uS.dot(sigmasq).dot(dKdls))
+        return 0.5 * (firstterm - secondterm)           
+    
     def lowerbound_gradient(self, dim):
         '''
         Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
@@ -164,21 +170,14 @@ class GPClassifierSVI(GPClassifierVB):
             dims = range(self.obs_coords.shape[1])
         else: # do it for only the dimension dim
             dims = [dim]        
-             
-        firstterm = np.zeros(len(dims))
-        secondterm = np.zeros(len(dims))
-        for d, dim in enumerate(dims):                
-            dKdls = self.K_mm * self.kernel_derfactor(self.inducing_coords, self.ls, dim)  / self.s
-            firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-               
-            secondterm[d] = np.trace(self.invKs_mm_uS.dot(sigmasq).dot(dKdls))   
- 
+        
+        num_jobs = multiprocessing.cpu_count()
+        gradient = Parallel(n_jobs=num_jobs)(delayed(self._gradient_terms_for_subset)(invKs_fhat, sigmasq, dim) 
+                                             for dim in dims)
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
-            firstterm = np.sum(firstterm)
-            secondterm = np.sum(secondterm) 
+            gradient = np.sum(gradient)
          
-        gradient = 0.5 * (firstterm - secondterm)
         return gradient    
     
     # Training methods ------------------------------------------------------------------------------------------------
