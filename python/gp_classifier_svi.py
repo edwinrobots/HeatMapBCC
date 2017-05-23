@@ -108,15 +108,20 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
         
+    def _compute_jacobian(self, data_idx_i=None):
+        if data_idx_i is not None:
+            g_obs_f = self.forward_model(self.obs_f.flatten()[data_idx_i]) # first order Taylor series approximation
+        else:
+            g_obs_f = self.forward_model(self.obs_f.flatten())
+        J = np.diag(g_obs_f * (1-g_obs_f))
+        return g_obs_f, J  
+        
     def _update_jacobian(self, G_update_rate=1.0):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._update_jacobian(G_update_rate)
                 
-        if len(self.data_idx_i):
-            g_obs_f = self.forward_model(self.obs_f.flatten()[self.data_idx_i]) # first order Taylor series approximation
-        else:
-            g_obs_f = self.forward_model(self.obs_f.flatten())
-        J = np.diag(g_obs_f * (1-g_obs_f))
+        g_obs_f, J = self._compute_jacobian(self.data_idx_i)
+
         if G_update_rate==1 or not len(self.G) or self.G.shape != J.shape or self.changed_selection:
             # either G has not been initialised, or is from different observations, or random subset of data has changed 
             self.G = J
@@ -165,9 +170,8 @@ class GPClassifierSVI(GPClassifierVB):
         fhat = self.um_minus_mu0
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
          
-        g_obs_f = self.forward_model(self.obs_f.flatten())
-        G = g_obs_f * (1-g_obs_f)[:,None]
-        GTQG = np.diag((G * self.Q[:,None] * G).flatten())
+        _, G = self._compute_jacobian()
+        GTQG = np.sum(G.T * self.Q[:,None], axis=0).dot(G)
         sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm)
          
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension

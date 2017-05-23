@@ -515,9 +515,9 @@ class GPClassifierVB(object):
         return data_ll      
     
     def _logpt(self):
-        g_obs_f = self.forward_model(self.obs_f.flatten())
-        G = np.diag(g_obs_f * (1-g_obs_f))
-        sigma = np.sqrt(G * self.Q * G)[:, np.newaxis]
+        _, G = self._compute_jacobian()
+        diagGTQG = np.sum(G.T * self.Q[None, :] * G.T, axis=1)
+        sigma = np.sqrt(diagGTQG)[:, np.newaxis]
         f_samples = norm.rvs(loc=self.obs_f, scale=sigma, size=(self.n_locs, 500))
         rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
