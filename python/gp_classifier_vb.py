@@ -606,7 +606,7 @@ class GPClassifierVB(object):
             
         logging.debug('Jacobian of NLML: %s' % gradient)
             
-        return -gradient
+        return -np.array(gradient, order='F')
     
     # Training methods ------------------------------------------------------------------------------------------------
 

@@ -178,8 +178,6 @@ class GPClassifierSVI(GPClassifierVB):
         num_jobs = multiprocessing.cpu_count()
         gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self, invKs_fhat, sigmasq, dim) 
                                              for dim in dims)
-        gradient = np.array(gradient)
-        
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
             gradient = np.sum(gradient)
