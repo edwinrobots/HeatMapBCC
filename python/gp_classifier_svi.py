@@ -166,8 +166,8 @@ class GPClassifierSVI(GPClassifierVB):
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
          
         g_obs_f = self.forward_model(self.obs_f.flatten())
-        G = g_obs_f * (1-g_obs_f)
-        GTQG = np.diag(G * self.Q * G)
+        G = g_obs_f * (1-g_obs_f)[:,None]
+        GTQG = np.diag((G * self.Q[:,None] * G).flatten())
         sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm)
          
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
