@@ -673,7 +673,7 @@ class GPClassifierVB(object):
     
             res = minimize(self.neg_marginal_likelihood, initialguess, 
               args=(-1, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B', 
-              options={'maxiter':maxfun, 'gtol': 0.1 / self.ninput_features})
+              options={'maxiter':maxfun, 'gtol': 10**(-self.ninput_features)})
 
             opt_hyperparams = res['x']
             nlml = res['fun']
