@@ -604,7 +604,8 @@ class GPClassifierVB(object):
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.") 
             
-        logging.debug('Jacobian of NLML: %s' % gradient)
+        logging.debug('Jacobian of NLML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient), 
+                                                                                               np.min(gradient)))
             
         return -np.array(gradient, order='F')
     
@@ -630,7 +631,8 @@ class GPClassifierVB(object):
             return
              
         if self.verbose: 
-            logging.debug("GP Classifier VB: training with length-scales %s" % (self.ls) )
+            logging.debug("GP Classifier VB: training with max length-scale %.3f and smallest %.3f" % (np.max(self.ls),
+                                                                                                       np.min(self.ls)))
         
         self.vb_iter = 0
         converged_count = 0
