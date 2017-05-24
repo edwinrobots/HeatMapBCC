@@ -171,7 +171,7 @@ class GPClassifierSVI(GPClassifierVB):
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
          
         _, G = self._compute_jacobian()
-        GTQG = np.sum(G.T * self.Q[:,None], axis=0).dot(G)
+        GTQG = (G.T * self.Q[None, :]).dot(G)
         sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm)
          
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
