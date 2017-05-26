@@ -653,7 +653,7 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
-    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=20, use_MAP=False, 
+    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=100, use_MAP=False, 
                  nrestarts=1):
 
         if process_obs:
@@ -662,8 +662,6 @@ class GPClassifierVB(object):
             self.fit(process_obs=False, optimize=False)
               
         nfits = 0
-        njacs = 0
-        
         min_nlml = np.inf
         best_opt_hyperparams = None
         best_iter = -1            
@@ -680,7 +678,6 @@ class GPClassifierVB(object):
             opt_hyperparams = res['x']
             nlml = res['fun']
             nfits += res['nfev']
-            #njacs += res['njev']
             
             if nlml < min_nlml:
                 min_nlml = nlml
@@ -695,8 +692,8 @@ class GPClassifierVB(object):
             # need to go back to the best result
             self.neg_marginal_likelihood(best_opt_hyperparams, -1, use_MAP=False)
 
-        logging.debug("Optimal hyper-parameters: %s; found using %i objective fun evals and %i jacobian evals" % 
-                      (self.ls, nfits, njacs))
+        logging.debug("Optimal hyper-parameters: %s; found using %i objective fun evals" % 
+                      (self.ls, nfits))
         return self.ls, -min_nlml # return the log marginal likelihood
 
     def _expec_f(self):
