@@ -340,6 +340,13 @@ class GPClassifierVB(object):
                 obs_coords = obs_coords.reshape((obs_coords.shape[0], obs_coords.shape[1]))            
             obs_coords = obs_coords.T
             
+        if self.features is not None:
+            self.obs_uidxs = np.arange(self.features.shape[0])
+            poscounts = poscounts.astype(int)
+            totals = totals.astype(int)  
+            self.obs_coords = self.features
+            return poscounts, totals               
+            
         # duplicate locations should be merged and the number of duplicates counted
         ravelled_coords = coord_arr_to_1d(obs_coords)
         uravelled_coords, origidxs, idxs = np.unique(ravelled_coords, return_index=True, return_inverse=True)
@@ -613,11 +620,13 @@ class GPClassifierVB(object):
     # Training methods ------------------------------------------------------------------------------------------------
 
     def fit(self, obs_coords=None, obs_values=None, totals=None, process_obs=True, mu0=None, optimize=False, 
-            maxfun=20, use_MAP=False, nrestarts=1):
+            maxfun=20, use_MAP=False, nrestarts=1, features=None,):
         '''
         obs_coords -- coordinates of observations as an N x D array, where N is number of observations, 
         D is number of dimensions
         '''
+        self.features = features
+
         if optimize:
             return self._optimize(obs_coords, obs_values, totals, process_obs, mu0, maxfun, use_MAP, nrestarts)
         

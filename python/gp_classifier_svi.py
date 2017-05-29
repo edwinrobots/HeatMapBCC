@@ -87,7 +87,13 @@ class GPClassifierSVI(GPClassifierVB):
             if self.ninducing > init_size:
                 init_size = self.ninducing
             kmeans = MiniBatchKMeans(init_size=init_size, n_clusters=self.ninducing)
-            kmeans.fit(self.obs_coords)
+            
+            if self.obs_coords.shape[0] > 20 * self.ninducing:
+                coords = self.obs_coords[np.random.choice(self.obs_coords.shape[0], 20 * self.ninducing, replace=False), :]
+            else:
+                coords = self.obs_coords
+            
+            kmeans.fit(coords)
         
             #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
             self.inducing_coords = kmeans.cluster_centers_
