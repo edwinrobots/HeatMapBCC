@@ -94,6 +94,17 @@ def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
     K += exp_minusK
     
     return K
+
+def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d):
+    ''' 
+    To obtain the derivative W.R.T the length scale indicated by dim, multiply the value returned by this function
+    with the kernel. Use this to save recomputing the kernel for each dimension. 
+    '''            
+    D = np.abs(compute_distance(vals, vals2.T))
+    #K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
+    K = 3 * D**2 * np.exp(-D * 3**0.5 / ls_d) / ls_d**3
+    K /= matern_3_2_onedimension_from_raw_vals(vals, vals2, ls_d)
+    return K
     
 def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     ''' 
@@ -127,6 +138,17 @@ def matern_3_2_from_raw_vals(vals, ls, vals2=None):
     subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
     K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
                                                     matern_3_2_onedimension_from_raw_vals) for i in range(num_jobs))
+
+    # This doesn't really work because the returned array K is too big for memory
+#     if vals2 is None:
+#         vals2 = vals
+#         
+#     if len(ls > 1):
+#         K = Parallel(n_jobs=num_jobs)(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], 
+#                                                                                  ls[i]) for i in range(vals.shape[1]))
+#     else:
+#         K = Parallel(n_jobs=num_jobs)(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], 
+#                                                                                  ls[0]) for i in range(vals.shape[1]))
     K = np.prod(K, axis=0)
     return K
 
@@ -319,7 +341,7 @@ class GPClassifierVB(object):
         
         if cov_type == 'matern_3_2':
             self.kernel_func = matern_3_2_from_raw_vals
-            self.kernel_derfactor = derivfactor_matern_3_2_from_raw_vals
+            self.kernel_derfactor = derivfactor_matern_3_2_from_raw_vals_onedimension
         
         elif cov_type == 'diagonal':
             self.kernel_func = diagonal_from_raw_vals

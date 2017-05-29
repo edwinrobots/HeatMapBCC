@@ -14,10 +14,10 @@ import multiprocessing
 from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 
-def _gradient_terms_for_subset(GPC, invKs_fhat, sigmasq, dim):
-    dKdls = GPC.K_mm * GPC.kernel_derfactor(GPC.inducing_coords, GPC.ls, dim)  / GPC.s
+def _gradient_terms_for_subset(K_mm, kernel_derfactor, invKs_fhat, invKs_mm_uS_sigmasq, ls_d, coords, s):
+    dKdls = K_mm * kernel_derfactor(coords, coords, ls_d) / s
     firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-    secondterm = np.trace(GPC.invKs_mm_uS.dot(sigmasq).dot(dKdls))
+    secondterm = np.trace(invKs_mm_uS_sigmasq.dot(dKdls))
     return 0.5 * (firstterm - secondterm)
 
 class GPClassifierSVI(GPClassifierVB):
@@ -182,13 +182,21 @@ class GPClassifierSVI(GPClassifierVB):
         GTQG = (G.T * self.Q[None, :]).dot(G)
         sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm)
          
+        invKs_mm_uS_sigmasq = self.invKs_mm_uS.dot(sigmasq)
+         
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
         else: # do it for only the dimension dim
             dims = [dim]        
         
         num_jobs = multiprocessing.cpu_count()
-        gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self, invKs_fhat, sigmasq, dim) 
+        if len(self.ls) > 1:
+            gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
+                        invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim], self.inducing_coords[:, dim:dim+1], self.s) 
+                                             for dim in dims)            
+        else:
+            gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
+                        invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0], self.inducing_coords[:, dim:dim+1], self.s) 
                                              for dim in dims)
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
