@@ -480,16 +480,17 @@ class GPClassifierVB(object):
         else: # do it for only the dimension dim
             dims = [dim]
             
+        invKs_C = solve_triangular(self.cholK, self.obs_C, trans=True, check_finite=False)
+        invKs_C = solve_triangular(self.cholK, invKs_C, check_finite=False)
+        invKs_C *= self.s
+        invKs_C_sigmasq = invKs_C.dot(sigmasq)
+            
         firstterm = np.zeros(len(dims))
         secondterm = np.zeros(len(dims))
         for d, dim in enumerate(dims):
             dKdls =  self.K * self.kernel_derfactor(self.obs_coords, self.ls, dim)  / self.s
             firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
-
-            invKs_C = solve_triangular(self.cholK, self.obs_C, trans=True, check_finite=False)
-            invKs_C = solve_triangular(self.cholK, invKs_C, check_finite=False)
-            invKs_C *= self.s
-            secondterm[d] = np.trace(invKs_C.dot(sigmasq).dot(dKdls))
+            secondterm[d] = np.trace(invKs_C_sigmasq.dot(dKdls))
 
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
@@ -587,7 +588,7 @@ class GPClassifierVB(object):
             lml = marginal_log_likelihood + log_model_prior
         else:
             lml = marginal_log_likelihood
-        logging.debug("LML: %f, with Length-scales: %s" % (lml, self.ls))
+        logging.debug("LML: %f, with Length-scales from %f to %f" % (lml, np.min(self.ls), np.max(self.ls)) )
         return -lml
     
     def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
