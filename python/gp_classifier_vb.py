@@ -56,8 +56,13 @@ def derivfactor_diag_from_raw_vals(vals, ls, d, vals2=None):
     return 0
 
 def diagonal_from_raw_vals(vals, ls, vals2=None):
+    if vals2 is None:
+        vals2 = vals
+        
     same_locs = np.sum(vals != vals2, axis=1) == 0
-    K = np.zeros((vals.shape[0], vals.shape[1]), dtype=float)
+    K = np.zeros((vals.shape[0], vals.shape[0]), dtype=float)
+    for i in range(vals.shape[0]):
+        K[i, :] = (np.sum(vals[i:i+1, :] - vals, axis=1) == 0)
     K[same_locs] = 1.0
     return K   
 
@@ -102,9 +107,16 @@ def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d):
     '''            
     D = np.abs(compute_distance(vals, vals2.T))
     #K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
-    K = 3 * D**2 * np.exp(-D * 3**0.5 / ls_d) / ls_d**3
-    K /= matern_3_2_onedimension_from_raw_vals(vals, vals2, ls_d)
-    return K
+    sqrt3d = D * 3**0.5 / ls_d
+    exp_minus_sqrt3d = np.exp(-sqrt3d)
+    dKdls_d = 3 * D**2 * exp_minus_sqrt3d/ ls_d**3
+    
+    Kfactor = sqrt3d
+    Kfactor *= exp_minus_sqrt3d
+    Kfactor += exp_minus_sqrt3d
+    
+    dKdls_d /= Kfactor
+    return dKdls_d
     
 def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     ''' 
@@ -347,7 +359,7 @@ class GPClassifierVB(object):
         
         elif cov_type == 'diagonal':
             self.kernel_func = diagonal_from_raw_vals
-            self.kernel_der = derivfactor_diag_from_raw_vals
+            self.kernel_derfactor = derivfactor_diag_from_raw_vals
             
 #         elif cov_type == 'sq_exp': # no longer works -- needs kernel functions that work with the raw values
 #             self.kernel_func = sq_exp_cov
@@ -687,7 +699,7 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
-    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=100, use_MAP=False, 
+    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=25, use_MAP=False, 
                  nrestarts=1):
 
         if process_obs:
