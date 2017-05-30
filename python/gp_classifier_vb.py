@@ -157,6 +157,8 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
     range_end = subset_size*(subset+1)
     if range_end > vals.shape[1]:
         range_end = vals.shape[1]
+
+    print range_end
         
     for i in range(subset_size*subset, range_end):
         xvals = vals[:, i:i+1]
