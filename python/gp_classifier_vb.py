@@ -59,11 +59,9 @@ def diagonal_from_raw_vals(vals, ls, vals2=None):
     if vals2 is None:
         vals2 = vals
         
-    same_locs = np.sum(vals != vals2, axis=1) == 0
-    K = np.zeros((vals.shape[0], vals.shape[0]), dtype=float)
+    K = np.zeros((vals.shape[0], vals2.shape[0]), dtype=float)
     for i in range(vals.shape[0]):
-        K[i, :] = (np.sum(vals[i:i+1, :] - vals, axis=1) == 0)
-    K[same_locs] = 1.0
+        K[i, :] = (np.sum(vals[i:i+1, :] - vals2, axis=1) == 0)
     return K   
 
 # Squared Exponential -- needs converting to work with raw values
