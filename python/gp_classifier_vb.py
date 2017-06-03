@@ -475,16 +475,6 @@ class GPClassifierVB(object):
 
         logrho, lognotrho = self._logpt()
         
-#         k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C)[:, np.newaxis] / 8.0))
-#         rho_rough = sigmoid(k* self.obs_f)
-#         notrho_rough = sigmoid(-k*self.obs_f)
-#         logrho = np.log(rho_rough)
-#         lognotrho = np.log(notrho_rough)
-#          
-#         rho = self.forward_model(self.obs_f)
-#         logrho = np.log(rho)
-#         lognotrho = np.log(1 - rho)
-        
         data_ll = self._data_ll(logrho, lognotrho)
         
         logp_f = self._logpf()

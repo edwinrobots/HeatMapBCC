@@ -7,7 +7,7 @@ of the VB algorithm, only a fixed number of random data points are used to updat
 
 import numpy as np
 import logging
-from gp_classifier_vb import GPClassifierVB
+from gp_classifier_vb import GPClassifierVB, sigmoid
 from sklearn.cluster import MiniBatchKMeans
 from joblib import Parallel, delayed
 import multiprocessing
@@ -143,6 +143,15 @@ class GPClassifierSVI(GPClassifierVB):
         return g_obs_f  
 
     # Log Likelihood Computation ------------------------------------------------------------------------------------- 
+        
+    def _logpt(self):
+        k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C)[:, np.newaxis] / 8.0))
+        rho_rough = sigmoid(k* self.obs_f)
+        notrho_rough = sigmoid(-k*self.obs_f)
+        logrho = np.log(rho_rough)
+        lognotrho = np.log(notrho_rough)
+
+        return logrho, lognotrho     
         
     def _logpf(self):
         if not self.use_svi:
