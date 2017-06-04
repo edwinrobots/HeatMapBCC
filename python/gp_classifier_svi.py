@@ -144,14 +144,15 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Log Likelihood Computation ------------------------------------------------------------------------------------- 
         
-    def _logpt(self):
-        k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C)[:, np.newaxis] / 8.0))
-        rho_rough = sigmoid(k* self.obs_f)
-        notrho_rough = sigmoid(-k*self.obs_f)
-        logrho = np.log(rho_rough)
-        lognotrho = np.log(notrho_rough)
-
-        return logrho, lognotrho     
+#     def _logpt(self):
+# this approximation is really poor -- doesn't work
+#         k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C)[:, np.newaxis] / 8.0))
+#         rho_rough = sigmoid(k* self.obs_f)
+#         notrho_rough = sigmoid(-k*self.obs_f)
+#         logrho = np.log(rho_rough)
+#         lognotrho = np.log(notrho_rough)
+# 
+#         return logrho, lognotrho     
         
     def _logpf(self):
         if not self.use_svi:

@@ -168,8 +168,6 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
     if range_end > vals.shape[1]:
         range_end = vals.shape[1]
 
-    print range_end
-        
     for i in range(subset_size*subset, range_end):
         xvals = vals[:, i:i+1]
             
@@ -548,7 +546,7 @@ class GPClassifierVB(object):
     
     def _logpt(self):
         _, G = self._compute_jacobian()
-        diagGTQG = np.sum(G.T * self.Q[None, :] * G.T, axis=1)
+        diagGTQG = np.diag(G) * self.Q * np.diag(G) #np.sum(G.T * self.Q[None, :] * G.T, axis=1)
         sigma = np.sqrt(diagGTQG)[:, np.newaxis]
         f_samples = norm.rvs(loc=self.obs_f, scale=sigma, size=(self.n_locs, 500))
         rho_samples = self.forward_model(f_samples)
