@@ -276,6 +276,8 @@ class GPClassifierSVI(GPClassifierVB):
         if Ks_nn is not None:
             covpair =  Ks_nm.dot(self.invKs_mm)
             C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
+            if np.any(np.diag(C) < 0):
+                logging.error("Negative variance in _f_given_u(), %f" % np.min(np.diag(C)))
             return fhat, C
         else:
             return fhat
@@ -299,7 +301,7 @@ class GPClassifierSVI(GPClassifierVB):
             
         self.Ks_mm = self.K_mm / self.s
         self.invKs_mm  = self.invK_mm * self.s
-        self.Ks_nm = self.K_nm / self.s            
+        self.Ks_nm = self.K_nm / self.s        
     
     def _update_sample(self):
         
