@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import numpy as np
 from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix, issparse
@@ -116,7 +118,7 @@ def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d):
     dKdls_d /= Kfactor
     return dKdls_d
     
-def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
+def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
     ''' 
     To obtain the derivative W.R.T the length scale indicated by dim, multiply the value returned by this function
     with the kernel. Use this to save recomputing the kernel for each dimension. 
@@ -139,27 +141,22 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None):
     if len(ls) > 1:
         ls_i = ls[d]
     else:
-        ls_i = ls[0]  
-    K /= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+        ls_i = ls[0]
+        
+    if operator == '*':
+        K /= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
     return K
 
-def matern_3_2_from_raw_vals(vals, ls, vals2=None):
+def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     num_jobs = multiprocessing.cpu_count()
     subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
     K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
                                                     matern_3_2_onedimension_from_raw_vals) for i in range(num_jobs))
 
-    # This doesn't really work because the returned array K is too big for memory
-#     if vals2 is None:
-#         vals2 = vals
-#         
-#     if len(ls > 1):
-#         K = Parallel(n_jobs=num_jobs)(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], 
-#                                                                                  ls[i]) for i in range(vals.shape[1]))
-#     else:
-#         K = Parallel(n_jobs=num_jobs)(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], 
-#                                                                                  ls[0]) for i in range(vals.shape[1]))
-    K = np.prod(K, axis=0)
+    if operator == '*':
+        K = np.prod(K, axis=0)
+    elif operator == '+':
+        K = np.sum(K, axis=0)
     return K
 
 def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
@@ -224,7 +221,7 @@ class GPClassifierVB(object):
     p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
     
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None, 
-                 force_update_all_points=False, kernel_func='matern_3_2', verbose=False):
+                 force_update_all_points=False, kernel_func='matern_3_2', kernel_combination='*', verbose=False):
         
         self.verbose = verbose
         
@@ -266,6 +263,7 @@ class GPClassifierVB(object):
         self.update_all_points = force_update_all_points
 
         self._select_covariance_function(kernel_func)
+        self.kernel_combination = '*' # operator for combining kernels for each feature.
         
     # Initialisation --------------------------------------------------------------------------------------------------
     
@@ -290,7 +288,7 @@ class GPClassifierVB(object):
                 
     def _init_covariance(self):
         # Get the correct covariance matrix
-        self.K = self.kernel_func(self.obs_coords, self.ls)
+        self.K = self.kernel_func(self.obs_coords, self.ls, operator=self.kernel_combination)
         self.K += 1e-6 * np.eye(len(self.K)) # jitter
         self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
                 
@@ -338,7 +336,7 @@ class GPClassifierVB(object):
         #    logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))        
 
     def _init_s(self):
-        self.shape_s = self.shape_s0 + self.n_locs/2.0 # reset!
+        self.shape_s = self.shape_s0 + self.n_locs/2.0
         self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f-self.mu0)**2)) + self.rate_s0*self.shape_s/self.shape_s0            
         self.s = self.shape_s / self.rate_s        
         self.Elns = psi(self.shape_s) - np.log(self.rate_s)        
@@ -517,7 +515,11 @@ class GPClassifierVB(object):
         firstterm = np.zeros(len(dims))
         secondterm = np.zeros(len(dims))
         for d, dim in enumerate(dims):
-            dKdls =  self.K * self.kernel_derfactor(self.obs_coords, self.ls, dim)  / self.s
+            kernel_derfactor = self.kernel_derfactor(self.obs_coords, self.ls, dim, operator=self.kernel_combination) / self.s
+            if self.kernel_combination == '*': 
+                dKdls =  self.K * kernel_derfactor
+            else:
+                dKdls = kernel_derfactor  
             firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
             secondterm[d] = np.trace(invKs_C_sigmasq.dot(dKdls))
 
@@ -936,7 +938,7 @@ class GPClassifierVB(object):
     def _expec_f_output(self, block, blockidxs, reset_block=True):
         if block not in self.K_out or reset_block:
             block_coords = self.output_coords[blockidxs]
-            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.obs_coords)
+            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.obs_coords, operator=self.kernel_combination)
             self.K_out[block] /= self.s        
         
         self.f[blockidxs, :] = self.K_out[block].dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 

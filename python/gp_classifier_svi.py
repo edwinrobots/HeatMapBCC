@@ -14,8 +14,11 @@ import multiprocessing
 from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 
-def _gradient_terms_for_subset(K_mm, kernel_derfactor, invKs_fhat, invKs_mm_uS_sigmasq, ls_d, coords, s):
-    dKdls = K_mm * kernel_derfactor(coords, coords, ls_d) / s
+def _gradient_terms_for_subset(K_mm, kernel_derfactor, kernel_operator, invKs_fhat, invKs_mm_uS_sigmasq, ls_d, coords, s):
+    if kernel_operator == '*':
+        dKdls = K_mm * kernel_derfactor(coords, coords, ls_d, operator=kernel_operator) / s
+    elif kernel_operator == '+':
+        dKdls = kernel_derfactor(coords, coords, ls_d, operator=kernel_operator) / s        
     firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
     secondterm = np.trace(invKs_mm_uS_sigmasq.dot(dKdls))
     return 0.5 * (firstterm - secondterm)
@@ -26,7 +29,7 @@ class GPClassifierSVI(GPClassifierVB):
     changed_selection = True # indicates whether the random subset of data has changed since variables were initialised
     
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None, 
-                 force_update_all_points=False, kernel_func='matern_3_2', max_update_size=10000, 
+                 force_update_all_points=False, kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000, 
                  ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False):
         
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
@@ -105,12 +108,12 @@ class GPClassifierSVI(GPClassifierVB):
         self.invKs_mm_uS = np.eye(self.ninducing)
 
         if self.K_mm is None:
-            self.K_mm = self.kernel_func(self.inducing_coords, self.ls)
+            self.K_mm = self.kernel_func(self.inducing_coords, self.ls, operator=self.kernel_combination)
             self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter
         if self.invK_mm is None: 
             self.invK_mm = np.linalg.inv(self.K_mm)
         if self.K_nm is None:
-            self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords)
+            self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords, operator=self.kernel_combination)
         
         self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
 
@@ -202,12 +205,12 @@ class GPClassifierSVI(GPClassifierVB):
         num_jobs = multiprocessing.cpu_count()
         if len(self.ls) > 1:
             gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
-                        invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim], self.inducing_coords[:, dim:dim+1], self.s) 
-                                             for dim in dims)            
+                self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim], 
+                self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)            
         else:
-            gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
-                        invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0], self.inducing_coords[:, dim:dim+1], self.s) 
-                                             for dim in dims)
+            gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor,
+                self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0], 
+                self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
             gradient = np.sum(gradient)
@@ -350,7 +353,8 @@ class GPClassifierSVI(GPClassifierVB):
             
         if block not in self.K_out or reset_block:
             block_coords = self.output_coords[blockidxs]        
-            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.inducing_coords)
+            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.inducing_coords, 
+                                                 operator=self.kernel_combination)
             self.K_out[block] /= self.s        
                 
         self.f[blockidxs, :], C_out = self._f_given_u(self.K_out[block], self.mu0_output[blockidxs, :], 1.0 / self.s)
