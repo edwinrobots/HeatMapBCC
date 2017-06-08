@@ -463,10 +463,6 @@ class GPClassifierVB(object):
     # Log Likelihood Computation ------------------------------------------------------------------------------------- 
     
     def lowerbound(self, return_terms=False):
-        if self.verbose:
-            logging.debug('Total f mean = %f' % np.sum(np.abs(self.obs_f)))
-            logging.debug('Total f var = %f' % np.sum(np.diag(self.obs_C))) 
-
         logrho, lognotrho = self._logpt()
         
         data_ll = self._data_ll(logrho, lognotrho)
@@ -547,12 +543,22 @@ class GPClassifierVB(object):
         return data_ll      
     
     def _logpt(self):
+        if self.verbose:
+            logging.debug("in _logpt(), computing jacobian...")
         _, G = self._compute_jacobian()
+        if self.verbose:
+            logging.debug("in _logpt(), computing diagGTQG")
         diagGTQG = np.diag(G) * self.Q * np.diag(G) #np.sum(G.T * self.Q[None, :] * G.T, axis=1)
         sigma = np.sqrt(diagGTQG)[:, np.newaxis]
+        if self.verbose:
+            logging.debug("in _logpt(), computing samples...")
         f_samples = norm.rvs(loc=self.obs_f, scale=sigma, size=(self.n_locs, 500))
+        if self.verbose:
+            logging.debug("in _logpt(), applying forward model to samples")
         rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
+        if self.verbose:
+            logging.debug("in _logpt(), returning samples...")
         lognotrho_samples = np.log(1 - rho_samples)
         logrho_samples = np.log(rho_samples)
         logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
