@@ -55,7 +55,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.fixed_sample_idxs = False
         
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
-                                    force_update_all_points, kernel_func, verbose=verbose)      
+                                    force_update_all_points, kernel_func, kernel_combination, verbose=verbose)      
 
     # Initialisation --------------------------------------------------------------------------------------------------
         
@@ -123,7 +123,11 @@ class GPClassifierSVI(GPClassifierVB):
         if data_idx_i is not None:
             g_obs_f = self.forward_model(self.obs_f.flatten()[data_idx_i]) # first order Taylor series approximation
         else:
+            if self.verbose:
+                logging.debug("in _compute_jacobian, applying forward model to all observation points")
             g_obs_f = self.forward_model(self.obs_f.flatten())
+            if self.verbose:
+                logging.debug("in _compute_jacobian, computing gradients for all observation points...")
         J = np.diag(g_obs_f * (1-g_obs_f))
         return g_obs_f, J  
         
