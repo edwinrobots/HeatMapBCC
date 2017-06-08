@@ -263,7 +263,7 @@ class GPClassifierVB(object):
         self.update_all_points = force_update_all_points
 
         self._select_covariance_function(kernel_func)
-        self.kernel_combination = '*' # operator for combining kernels for each feature.
+        self.kernel_combination = kernel_combination # operator for combining kernels for each feature.
         
     # Initialisation --------------------------------------------------------------------------------------------------
     
