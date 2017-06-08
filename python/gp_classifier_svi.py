@@ -55,7 +55,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.fixed_sample_idxs = False
         
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
-                                    force_update_all_points, kernel_func, verbose=verbose)      
+                                    force_update_all_points, kernel_func, kernel_combination, verbose=verbose)      
 
     # Initialisation --------------------------------------------------------------------------------------------------
         
