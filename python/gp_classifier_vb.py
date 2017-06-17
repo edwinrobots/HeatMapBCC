@@ -57,12 +57,16 @@ def temper_extreme_probs(probs, zero_only=False):
 def derivfactor_diag_from_raw_vals(vals, ls, d, vals2=None):
     return 0
 
-def diagonal_from_raw_vals(vals, ls, vals2=None):
+def diagonal_from_raw_vals(vals, ls, vals2=None, operator='*'):
+    '''
+    No covariance between different locations. Operator is ignored.
+    '''
     if vals2 is None:
         vals2 = vals
         
     K = np.zeros((vals.shape[0], vals2.shape[0]), dtype=float)
     for i in range(vals.shape[0]):
+        # check for the same locations.
         K[i, :] = (np.sum(vals[i:i+1, :] - vals2, axis=1) == 0)
     return K   
 
@@ -100,7 +104,7 @@ def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
     
     return K
 
-def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d):
+def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d, operator='*'):
     ''' 
     To obtain the derivative W.R.T the length scale indicated by dim, multiply the value returned by this function
     with the kernel. Use this to save recomputing the kernel for each dimension. 
@@ -111,11 +115,13 @@ def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d):
     exp_minus_sqrt3d = np.exp(-sqrt3d)
     dKdls_d = 3 * D**2 * exp_minus_sqrt3d/ ls_d**3
     
-    Kfactor = sqrt3d
-    Kfactor *= exp_minus_sqrt3d
-    Kfactor += exp_minus_sqrt3d
+    if operator == '*':
+        Kfactor = sqrt3d
+        Kfactor *= exp_minus_sqrt3d
+        Kfactor += exp_minus_sqrt3d
     
-    dKdls_d /= Kfactor
+        dKdls_d /= Kfactor
+        
     return dKdls_d
     
 def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
@@ -514,7 +520,7 @@ class GPClassifierVB(object):
         secondterm = np.zeros(len(dims))
         for d, dim in enumerate(dims):
             kernel_derfactor = self.kernel_derfactor(self.obs_coords, self.ls, dim, operator=self.kernel_combination) / self.s
-            if self.kernel_combination == '*': 
+            if self.kernel_combination == '*':
                 dKdls =  self.K * kernel_derfactor
             else:
                 dKdls = kernel_derfactor  

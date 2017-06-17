@@ -278,6 +278,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.obs_f = self._f_given_u(self.Ks_nm, self.mu0)
                 
     def _f_given_u(self, Ks_nm, mu0, Ks_nn=None):
+        # see Hensman, Scalable variational Gaussian process classification, equation 18 
         covpair_uS = Ks_nm.dot(self.invKs_mm_uS)
         fhat = covpair_uS.dot(self.u_invSm) + mu0
         if Ks_nn is not None:
@@ -285,6 +286,7 @@ class GPClassifierSVI(GPClassifierVB):
             C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
             if np.any(np.diag(C) < 0):
                 logging.error("Negative variance in _f_given_u(), %f" % np.min(np.diag(C)))
+                # caused by the accumulation of small errors? Possibly when s is very small?
             return fhat, C
         else:
             return fhat
