@@ -116,8 +116,7 @@ def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d, operato
     dKdls_d = 3 * D**2 * exp_minus_sqrt3d/ ls_d**3
     
     if operator == '*':
-        Kfactor = sqrt3d
-        Kfactor *= exp_minus_sqrt3d
+        Kfactor = sqrt3d * exp_minus_sqrt3d
         Kfactor += exp_minus_sqrt3d
     
         dKdls_d /= Kfactor
