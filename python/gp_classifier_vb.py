@@ -564,17 +564,30 @@ class GPClassifierVB(object):
         sigma = np.sqrt(diagGTQG)[:, np.newaxis]
         if self.verbose:
             logging.debug("in _logpt(), computing samples...")
-        f_samples = norm.rvs(loc=self.obs_f, scale=sigma, size=(self.n_locs, 500))
+            
+        blocksize = 1000
+        nblocks = int(np.ceil(self.n_locs / float(blocksize)))
+        
+        logrho = np.empty((self.n_locs, 1))
+        lognotrho = np.empty((self.n_locs, 1))
+        
+        for b in range(nblocks):
+            start = b * blocksize
+            fin = b * blocksize + blocksize
+            if fin > self.n_locs:
+                fin = self.n_locs
+            thisblocksize = fin - start
+            
+            f_samples = norm.rvs(loc=self.obs_f[start:fin, :], scale=sigma[start:fin, :], size=(thisblocksize, 500))
+
+            rho_samples = self.forward_model(f_samples)
+            rho_samples = temper_extreme_probs(rho_samples)
+
+            lognotrho[start:fin, 0] = np.mean(np.log(1 - rho_samples), axis=1)
+            logrho[start:fin, 0] = np.mean(np.log(rho_samples), axis=1)
+
         if self.verbose:
-            logging.debug("in _logpt(), applying forward model to samples")
-        rho_samples = self.forward_model(f_samples)
-        rho_samples = temper_extreme_probs(rho_samples)
-        if self.verbose:
-            logging.debug("in _logpt(), returning samples...")
-        lognotrho_samples = np.log(1 - rho_samples)
-        logrho_samples = np.log(rho_samples)
-        logrho = np.mean(logrho_samples, axis=1)[:, np.newaxis]
-        lognotrho = np.mean(lognotrho_samples, axis=1)[:, np.newaxis]
+            logging.debug("in _logpt(), completed sampling process...")
 
         return logrho, lognotrho        
     
