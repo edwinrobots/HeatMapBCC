@@ -565,7 +565,7 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("in _logpt(), computing samples...")
             
-        blocksize = 1000
+        blocksize = 2000
         nblocks = int(np.ceil(self.n_locs / float(blocksize)))
         
         logrho = np.empty((self.n_locs, 1))
