@@ -156,8 +156,15 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
 def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     num_jobs = multiprocessing.cpu_count()
     subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
-    K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
-                                                    matern_3_2_onedimension_from_raw_vals) for i in range(num_jobs))
+
+    if vals2 is None:
+        vals2 = vals
+    K = Parallel(n_jobs=num_jobs)(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], ls[i])
+                                      for i in range(vals.shape[1]))
+
+
+    #K = Parallel(n_jobs=num_jobs)(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
+    #                                                matern_3_2_onedimension_from_raw_vals) for i in range(num_jobs))
 
     if operator == '*':
         K = np.prod(K, axis=0)
@@ -172,7 +179,7 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
         range_end = vals.shape[1]
 
     for i in range(subset_size*subset, range_end):
-	if np.mod(i, 100) == 0:
+	if np.mod(i, 1000) == 0:
             print "computing kernel for feature %i" % i
         xvals = vals[:, i:i+1]
             
