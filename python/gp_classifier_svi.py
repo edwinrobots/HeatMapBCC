@@ -263,17 +263,17 @@ class GPClassifierSVI(GPClassifierVB):
         self.u_invSm = (1 - rho_i) * self.prev_u_invSm + w_i * rho_i * (Lambda_factor1/Q).dot(y)
         
         # Next step is to use this to update f, so we can in turn update G. The contribution to Lambda_m and u_inv_S should therefore be made only once G has stabilised!
-        L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
-        B = solve_triangular(L_u_invS, self.invKs_mm.T, lower=True, check_finite=False)
-        A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
-        self.L_u_invS = L_u_invS
-        self.invKs_mm_uS = A.T
+        #L_u_invS = cholesky(self.u_invS.T, lower=True, check_finite=False)
+        #B = solve_triangular(L_u_invS, self.invKs_mm.T, lower=True, check_finite=False)
+        #A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
         
-        #covpair_uS = covpair.dot(np.linalg.inv(self.u_invS))
+        uS = np.linalg.inv(self.u_invS)
+        self.invKs_mm_uS = self.invKs_mm.dot(uS)# A.T
         
-        self.um_minus_mu0 = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
-        self.um_minus_mu0 = solve_triangular(L_u_invS, self.um_minus_mu0, lower=True, trans=True, check_finite=False, 
-                                             overwrite_b=True)
+#         self.um_minus_mu0 = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
+#         self.um_minus_mu0 = solve_triangular(L_u_invS, self.um_minus_mu0, lower=True, trans=True, check_finite=False, 
+#                                              overwrite_b=True)
+        self.um_minus_mu0 = uS.dot(self.u_invSm)
         
         self.obs_f = self._f_given_u(self.Ks_nm, self.mu0)
                 
