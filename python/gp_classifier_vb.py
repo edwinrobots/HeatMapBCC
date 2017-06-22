@@ -156,7 +156,7 @@ def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     num_jobs = multiprocessing.cpu_count()
     subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
     K = Parallel(n_jobs=num_jobs, backend='threading')(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
-                                                     matern_3_2_onedimension_from_raw_vals) for i in range(num_jobs))
+                                         matern_3_2_onedimension_from_raw_vals, operator) for i in range(num_jobs))
 
     #if vals2 is None:
     #    vals2 = vals
@@ -169,7 +169,7 @@ def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
         K = np.sum(K, axis=0)
     return K
 
-def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
+def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
     K_subset = 1
     range_end = subset_size*(subset+1)
     if range_end > vals.shape[1]:
@@ -190,7 +190,10 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun):
         else:
             ls_i = ls[0]
         K_d = fun(xvals, xvals2, ls_i)
-        K_subset *= K_d
+        if operator == '*':
+            K_subset *= K_d
+        elif operator == '+':
+            K_subset += K_d
     return K_subset
 
 class GPClassifierVB(object):
