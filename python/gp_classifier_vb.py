@@ -5,7 +5,7 @@ from scipy.linalg import cholesky, solve_triangular
 from scipy.sparse import coo_matrix, issparse
 from scipy.optimize import minimize
 from scipy.special import gammaln, psi, binom
-from scipy.stats import norm, gamma
+from scipy.stats import gamma
 import logging
 from joblib import Parallel, delayed
 import multiprocessing
@@ -170,7 +170,11 @@ def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     return K
 
 def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
-    K_subset = 1
+    if operator == '*':
+        K_subset = 1
+    elif operator == '+':
+        K_subset = 0
+        
     range_end = subset_size*(subset+1)
     if range_end > vals.shape[1]:
         range_end = vals.shape[1]
@@ -336,7 +340,7 @@ class GPClassifierVB(object):
         self.Q = self.Q.flatten()
                 
     def _init_obs_prior(self):
-        f_samples = norm.rvs(loc=self.mu0, scale=np.sqrt(self.rate_s0/self.shape_s0), size=(self.n_locs, 1000))
+        f_samples = np.random.normal(loc=self.mu0, scale=np.sqrt(self.rate_s0/self.shape_s0), size=(self.n_locs, 1000))
         rho_samples = self.forward_model(f_samples)
         rho_mean = np.mean(rho_samples)
         rho_var = np.var(rho_samples)
@@ -581,7 +585,7 @@ class GPClassifierVB(object):
                 fin = self.n_locs
             thisblocksize = fin - start
             
-            f_samples = norm.rvs(loc=self.obs_f[start:fin, :], scale=sigma[start:fin, :], size=(thisblocksize, 500))
+            f_samples = np.random.normal(loc=self.obs_f[start:fin, :], scale=sigma[start:fin, :], size=(thisblocksize, 500))
 
             rho_samples = self.forward_model(f_samples)
             rho_samples = temper_extreme_probs(rho_samples)
@@ -990,7 +994,7 @@ class GPClassifierVB(object):
     
     def _post_sample(self, f, v, expectedlog): 
         # draw samples from a Gaussian with mean f and variance v
-        f_samples = norm.rvs(loc=f, scale=np.sqrt(v), size=(len(f), 500))
+        f_samples = np.random.normal(loc=f, scale=np.sqrt(v), size=(len(f), 500))
         rho_samples = sigmoid(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         rho_not_samples = 1 - rho_samples 
