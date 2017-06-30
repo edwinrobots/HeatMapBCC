@@ -166,7 +166,7 @@ def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     if operator == '*':
         K = np.prod(K, axis=0)
     elif operator == '+':
-        K = np.sum(K, axis=0)
+        K = np.sum(K, axis=0) / float(vals.shape[1])
     return K
 
 def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
