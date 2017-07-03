@@ -150,6 +150,9 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
         
     if operator == '*':
         K /= matern_3_2_onedimension_from_raw_vals(xvals, xvals2, ls_i)
+    elif operator == '+':
+        K /= float(vals.shape[1])
+        
     return K
 
 def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
