@@ -184,7 +184,7 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
 
     for i in range(subset_size*subset, range_end):
         if np.mod(i, 1000) == 0:
-            print "computing kernel for feature %i" % i
+            logging.debug("computing kernel for feature %i" % i)
         xvals = vals[:, i:i+1]
             
         if vals2 is None:
@@ -394,7 +394,7 @@ class GPClassifierVB(object):
             
         if self.features is not None:
             self.obs_uidxs = np.arange(self.features.shape[0])
-            poscounts = poscounts.astype(int)
+            #poscounts = poscounts.astype(int)
             totals = totals.astype(int)  
             self.obs_coords = self.features
             return poscounts, totals               
@@ -449,7 +449,7 @@ class GPClassifierVB(object):
 
         # remove duplicates etc.
         poscounts, totals = self._count_observations(obs_coords, n_obs, poscounts, totals)
-        self.obs_values = poscounts[:, np.newaxis]
+        self.obs_values = poscounts[:, np.newaxis].astype(float)
         self.obs_total_counts = totals[:, np.newaxis]
         n_locations = self.obs_coords.shape[0]
         self.n_locs = n_locations

@@ -61,7 +61,7 @@ class GPClassifierSVI(GPClassifierVB):
         
     def _init_params(self, mu0=None):            
         super(GPClassifierSVI, self)._init_params(mu0)
-        if self.use_svi:            
+        if self.use_svi:
             self._choose_inducing_points()
     
     def _init_covariance(self):
