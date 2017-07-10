@@ -1,6 +1,7 @@
 
 import ibcc
-from gp_classifier_vb import GPClassifierVB
+# from gp_classifier_vb import GPClassifierVB
+from gp_classifier_svi import GPClassifierSVI
 import numpy as np
 import logging
 
@@ -123,7 +124,8 @@ class HeatMapBCC(ibcc.IBCC):
         for j in gprange:
             #start with a homogeneous grid  
             # (self.nx, self.ny)   
-            self.heatGP[j] = GPClassifierVB(2, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
+            self.heatGP[j] = GPClassifierSVI(#GPClassifierVB(
+                                2, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
                                 force_update_all_points=self.update_all_points, kernel_func=self.kernel_func)   
             self.heatGP[j].verbose = self.verbose

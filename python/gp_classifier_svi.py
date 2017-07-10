@@ -67,6 +67,13 @@ class GPClassifierSVI(GPClassifierVB):
     def _init_covariance(self):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._init_covariance()
+                        
+    def reset_kernel(self):
+        super(GPClassifierSVI, self)._init_covariance()
+        if self.use_svi:
+            self.K_mm = None
+            self.K_nm = None
+            self.invK_mm = None
         
     def _choose_inducing_points(self):
         # choose a set of inducing points -- for testing we can set these to the same as the observation points.
@@ -217,9 +224,9 @@ class GPClassifierSVI(GPClassifierVB):
                 self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
-            gradient = np.sum(gradient)
+            gradient = [np.sum(gradient)]
          
-        return gradient    
+        return np.array(gradient)    
     
     # Training methods ------------------------------------------------------------------------------------------------
           
@@ -361,7 +368,8 @@ class GPClassifierSVI(GPClassifierVB):
             block_coords = self.output_coords[blockidxs]        
             self.K_out[block] = self.kernel_func(block_coords, self.ls, self.inducing_coords, 
                                                  operator=self.kernel_combination)
-            self.K_out[block] /= self.s        
+            
+        K_out_block_s = self.K_out[block] / self.s        
                 
-        self.f[blockidxs, :], C_out = self._f_given_u(self.K_out[block], self.mu0_output[blockidxs, :], 1.0 / self.s)
+        self.f[blockidxs, :], C_out = self._f_given_u(K_out_block_s, self.mu0_output[blockidxs, :], 1.0 / self.s)
         self.v[blockidxs, 0] = np.diag(C_out) 

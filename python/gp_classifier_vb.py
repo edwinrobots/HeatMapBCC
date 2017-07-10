@@ -321,6 +321,14 @@ class GPClassifierVB(object):
         self.Cov = np.zeros((self.Ntrain, self.Ntrain))
         self.KsG = np.zeros((self.n_locs, self.Ntrain))  
                 
+    def reset_kernel(self):
+        self.K = None
+        self.cholK = None  
+        self.Ks = None
+        self.obs_C = None
+        self.Cov = None
+        self.KsG = None              
+                
     def _init_prior_mean_f(self, z0):
         self.mu0_default = logit(z0)
         
@@ -472,10 +480,15 @@ class GPClassifierVB(object):
             return sigmoid(f[subset_idxs])
         else:
             return sigmoid(f)
-    
-    def _update_jacobian(self, G_update_rate=1.0):
+
+    def _compute_jacobian(self):
         g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
         J = np.diag(g_obs_f * (1-g_obs_f))
+        
+        return g_obs_f, J
+    
+    def _update_jacobian(self, G_update_rate=1.0):
+        g_obs_f, J = self._compute_jacobian()
         if G_update_rate==1 or not len(self.G) or self.G.shape != J.shape: # either G has not been initialised, or is from different observations
             self.G = J
         else:
@@ -533,7 +546,8 @@ class GPClassifierVB(object):
         firstterm = np.zeros(len(dims))
         secondterm = np.zeros(len(dims))
         for d, dim in enumerate(dims):
-            kernel_derfactor = self.kernel_derfactor(self.obs_coords, self.ls, dim, operator=self.kernel_combination) / self.s
+            kernel_derfactor = self.kernel_derfactor(self.obs_coords[:, dim:dim+1], self.obs_coords[:, dim:dim+1], 
+                                                     self.ls[dim], operator=self.kernel_combination) / self.s
             if self.kernel_combination == '*':
                 dKdls =  self.K * kernel_derfactor
             else:
@@ -543,11 +557,11 @@ class GPClassifierVB(object):
 
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions
-            firstterm = np.sum(firstterm)
-            secondterm = np.sum(secondterm) 
+            firstterm = [np.sum(firstterm)]
+            secondterm = [np.sum(secondterm)]
         
         gradient = 0.5 * (firstterm - secondterm)
-        return gradient
+        return np.array(gradient)
     
     def ln_modelprior(self):
         #Gamma distribution over each value. Set the parameters of the gammas.
@@ -645,6 +659,11 @@ class GPClassifierVB(object):
             self.ls[dimension] = np.exp(hyperparams)
         if np.any(np.isinf(self.ls)):
             return np.inf
+        if np.any(self.ls < 1e-100):
+            # avoid very small length scales
+            return np.inf
+        
+        self.reset_kernel() # regenerate kernel with new length-scales
         
         # make sure we start again
         #Sets the value of parameters back to the initial guess
@@ -670,10 +689,13 @@ class GPClassifierVB(object):
                 self.ls[:] = np.exp(hyperparams)
                 self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)            
         elif np.any(np.abs(self.ls[dimension] - np.exp(hyperparams)) > 1e-4):
+            # don't update if the change is too small
             self.ls[dimension] = np.exp(hyperparams) 
-            self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)        
+            self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)
         
         gradient = self.lowerbound_gradient(dimension)
+        gradient[np.isnan(gradient)] = 1e-20 # remove any values that are likely to cause errors. Positive gradient to 
+        # encourage the lengthscales causing the problems to be increased, since they are most likely close to zero
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.") 
             
@@ -744,6 +766,8 @@ class GPClassifierVB(object):
             
         for r in range(nrestarts):
             initialguess = np.log(self.ls)
+            if self.n_lengthscales == 1:
+                initialguess = initialguess[0]
             logging.debug("Initial length-scale guess in restart %i: %s" % (r, self.ls))
     
             res = minimize(self.neg_marginal_likelihood, initialguess, 
@@ -980,11 +1004,11 @@ class GPClassifierVB(object):
         if block not in self.K_out or reset_block:
             block_coords = self.output_coords[blockidxs]
             self.K_out[block] = self.kernel_func(block_coords, self.ls, self.obs_coords, operator=self.kernel_combination)
-            self.K_out[block] /= self.s        
+        K_out_block_s = self.K_out[block] / self.s  
         
-        self.f[blockidxs, :] = self.K_out[block].dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 
+        self.f[blockidxs, :] = K_out_block_s.dot(self.G.T).dot(self.A) + self.mu0_output[blockidxs, :] 
         
-        V = solve_triangular(self.L, self.G.dot(self.K_out[block].T), lower=True, overwrite_b=True, check_finite=False)
+        V = solve_triangular(self.L, self.G.dot(K_out_block_s.T), lower=True, overwrite_b=True, check_finite=False)
         self.v[blockidxs, 0] = 1.0 / self.s - np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
         
     def _post_rough(self, f, v):
