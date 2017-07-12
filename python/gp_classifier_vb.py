@@ -886,7 +886,7 @@ class GPClassifierVB(object):
 
     # Prediction methods ---------------------------------------------------------------------------------------------
     
-    def predict(self, output_coords, variance_method='rough', max_block_size=1e5, expectedlog=False, return_not=False, 
+    def predict(self, output_coords, variance_method='rough', max_block_size=1e4, expectedlog=False, return_not=False, 
                 mu0_output=None):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential 
@@ -910,7 +910,7 @@ class GPClassifierVB(object):
             v_post = np.empty((noutputs, 1), dtype=float)
         
         for block in range(nblocks):
-            if self.verbose:
+            if self.verbose or nblocks > 1:
                 logging.debug("GPClassifierVB predicting block %i of %i" % (block, nblocks))            
             blockidxs = self._predict_block(block, max_block_size, noutputs)
                     

@@ -3,7 +3,10 @@ Created on 23 Jun 2014
 
 @author: edwin
 '''
-import heatmapbcc, maptargets, time, logging, json
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+import heatmapbcc, maptargets, time, json
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -24,10 +27,10 @@ class Heatmap(object):
     datadir = './data'
     fileprefix = '/mapdata/map_test'
     
-    minlat = 18.2#18.0
-    maxlat = 18.8#19.4
-    minlon = -72.6#-73.1
-    maxlon = -72.0#-71.7   
+    minlat = 18.2#18.5##18.0
+    maxlat = 18.8#18.62##19.4
+    minlon = -72.6#-72.36##-73.1
+    maxlon = -72.0#-72.24##-71.7   
         
     nx = 100
     ny = 100
@@ -37,7 +40,7 @@ class Heatmap(object):
     rep_ids = []
         
     startclean = True #if true, will delete all previous maps before running
-    timestep = 65 #max is likely to be 765
+    timestep = 765#65 #max is likely to be 765
     stepsize = 700 #takes around 4 minutes to run through all updates. There will be 7 updates
     finalsnapshot = False
 
@@ -86,7 +89,7 @@ class Heatmap(object):
         
     def runBCC(self, j):
         C = self.C[j]
-        self.runBCC_subset(C)
+        return self.runBCC_subset(C)
         
     def runBCC_up_to_time(self, j, timestep):       
         C = self.C[j]
@@ -97,11 +100,12 @@ class Heatmap(object):
     def runBCC_subset(self, C, j=1):
         if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
             self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K, shape_s0=100.0,
-                                                            rate_s0=600.0, shape_ls=10000.0, rate_ls=100.0)#shape_ls=10, rate_ls=0.1)
+                rate_s0=600.0, shape_ls=10000.0, rate_ls=100.0, z0=self.nu0[1]/np.sum(self.nu0))#shape_ls=10, rate_ls=0.1)
             self.heatmapcombiner[j].min_iterations = 5
-            self.heatmapcombiner[j].max_iterations = 200
-            self.heatmapcombiner[j].conv_threshold = 0.1
-            self.heatmapcombiner[j].uselowerbound = False
+            #self.heatmapcombiner[j].max_iterations = 200
+            #self.heatmapcombiner[j].conv_threshold = 0.1
+            self.heatmapcombiner[j].uselowerbound = True
+            self.heatmapcombiner[j].verbose = False
 
         self.heatmapcombiner[j].combine_classifications(C)
         print "S = "
@@ -330,7 +334,7 @@ class Heatmap(object):
         prior = self.nu0/float(np.sum(self.nu0))
         prior = prior[0]
         
-        changepoint = np.round(prior*(cmap.N + 3))
+        changepoint = int(np.round(prior*(cmap.N + 3)))
                 
         if removesea:
             alphas = np.linspace(0, 0.75, cmap.N+3)
@@ -342,8 +346,10 @@ class Heatmap(object):
             alphas = np.concatenate((alphas1, alphas2, alphas3, alphas4))
         cmap._lut[:,-1] = alphas        
         
-        plt.imshow(bcc_pred, cmap=cmap, aspect=None, origin='lower', \
+        cax = plt.imshow(bcc_pred, cmap=cmap, aspect=None, origin='lower', \
                    vmin=imgmin, vmax=imgmax, interpolation=interp, filterrad=0.01)
+    
+        #plt.colorbar(cax, orientation='horizontal', pad=0.05, shrink=0.9)
     
         fig.tight_layout(pad=0,w_pad=0,h_pad=0)
         ax = plt.gca()
@@ -459,8 +465,8 @@ class Heatmap(object):
                         else:
                             maintype = mappedID
 
-            repx = latdata[i]
-            repy = londata[i]
+            repx = np.array(latdata[i], dtype=int)
+            repy = np.array(londata[i], dtype=int)
             if repx>=self.nx or repx<0 or repy>=self.ny or repy<0:
                 continue
             
@@ -522,6 +528,8 @@ class Heatmap(object):
                   
         #add a trusted report to self.C, inserting it at the current self.timestep        
         x,y = self.translate_points_to_local(x,y)
+        x = int(x)
+        y = int(y)
         logging.info("Received new report at local point " + str(x) + ", " + str(y))
         Crow = np.array([rep_id, x, y, v]).reshape((1,4))
         C = np.concatenate((self.C[j][0:self.timestep, :], Crow), axis=0)
@@ -539,7 +547,8 @@ class Heatmap(object):
         self.targetextractor.rep_id_grid[j][x, y].append(len(self.targetextractor.rep_list[j])-1)                  
             
     def insert_trusted_prescripted(self, j):
-        x,y = self.translate_points_to_local(18.52,-72.284)
+        x = 18.5
+        y = -72.284
         self.insert_trusted(1, x, y, 0, 1, 0.9, 0.01)
         self.insert_trusted(1, x+1, y, 0, 1, 0.9, 0.01)
         self.insert_trusted(1, x+2, y, 0, 1, 0.9, 0.01)
@@ -583,11 +592,11 @@ class Heatmap(object):
         
 #--------  MAIN TEST PROGRAM--------------------------------------------------
 if __name__ == '__main__':
-    heatmap = Heatmap(1000,1000)
+    heatmap = Heatmap(100,100)
     
     #High definition with no interpolation
-    nx = 1000
-    ny = 1000  
+    nx = 100#1000
+    ny = 100#1000  
     heatmap.load_data() 
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
@@ -596,37 +605,40 @@ if __name__ == '__main__':
         heatmap.write_img("_rep_intensity_", j)
            
         heatmap.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+        plt.title('Report intensity, class %i' % j)
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_rep_intensity__sd_",j)   
     
     #Using BCC - lower res so it is tractable to interpolate
-    heatmap.nx = 1000
-    heatmap.ny = 1000
+    heatmap.nx = 100
+    heatmap.ny = 100
     heatmap.load_data() # in case nx and ny have changed, need to reload
            
     for j in range(1,2):
         start = time.time()
-        bcc_pred,heatmapcombiner = heatmap.runBCC(j)
+        bcc_pred, bcc_var, heatmapcombiner = heatmap.runBCC(j)
         fin = time.time()
         print "bcc heatmap prediction timer (no loops): " + str(fin-start)
                         
-        bcc_mpr = heatmapcombiner.get_mean_kappa()
         heatmap.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
+        plt.title('HeatmapBCC prediction, class %i' % j)
         #write_json(bcc_pred, nx,ny,j)
         heatmap.write_img("", j)
                  
+        bcc_mpr = heatmapcombiner.nu / np.sum(heatmapcombiner.nu, axis=0)                 
         heatmap.plotresults(bcc_mpr,  label='Incident Rate of type '+str(j))
+        plt.title('HeatmapBCC latent state, class %i' % j)
         #write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_")
         heatmap.write_img("_mpr_",j)
          
-        bcc_stdPred = heatmapcombiner.get_heat_variance()
+        bcc_stdPred = np.sqrt(bcc_var)
         heatmap.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_sd_",j)
      
     #insert a trusted report at 18.5333 N, -72.3333 W     
-    heatmap.nx = 2000
-    heatmap.ny = 2000
+    heatmap.nx = 100
+    heatmap.ny = 100
     heatmap.load_data()
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
@@ -639,23 +651,22 @@ if __name__ == '__main__':
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_rep_intensity__sd__expert_",j)      
           
-    heatmap.nx = 2000
-    heatmap.ny = 2000  
+    heatmap.nx = 100
+    heatmap.ny = 100  
     heatmap.load_data() 
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
-        bcc_pred2,combiner2 = heatmap.runBCC(j)
+        bcc_pred2, bcc_var2, combiner2 = heatmap.runBCC(j)
         heatmap.plotresults(bcc_pred2, label='Predicted Incidents of type '+str(j))
 #         write_json(bcc_pred, nx,ny,j, label="_expert_")
         heatmap.write_img("_expert_",j)        
   
-        bcc_mpr2 = combiner2.get_mean_kappa()
+        bcc_mpr2 = combiner2.nu / np.sum(combiner2.nu, axis=0)
         heatmap.plotresults(bcc_mpr2, label='Incident Rate of type '+str(j))
 #         write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_expert_")
         heatmap.write_img("_mpr_expert_",j)
           
-        bcc_stdPred2 = combiner2.get_heat_variance()
-
+        bcc_stdPred2 = np.sqrt(bcc_var2)
         heatmap.plotresults(bcc_stdPred2, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
 #         write_json(stdPred, nx,ny,j, label="_sd_expert_")        
         heatmap.write_img("_sd__expert_",j)        

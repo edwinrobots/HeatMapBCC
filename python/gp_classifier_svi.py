@@ -54,6 +54,8 @@ class GPClassifierSVI(GPClassifierVB):
         
         self.fixed_sample_idxs = False
         
+        self.reset_inducing_coords = True # creates new inducing coords each time fit is called, if this flag is set
+        
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial, 
                                     force_update_all_points, kernel_func, kernel_combination, verbose=verbose)      
 
@@ -83,7 +85,7 @@ class GPClassifierSVI(GPClassifierVB):
         if self.update_size > nobs:
             self.update_size = nobs  
                
-        if self.process_item_features and self.ninducing > self.obs_coords.shape[0]:
+        if self.reset_inducing_coords and self.ninducing > self.obs_coords.shape[0]:
             if self.inducing_coords is not None:
                 logging.warning('replacing intial inducing points with observation coordinates because they are smaller.')
             self.ninducing = self.obs_coords.shape[0]
@@ -114,12 +116,12 @@ class GPClassifierSVI(GPClassifierVB):
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
         self.invKs_mm_uS = np.eye(self.ninducing)
 
-        if self.K_mm is None and self.process_item_features:
+        if self.K_mm is None and self.reset_inducing_coords:
             self.K_mm = self.kernel_func(self.inducing_coords, self.ls, operator=self.kernel_combination)
             self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter
-        if self.invK_mm is None and self.process_item_features: 
+        if self.invK_mm is None and self.reset_inducing_coords: 
             self.invK_mm = np.linalg.inv(self.K_mm)
-        if self.K_nm is None and self.process_item_features:
+        if self.K_nm is None and self.reset_inducing_coords:
             self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords, operator=self.kernel_combination)
         
         self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
