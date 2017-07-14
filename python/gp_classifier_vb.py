@@ -183,7 +183,7 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
         range_end = vals.shape[1]
 
     for i in range(subset_size*subset, range_end):
-        if np.mod(i, 1000) == 0:
+        if np.mod(i, 1000) == 999:
             logging.debug("computing kernel for feature %i" % i)
         xvals = vals[:, i:i+1]
             
