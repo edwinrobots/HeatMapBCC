@@ -71,7 +71,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._init_covariance()
                         
     def reset_kernel(self):
-        super(GPClassifierSVI, self)._init_covariance()
+        self._init_covariance()
         if self.use_svi:
             self.K_mm = None
             self.K_nm = None
@@ -85,15 +85,13 @@ class GPClassifierSVI(GPClassifierVB):
         if self.update_size > nobs:
             self.update_size = nobs  
                
-        if self.reset_inducing_coords and self.ninducing > self.obs_coords.shape[0]:
+        if self.inducing_coords is None and self.ninducing > self.obs_coords.shape[0]:
             if self.inducing_coords is not None:
                 logging.warning('replacing intial inducing points with observation coordinates because they are smaller.')
             self.ninducing = self.obs_coords.shape[0]
             self.inducing_coords = self.obs_coords
             # invalidate matrices passed in to init_inducing_points() as we need to recompute for new inducing points 
-            self.K_mm = None
-            self.invK_mm  = None
-            self.K_nm = None
+            self.reset_kernel()
         elif self.inducing_coords is None:
             init_size = 300
             if self.ninducing > init_size:
@@ -110,18 +108,19 @@ class GPClassifierSVI(GPClassifierVB):
             #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
             self.inducing_coords = kmeans.cluster_centers_
             #self.inducing_coords = self.obs_coords
+            self.reset_kernel()
                         
         self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
         self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
         self.invKs_mm_uS = np.eye(self.ninducing)
 
-        if self.K_mm is None and self.reset_inducing_coords:
+        if self.K_mm is None:
             self.K_mm = self.kernel_func(self.inducing_coords, self.ls, operator=self.kernel_combination)
             self.K_mm += 1e-6 * np.eye(len(self.K_mm)) # jitter
-        if self.invK_mm is None and self.reset_inducing_coords: 
+        if self.invK_mm is None: 
             self.invK_mm = np.linalg.inv(self.K_mm)
-        if self.K_nm is None and self.reset_inducing_coords:
+        if self.K_nm is None:
             self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords, operator=self.kernel_combination)
         
         self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
