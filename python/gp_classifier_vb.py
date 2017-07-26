@@ -157,6 +157,8 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
 
 def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     num_jobs = multiprocessing.cpu_count()
+    if num_jobs > 8:
+        num_jobs = 8
     subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
     K = Parallel(n_jobs=num_jobs, backend='threading')(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls, 
                                          matern_3_2_onedimension_from_raw_vals, operator) for i in range(num_jobs))

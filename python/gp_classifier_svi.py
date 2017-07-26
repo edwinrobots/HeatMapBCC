@@ -215,12 +215,14 @@ class GPClassifierSVI(GPClassifierVB):
             dims = [dim]        
         
         num_jobs = multiprocessing.cpu_count()
+        if num_jobs > 8:
+            num_jobs = 8
         if len(self.ls) > 1:
-            gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
+            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
                 self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim], 
                 self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)            
         else:
-            gradient = Parallel(n_jobs=num_jobs)(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor,
+            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor,
                 self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0], 
                 self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)
         if self.n_lengthscales == 1:
