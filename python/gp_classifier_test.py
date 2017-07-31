@@ -73,7 +73,7 @@ if __name__ == '__main__':
     
     models = {}
     
-    ls_initial = [12]#np.random.randint(1, 100, 2)#[10, 10] 
+    ls_initial = [112]#np.random.randint(1, 100, 2)#[10, 10] 
     
     model = GPClassifierVB(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
     #model.verbose = True

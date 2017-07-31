@@ -203,11 +203,12 @@ class GPClassifierSVI(GPClassifierVB):
         fhat = self.um_minus_mu0
         invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
          
-        _, G = self._compute_jacobian()
-        GTQG = (G.T * self.Q[None, :]).dot(G)
-        sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm)
+        #_, G = self._compute_jacobian()
+        #GTQG = (G.T / self.Q[None, :]).dot(G)
+        #sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm) 
+        sigmasq = self.u_invS - (self.invK_mm * self.s)
          
-        invKs_mm_uS_sigmasq = self.invKs_mm_uS.dot(sigmasq)
+        invKs_mm_uS_sigmasq = self.invKs_mm_uS.T.dot(sigmasq)
          
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
