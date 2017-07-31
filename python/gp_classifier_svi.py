@@ -7,11 +7,10 @@ of the VB algorithm, only a fixed number of random data points are used to updat
 
 import numpy as np
 import logging
-from gp_classifier_vb import GPClassifierVB, sigmoid
+from gp_classifier_vb import GPClassifierVB
 from sklearn.cluster import MiniBatchKMeans
 from joblib import Parallel, delayed
 import multiprocessing
-from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 
 def _gradient_terms_for_subset(K_mm, kernel_derfactor, kernel_operator, invKs_fhat, invKs_mm_uS_sigmasq, ls_d, coords, s):
