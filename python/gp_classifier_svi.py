@@ -207,7 +207,7 @@ class GPClassifierSVI(GPClassifierVB):
         #sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm) 
         sigmasq = self.u_invS - (self.invK_mm * self.s)
          
-        invKs_mm_uS_sigmasq = self.invKs_mm_uS.T.dot(sigmasq)
+        invKs_mm_uS_sigmasq = self.invKs_mm_uS.dot(sigmasq)
          
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
@@ -218,11 +218,13 @@ class GPClassifierSVI(GPClassifierVB):
         if num_jobs > 8:
             num_jobs = 8
         if len(self.ls) > 1:
-            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor, 
+            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, 
+                self.kernel_derfactor, 
                 self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim], 
                 self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)            
         else:
-            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor,
+            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, 
+                self.kernel_derfactor,
                 self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0], 
                 self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)
         if self.n_lengthscales == 1:
