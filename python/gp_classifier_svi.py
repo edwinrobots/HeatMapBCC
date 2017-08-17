@@ -11,7 +11,6 @@ from gp_classifier_vb import GPClassifierVB, sigmoid, max_no_jobs
 from sklearn.cluster import MiniBatchKMeans
 from joblib import Parallel, delayed
 import multiprocessing
-from scipy.linalg import cholesky, solve_triangular
 from scipy.special import psi
 
 def _gradient_terms_for_subset(K_mm, kernel_derfactor, kernel_operator, invKs_fhat, invKs_mm_uS_sigmasq, ls_d, coords, s):
@@ -201,11 +200,13 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self).lowerbound_gradient(dim)
 
         fhat = self.um_minus_mu0
-        invKs_fhat = (self.invK_mm * self.s).dot(fhat)
 
-        _, G = self._compute_jacobian()
-        GTQG = (G.T * self.Q[None, :]).dot(G)
-        sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm)
+        invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
+         
+        #_, G = self._compute_jacobian()
+        #GTQG = (G.T / self.Q[None, :]).dot(G)
+        #sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm) 
+        sigmasq = self.u_invS - (self.invK_mm * self.s)
 
         invKs_mm_uS_sigmasq = self.invKs_mm_uS.dot(sigmasq)
 
@@ -218,12 +219,14 @@ class GPClassifierSVI(GPClassifierVB):
         if num_jobs > max_no_jobs:
             num_jobs = max_no_jobs
         if len(self.ls) > 1:
-            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor,
-                self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim],
-                self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)
+            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, 
+                self.kernel_derfactor, 
+                self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[dim], 
+                self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)            
         else:
-            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, self.kernel_derfactor,
-                self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0],
+            gradient = Parallel(n_jobs=num_jobs, backend='threading')(delayed(_gradient_terms_for_subset)(self.K_mm, 
+                self.kernel_derfactor,
+                self.kernel_combination, invKs_fhat, invKs_mm_uS_sigmasq, self.ls[0], 
                 self.inducing_coords[:, dim:dim+1], self.s) for dim in dims)
         if self.n_lengthscales == 1:
             # sum the partial derivatives over all the dimensions

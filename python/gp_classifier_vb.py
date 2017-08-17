@@ -535,7 +535,7 @@ class GPClassifierVB(object):
         invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
         invKs_fhat *= self.s
 
-        sigmasq = self.G.T.dot(np.diag(self.Q)).dot(self.G)
+        sigmasq = self.G.T.dot(1.0 / np.diag(self.Q)).dot(self.G)
 
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
@@ -545,7 +545,8 @@ class GPClassifierVB(object):
         invKs_C = solve_triangular(self.cholK, self.obs_C, trans=True, check_finite=False)
         invKs_C = solve_triangular(self.cholK, invKs_C, check_finite=False)
         invKs_C *= self.s
-        invKs_C_sigmasq = invKs_C.dot(sigmasq)
+
+        invKs_C_sigmasq = invKs_C.T.dot(sigmasq)
 
         firstterm = np.zeros(len(dims))
         secondterm = np.zeros(len(dims))
