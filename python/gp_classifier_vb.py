@@ -69,7 +69,7 @@ def diagonal_from_raw_vals(vals, ls, vals2=None, operator='*'):
     K = np.zeros((vals.shape[0], vals2.shape[0]), dtype=float)
     for i in range(vals.shape[0]):
         # check for the same locations.
-        K[i, :] = (np.sum(vals[i:i+1, :] - vals2, axis=1) == 0)
+        K[i, :] = np.sum(np.abs(vals[i:i+1, :] - vals2), axis=1) == 0
     return K
 
 # Squared Exponential -- needs converting to work with raw values

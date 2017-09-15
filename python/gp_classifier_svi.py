@@ -84,7 +84,8 @@ class GPClassifierSVI(GPClassifierVB):
         if self.update_size > nobs:
             self.update_size = nobs
 
-        if self.inducing_coords is None and self.ninducing > self.obs_coords.shape[0]:
+        # diagonal can't use inducing points but can use the subsampling of observations
+        if self.inducing_coords is None and (self.ninducing > self.obs_coords.shape[0] or self.cov_type=='diagonal'):
             if self.inducing_coords is not None:
                 logging.warning('replacing intial inducing points with observation coordinates because they are smaller.')
             self.ninducing = self.obs_coords.shape[0]
