@@ -296,7 +296,7 @@ class GPClassifierSVI(GPClassifierVB):
         covpair_uS = Ks_nm.dot(self.invKs_mm_uS)
         fhat = covpair_uS.dot(self.u_invSm) + mu0
         if Ks_nn is not None:
-            covpair =  Ks_nm.dot(self.invKs_mm)
+            covpair =  Ks_nm.dot(self.invKs_mm) # With and without the 's' included (it should cancel) gives different results!
             C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
             if np.any(np.diag(C) < 0):
                 logging.error("Negative variance in _f_given_u(), %f" % np.min(np.diag(C)))
@@ -304,7 +304,6 @@ class GPClassifierSVI(GPClassifierVB):
             return fhat, C
         else:
             return fhat
-
 
     def obs_variance(self):
         return np.diag(self._f_given_u(self.Ks_nm, self.mu0, np.diag(np.ones(self.obs_f.shape[0])) / self.s)[1])[:, np.newaxis]

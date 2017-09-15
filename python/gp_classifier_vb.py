@@ -56,7 +56,7 @@ def temper_extreme_probs(probs, zero_only=False):
 
 # Diagonal
 
-def derivfactor_diag_from_raw_vals(vals, ls, d, vals2=None):
+def derivfactor_diag_from_raw_vals(vals, vals2, ls_d, operator='*'):
     return 0
 
 def diagonal_from_raw_vals(vals, ls, vals2=None, operator='*'):
