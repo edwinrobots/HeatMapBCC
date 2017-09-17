@@ -100,7 +100,7 @@ class Heatmap(object):
     def runBCC_subset(self, C, j=1):
         if j not in self.heatmapcombiner or self.heatmapcombiner[j]==None or self.heatmapcombiner[j].K<self.K:
             self.heatmapcombiner[j] = heatmapbcc.HeatMapBCC(self.nx, self.ny, 2, 2, self.alpha0, self.K, shape_s0=100.0,
-                rate_s0=600.0, shape_ls=10000.0, rate_ls=100.0, z0=self.nu0[1]/np.sum(self.nu0))#shape_ls=10, rate_ls=0.1)
+                rate_s0=600.0, shape_ls=1000.0, rate_ls=100.0, z0=self.nu0[1]/np.sum(self.nu0))#shape_ls=10, rate_ls=0.1)
             self.heatmapcombiner[j].min_iterations = 5
             #self.heatmapcombiner[j].max_iterations = 200
             #self.heatmapcombiner[j].conv_threshold = 0.1
@@ -168,7 +168,7 @@ class Heatmap(object):
                 logging.info("Stopping update loop for the heatmap")
                 break
 
-            self.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
+            self.plotresults(bcc_pred, label=None)#'Predicted Incidents of type '+str(j))
             self.write_img("", j)
   
             bcc_stdPred = bcc_var**0.5
@@ -177,12 +177,12 @@ class Heatmap(object):
             maxunc = np.max(bcc_stdPred)
             minunc = np.min(bcc_stdPred)
             bcc_stdPred = (bcc_stdPred-minunc)/(maxunc-minunc)
-            lab = 'Uncertainty (S.D.) in Pr(incident) of type '+str(j)
-            self.plotresults(bcc_stdPred, label=lab, removesea=True)
+            #lab = 'Uncertainty (S.D.) in Pr(incident) of type '+str(j)
+            self.plotresults(bcc_stdPred, label=None, removesea=True)
             self.write_img("_sd_",j)
             
             rep_pred, rep_std = self.reportintensity(j, self.timestep)
-            self.plotresults(rep_pred, label='Predicted Incidents of type '+str(j))
+            self.plotresults(rep_pred, label=None)#'Predicted Incidents of type '+str(j))
             self.write_img("_rep_intensity_", j)
             
             maxunc = np.max(rep_std)
@@ -193,7 +193,7 @@ class Heatmap(object):
             self.write_img("_rep_intensity__sd_",j)   
                         
             target_grid = self.targetextractor.calculate_targets(bcc_pred)
-            lab = 'Predicted target points of type ' + str(j)
+            lab = None#'Predicted target points of type ' + str(j)
             self.plotresults(self.enlarge_target_blobs(target_grid), lab)
             self.write_img("_targets_", j)
             self.targetextractor.write_targets_json(self.timestep, self.heatmapcombiner[j].alpha, self.C[j])
@@ -233,7 +233,7 @@ class Heatmap(object):
         rows = np.array(C[:,1]).reshape(-1)
         cols = np.array(C[:,2]).reshape(-1)
         
-        nu0 = np.array([1,1])
+        #nu0 = np.array([1,1])
         
         repgrid = coo_matrix((data,(rows,cols)), shape=(self.nx,self.ny))
         
@@ -243,8 +243,8 @@ class Heatmap(object):
         
         negrepgrid = coo_matrix((negdata,(rows,cols)), shape=(self.nx,self.ny))
         
-        nuneg = np.zeros((self.nx,self.ny)) - negrepgrid.todense() + nu0[0]
-        nupos = np.zeros((self.nx,self.ny)) + repgrid.todense() + nu0[1]
+        nuneg = np.zeros((self.nx,self.ny)) - negrepgrid.todense() + self.nu0[0]
+        nupos = np.zeros((self.nx,self.ny)) + repgrid.todense() + self.nu0[1]
     
         pred = np.divide(nupos, nupos+nuneg)    
         variance = np.divide(np.multiply(nupos,nuneg), np.multiply(np.square(nupos+nuneg), nupos+nuneg+1))
@@ -305,7 +305,7 @@ class Heatmap(object):
         
         return bcc_pred
 
-    def plotresults(self, bcc_pred, label='no idea', interp='none', imgmax=1, imgmin=0, removesea=False):
+    def plotresults(self, bcc_pred, label='no idea', interp='none', imgmax=1, imgmin=0, removesea=False, prior=None):
         if removesea:
             bcc_pred = self.removesea(bcc_pred)
                 
@@ -331,19 +331,25 @@ class Heatmap(object):
         cmap = plt.get_cmap('jet')                
         cmap._init()
         
-        prior = self.nu0/float(np.sum(self.nu0))
-        prior = prior[0]
+        if prior is None:
+            prior = self.nu0/float(np.sum(self.nu0))
+            prior = prior[1]
         
         changepoint = int(np.round(prior*(cmap.N + 3)))
                 
         if removesea:
             alphas = np.linspace(0, 0.75, cmap.N+3)
         else:
-            alphas1 = np.linspace(1, 0.6, changepoint-20)
-            alphas2 = np.linspace(0.6, 0, 20)
-            alphas3 = np.linspace(0, 0.6, 20)
-            alphas4 = np.linspace(0.6, 1, cmap.N + 3 - changepoint - 20)
-            alphas = np.concatenate((alphas1, alphas2, alphas3, alphas4))
+            if changepoint > 0:
+                alphas1 = np.linspace(1, 0.6, changepoint-20)
+                alphas2 = np.linspace(0.6, 0, 20)
+                alphas3 = np.linspace(0, 0.6, 20)
+                alphas4 = np.linspace(0.6, 1, cmap.N + 3 - changepoint - 20)
+                alphas = np.concatenate((alphas1, alphas2, alphas3, alphas4))
+            else:
+                alphas1 = np.linspace(0, 0.6, 20)
+                alphas2 = np.linspace(0.6, 1, cmap.N+3-20)
+                alphas = np.concatenate((alphas1, alphas2))
         cmap._lut[:,-1] = alphas        
         
         cax = plt.imshow(bcc_pred, cmap=cmap, aspect=None, origin='lower', \
@@ -354,7 +360,10 @@ class Heatmap(object):
         fig.tight_layout(pad=0,w_pad=0,h_pad=0)
         ax = plt.gca()
         ax.xaxis.set_major_locator(plt.NullLocator())
-        ax.yaxis.set_major_locator(plt.NullLocator())    
+        ax.yaxis.set_major_locator(plt.NullLocator())
+        
+        if label is not None:
+            plt.title(label)
         
     def translate_points_to_local(self, latdata, londata):
         logging.debug('Translating original coords to local values.')
@@ -547,25 +556,14 @@ class Heatmap(object):
         self.targetextractor.rep_id_grid[j][x, y].append(len(self.targetextractor.rep_list[j])-1)                  
             
     def insert_trusted_prescripted(self, j):
-        x = 18.5
-        y = -72.284
-        self.insert_trusted(1, x, y, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+1, y, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+2, y, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+3, y, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+1, y+1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+1, y-1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+2, y+1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+3, y-1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x-1, y+1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x-1, y-1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+2, y-1, 0, 1, 0.9, 0.01)
-        self.insert_trusted(1, x+3, y+1, 0, 1, 0.9, 0.01)
+        x = 18.545
+        y = -72.295
+        self.insert_trusted(1, x, y, 0, -1, 0.95, 1.0/10000.0)
     
     def rem_img(self, label, j):
         filename = self.fileprefix+label+str(j)+'.png'
         self.del_data_file(filename)
-        shutil.copyfile(self.fileprefix+"_blank.png", filename)
+        #shutil.copyfile(self.fileprefix+"_blank.png", filename)
         
     def del_data_file(self, filename):
         try:
@@ -592,26 +590,28 @@ class Heatmap(object):
         
 #--------  MAIN TEST PROGRAM--------------------------------------------------
 if __name__ == '__main__':
-    heatmap = Heatmap(100,100)
+    # colours are wrong -- green for 0.5? Blue for certain areas?
+    
+    heatmap = Heatmap(500,500)
     
     #High definition with no interpolation
-    nx = 100#1000
-    ny = 100#1000  
+    nx = 500#1000
+    ny = 500#1000  
     heatmap.load_data() 
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
-        heatmap.plotresults(rep_pred, label='Predicted Incidents of type '+str(j))
+        heatmap.plotresults(rep_pred, label='Histogram Predicted Incidents of type '+str(j))
+        plt.title('Report intensity, class %i' % j)
         #write_json(bcc_pred, nx,ny,j,label="_rep_intensity_")
         heatmap.write_img("_rep_intensity_", j)
            
-        heatmap.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
-        plt.title('Report intensity, class %i' % j)
+        heatmap.plotresults((rep_std)/(2*np.max(rep_std)) + 0.5, label='Histogram Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_rep_intensity__sd_",j)   
     
     #Using BCC - lower res so it is tractable to interpolate
-    heatmap.nx = 100
-    heatmap.ny = 100
+    heatmap.nx = nx
+    heatmap.ny = ny
     heatmap.load_data() # in case nx and ny have changed, need to reload
            
     for j in range(1,2):
@@ -620,53 +620,41 @@ if __name__ == '__main__':
         fin = time.time()
         print "bcc heatmap prediction timer (no loops): " + str(fin-start)
                         
-        heatmap.plotresults(bcc_pred, label='Predicted Incidents of type '+str(j))
-        plt.title('HeatmapBCC prediction, class %i' % j)
+        heatmap.plotresults(bcc_pred, label='HeatmapBCC Predicted Incidents of type '+str(j))
         #write_json(bcc_pred, nx,ny,j)
         heatmap.write_img("", j)
-                 
-        bcc_mpr = heatmapcombiner.nu / np.sum(heatmapcombiner.nu, axis=0)                 
-        heatmap.plotresults(bcc_mpr,  label='Incident Rate of type '+str(j))
-        plt.title('HeatmapBCC latent state, class %i' % j)
-        #write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_")
-        heatmap.write_img("_mpr_",j)
          
         bcc_stdPred = np.sqrt(bcc_var)
-        heatmap.plotresults(bcc_stdPred,  label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+        heatmap.plotresults((bcc_stdPred)/(2*np.max(bcc_stdPred)) + 0.5,  label='HeatmapBCC Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_sd_",j)
      
     #insert a trusted report at 18.5333 N, -72.3333 W     
-    heatmap.nx = 100
-    heatmap.ny = 100
+    heatmap.nx = nx
+    heatmap.ny = ny
     heatmap.load_data()
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
         rep_pred, rep_std = heatmap.reportintensity(j)
-        heatmap.plotresults(rep_pred, label='Predicted Incidents of type '+str(j))
+        heatmap.plotresults(rep_pred, label='Histogram Predicted Incidents of type '+str(j))
         #write_json(bcc_pred, nx,ny,j,label="_rep_intensity_")
         heatmap.write_img("_rep_intensity__expert_", j)
            
-        heatmap.plotresults(rep_std, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+        heatmap.plotresults((rep_std)/(2*np.max(rep_std)) + 0.5, label='Histogram Uncertainty (S.D.) in Pr(incident) of type '+str(j))
         #write_json(stdPred, nx,ny,j, label="_sd_")
         heatmap.write_img("_rep_intensity__sd__expert_",j)      
           
-    heatmap.nx = 100
-    heatmap.ny = 100  
+    heatmap.nx = nx
+    heatmap.ny = ny  
     heatmap.load_data() 
     heatmap.insert_trusted_prescripted(1)
     for j in range(1,2):
         bcc_pred2, bcc_var2, combiner2 = heatmap.runBCC(j)
-        heatmap.plotresults(bcc_pred2, label='Predicted Incidents of type '+str(j))
+        heatmap.plotresults(bcc_pred2, label='HeatmapBCC Predicted Incidents of type '+str(j))
 #         write_json(bcc_pred, nx,ny,j, label="_expert_")
-        heatmap.write_img("_expert_",j)        
-  
-        bcc_mpr2 = combiner2.nu / np.sum(combiner2.nu, axis=0)
-        heatmap.plotresults(bcc_mpr2, label='Incident Rate of type '+str(j))
-#         write_json(heatmapcombiner.mPr, nx,ny,j, label="_mpr_expert_")
-        heatmap.write_img("_mpr_expert_",j)
-          
+        heatmap.write_img("_expert_",j)
+        
         bcc_stdPred2 = np.sqrt(bcc_var2)
-        heatmap.plotresults(bcc_stdPred2, label='Uncertainty (S.D.) in Pr(incident) of type '+str(j))
+        heatmap.plotresults((bcc_stdPred2)/(2*np.max(bcc_stdPred2)) + 0.5, label='HeatmapBCC Uncertainty (S.D.) in Pr(incident) of type '+str(j))
 #         write_json(stdPred, nx,ny,j, label="_sd_expert_")        
         heatmap.write_img("_sd__expert_",j)        

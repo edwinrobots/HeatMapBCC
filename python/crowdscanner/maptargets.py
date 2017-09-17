@@ -3,18 +3,20 @@ Created on 9 Sep 2014
 
 @author: edwin
 '''
+uploadprov = False # set to true if you want to upload provenance information
+
 import numpy as np
 import logging, json
 from copy import deepcopy
-from prov.model import ProvDocument, Namespace, PROV # pip install provstore-api
-from provstore.api import Api
+if uploadprov:
+    from prov.model import ProvDocument, Namespace, PROV # pip install provstore-api
+    from provstore.api import Api
 import os.path
 import time
 import datetime
 
-uploadprov = False
-
-AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
+if uploadprov:
+    AO = Namespace('ao', 'https://provenance.ecs.soton.ac.uk/atomicorchid/ns#')
 
 
 class MapTargets(object):
@@ -407,6 +409,7 @@ class MapTargets(object):
             listobj[i].append(agentids) # column 7          
             
         #Write the provenance and save the json
-        self.write_targets_prov(listobj, C, update_number)
+        if uploadprov:
+            self.write_targets_prov(listobj, C, update_number)
         with open(jsonfile, 'w') as fp:
             json.dump(listobj, fp, indent=2)
