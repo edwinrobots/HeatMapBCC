@@ -49,6 +49,9 @@ class GPClassifierSVI(GPClassifierVB):
         self.K_nm = None
 
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
+        if use_svi and kernel_func=='diagonal':
+            logging.info('Cannot use SVI with diagonal covariance matrix.')
+            use_svi = False
         self.use_svi = use_svi
 
         self.fixed_sample_idxs = False
