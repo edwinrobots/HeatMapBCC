@@ -63,8 +63,8 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Initialisation --------------------------------------------------------------------------------------------------
 
-    def _init_params(self, mu0=None):
-        super(GPClassifierSVI, self)._init_params(mu0)
+    def _init_params(self, mu0=None, cov_mu0=0, reinit_params=True):
+        super(GPClassifierSVI, self)._init_params(mu0, cov_mu0, reinit_params)
         if self.use_svi:
             self._choose_inducing_points()
 

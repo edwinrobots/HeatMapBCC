@@ -235,7 +235,9 @@ def compute_median_lengthscales(items_feat, multiply_heuristic_power=1.0, N_max=
     #ls_initial_guess *= 1000 # this worked reasonably well but was plucked out of thin air
     ls_initial_guess *= items_feat.shape[1]**multiply_heuristic_power # this is a heuristic, see e.g. "On the High-dimensional 
     #Power of Linear-time Kernel Two-Sample Testing under Mean-difference Alternatives" by Ramdas et al. 2014. In that 
-    # paper they refer to root(no. dimensions) because they square the lengthscale in the kernel function.   
+    # paper they refer to root(no. dimensions) because they square the lengthscale in the kernel function.
+    # It's possible that this value should be higher if a lot of feature values are actually missing values, as these
+    # would lower the median. 
     
     return ls_initial_guess 
 
@@ -325,24 +327,21 @@ class GPClassifierVB(object):
 
     # Initialisation --------------------------------------------------------------------------------------------------
 
-    def _init_params(self, mu0):
-        self._init_obs_mu0(mu0)
+    def _init_params(self, mu0, cov_mu0, reinit_params):
+        self._init_obs_mu0(mu0, cov_mu0)
         # Prior noise variance
         self._init_obs_prior()
-
         self._estimate_obs_noise()
 
-        self._init_obs_f()
-
-        self._init_s()
-
-        self._init_covariance()
-
-        #g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the
-        # same calculation with the same values, meaning that the convergence check will think nothing changes in the
-        # first iteration.
-        if self.G is not 0 and not len(self.G):
-            self.G = 0
+        if reinit_params:
+            self._init_obs_f()
+            self._init_s()
+            self._init_covariance()
+            #g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the
+            # same calculation with the same values, meaning that the convergence check will think nothing changes in the
+            # first iteration.
+            if self.G is not 0 and not len(self.G):
+                self.G = 0
 
     def _init_covariance(self):
         # Get the correct covariance matrix
@@ -368,10 +367,11 @@ class GPClassifierVB(object):
     def _init_prior_mean_f(self, z0):
         self.mu0_default = logit(z0)
 
-    def _init_obs_mu0(self, mu0):
+    def _init_obs_mu0(self, mu0, cov_mu0=0):
         if mu0 is None:
             mu0 = self.mu0_default
         self.mu0 = np.zeros((self.n_locs, 1)) + mu0
+        self.cov_mu0 = cov_mu0 # in case where mu0 is uncertain
 
     def _init_obs_f(self):
         # Mean probability at observed points given local observations
@@ -687,6 +687,8 @@ class GPClassifierVB(object):
     def neg_marginal_likelihood(self, hyperparams, dimension, use_MAP=False):
         '''
         Weight the marginal log data likelihood by the hyper-prior. Unnormalised posterior over the hyper-parameters.
+        
+        TODO: how to use mu0?
         '''
         if np.any(np.isnan(hyperparams)):
             return np.inf
@@ -704,7 +706,7 @@ class GPClassifierVB(object):
 
         # make sure we start again
         #Sets the value of parameters back to the initial guess
-        self._init_params(None)
+        self._init_params(None, 0, True)
         self.fit(process_obs=False, optimize=False)
         if self.verbose:
             logging.debug("Inverse output scale: %f" % self.s)
@@ -743,7 +745,7 @@ class GPClassifierVB(object):
 
     # Training methods ------------------------------------------------------------------------------------------------
 
-    def fit(self, obs_coords=None, obs_values=None, totals=None, process_obs=True, mu0=None, optimize=False,
+    def fit(self, obs_coords=None, obs_values=None, totals=None, process_obs=True, mu0=None, cov_mu0=0, optimize=False,
             maxfun=20, use_MAP=False, nrestarts=1, features=None,):
         '''
         obs_coords -- coordinates of observations as an N x D array, where N is number of observations,
@@ -757,10 +759,10 @@ class GPClassifierVB(object):
         # Initialise the objects that store the observation data
         if process_obs:
             self._process_observations(obs_coords, obs_values, totals)
-            self._init_params(mu0)
-
+            self._init_params(mu0, cov_mu0, True)
         elif mu0 is not None: # updated mean but not updated observations
-            self._init_obs_mu0(mu0)
+            self._init_params(mu0, cov_mu0, False) # don't reset the parameters, but make sure mu0 is updated
+
         if not len(self.obs_coords):
             return
 
@@ -787,12 +789,12 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
-    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, maxfun=25, use_MAP=False,
-                 nrestarts=1):
+    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, cov_mu0=0, maxfun=25, 
+                  use_MAP=False, nrestarts=1):
 
         if process_obs:
             self._process_observations(obs_coords, obs_values, totals) # process the data here so we don't repeat each call
-            self._init_params(mu0)
+            self._init_params(mu0, cov_mu0)
             self.fit(process_obs=False, optimize=False)
 
         nfits = 0
@@ -876,7 +878,7 @@ class GPClassifierVB(object):
         self.old_s = self.s
         L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
                                       - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) +
-                                      self.mu0.dot(self.mu0.T), trans=True,
+                                      self.mu0.dot(self.mu0.T) + self.cov_mu0, trans=True,
                                      overwrite_b=True, check_finite=False)
         LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
         self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF)
