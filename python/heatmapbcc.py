@@ -50,8 +50,34 @@ class HeatMapBCC(ibcc.IBCC):
     
     conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
-    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10,
+    def __init__(self, nx, ny, nclasses, nscores, alpha0, K, z0=[0.5, 0.5], shape_s0=2, rate_s0=2, shape_ls=10,
                  rate_ls=0.1, force_update_all_points=False, outputx=None, outputy=None, kernel_func='matern_3_2'):
+        '''
+        Class for heatmapBCC. The arguments that are typically needed are described as follows.
+        
+        Parameters
+        ----------
+        
+        nx : int
+            size of area of interest in x dimension
+        ny : int
+            size of area of interest in y dimension
+        nclasses : int
+            no. ground truth classes
+        nscores : int
+            no. discrete values that we can observe from the information sources
+        alpha0 : n_classes x n_scores x K numpy array
+            confusion matrix hyperparameters
+        K : int
+            no. information sources
+        z0=0.5 : float or n_observations x 1 numpy array 
+            prior mean probability of each class, either a scalar (constant value across the area of interest) or
+        a list of length n_observations, where n_observations is the number of observed report locations
+        shape_s0=2 : float
+            shape hyperparameter for the Gamma prior over the GP precision
+        rate_s0=2 : float
+            rate hyperparameter for the Gamma prior over the GP precision
+        '''
         if not outputy:
             outputy = []
         if not outputx:
@@ -125,7 +151,7 @@ class HeatMapBCC(ibcc.IBCC):
             #start with a homogeneous grid  
             # (self.nx, self.ny)   
             self.heatGP[j] = GPClassifierSVI(#GPClassifierVB(
-                                2, z0=self.z0, shape_s0=self.shape_s0, rate_s0=self.rate_s0,
+                                2, z0=self.z0[j], shape_s0=self.shape_s0, rate_s0=self.rate_s0,
                                 shape_ls=self.shape_ls, rate_ls=self.rate_ls,  ls_initial=self.ls_initial,
                                 force_update_all_points=self.update_all_points, kernel_func=self.kernel_func)   
             self.heatGP[j].verbose = self.verbose
@@ -160,6 +186,25 @@ class HeatMapBCC(ibcc.IBCC):
 
     def combine_classifications(self, crowdlabels, goldlabels=None, testidxs=None, optimise_hyperparams=False, 
                                 maxiter=200, table_format=False):
+        '''
+        Combine a set of noisy reports to train a GP and make predictions at the observed locations
+        
+        Parameters
+        ----------
+        
+        crowdlabels : n_obervations x 4 numpy array 
+            The noisy crowdsourced reports with 4 columns: information source ID, x-coord, y-coord, report value
+        goldlabels : n_observations x 1 numpy array
+            If training labels are available, pass in as a vector with -1 where unavailable.
+        optimise_hyperparams : bool
+            Optimise the lengthscale
+            
+        Returns
+        -------
+        
+        E_t : n_observations x n_classes numpy array
+            Predictions at the observed locations, where each column indicates probability of corresponding class
+        '''
         if self.table_format_flag:
             logging.error('Error: must use a sparse list of crowdsourced labels for HeatMapBCC')
             return []
@@ -177,6 +222,28 @@ class HeatMapBCC(ibcc.IBCC):
             return self.E_t
     
     def predict(self, outputx, outputy, variance_method='rough'):
+        '''
+        Predict class at new locations.
+        
+        Parameters
+        ----------
+        
+        outputx: numpy array
+            Vector of x-coordinates
+        outputy: numpy array
+            Vector of y-coordinates
+        
+        Returns
+        -------
+        
+        E_t: N x nclasses numpy array
+            Predictions at the output locations, where each column indicates probability of corresponding class
+        E_rho: N x nclasses numpy array
+            Prediction of the underlying class probabilities at each output location
+        V_rho: N x nclasses numpy array
+            Variance of the underlying class probabilities at each location, useful for indicating regions of model uncertainty
+        
+        '''
         # Initialise containers for results at the output locations 
         nout = len(outputx)
         self.E_t_out = np.zeros((self.nclasses, nout))
