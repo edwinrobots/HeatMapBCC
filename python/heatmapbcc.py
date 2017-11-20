@@ -100,7 +100,7 @@ class HeatMapBCC(ibcc.IBCC):
         nu0 = np.ones(nclasses)     
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
     
-    def desparsify_crowdlabels(self, crowdlabels):
+    def _desparsify_crowdlabels(self, crowdlabels):
         crowdlabels = np.array(crowdlabels)
         self.crowdx = crowdlabels[:,1]
         self.crowdy = crowdlabels[:,2]
@@ -124,21 +124,21 @@ class HeatMapBCC(ibcc.IBCC):
         linearIdxs = [self.crowddict[l] for l in crowdcoords] # do this to ensure that we get unique values for each coord
         crowdlabels_flat = crowdlabels[:,[0,1,3]]
         crowdlabels_flat[:,1] = linearIdxs
-        super(HeatMapBCC,self).desparsify_crowdlabels(crowdlabels_flat)
+        super(HeatMapBCC,self)._desparsify_crowdlabels(crowdlabels_flat)
         self.full_N = self.N # when we re-sparsify, we do not fill in any gaps -- only the given indexes are predicted, unless call to predict grid is made 
         self.nu = [] # make sure we reset kappa so that it is resized correctly -- could avoid this in future to save a few iterations
         return crowdlabels_flat
     
-    def preprocess_goldlabels(self, goldlabels=None):
+    def _preprocess_goldlabels(self, goldlabels=None):
         if np.any(goldlabels):
             goldlabels_flat = goldlabels.flatten()
         else:
             goldlabels_flat = None
-        super(HeatMapBCC, self).preprocess_goldlabels(goldlabels_flat)
+        super(HeatMapBCC, self)._preprocess_goldlabels(goldlabels_flat)
         
         
-    def init_lnkappa(self):
-        super(HeatMapBCC, self).init_lnkappa()  
+    def _init_lnkappa(self):
+        super(HeatMapBCC, self)._init_lnkappa()  
         self.lnkappa = np.tile(self.lnkappa, (1, self.N))
         
         # Initialise the underlying GP with the current set of hyper-parameters           
@@ -161,7 +161,7 @@ class HeatMapBCC(ibcc.IBCC):
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPClassifierVB function
             logging.debug("Length-scale = %.3f, %.3f" % (self.heatGP[1].ls[0], self.heatGP[1].ls[1]))
         
-    def convergence_measure(self, oldET):
+    def _convergence_measure(self, oldET):
         kappadiff = np.max(np.abs( self.oldkappa - np.exp(self.lnkappa)))
         sdiff = 0
         for j in self.heatGP:
@@ -170,12 +170,12 @@ class HeatMapBCC(ibcc.IBCC):
                 sdiff = sdiff_j
             if self.verbose:
                 logging.debug('sdiff: %f, s = %f' % (sdiff, self.heatGP[j].s))
-        return np.max( [super(HeatMapBCC, self).convergence_measure(oldET), kappadiff, sdiff])
+        return np.max( [super(HeatMapBCC, self)._convergence_measure(oldET), kappadiff, sdiff])
     
-    def convergence_check(self):
+    def _convergence_check(self):
         if self.change<self.conv_threshold:
             self.conv_count += 1
-        locally_converged = super(HeatMapBCC, self).convergence_check()
+        locally_converged = super(HeatMapBCC, self)._convergence_check()
         if not locally_converged:
             return False
         
@@ -313,7 +313,7 @@ class HeatMapBCC(ibcc.IBCC):
 
         return E_t_grid, kappa_grid, v_kappa_grid
 
-    def resparsify_t(self):
+    def _resparsify_t(self):
         self.E_t_sparse = self.E_t # save the sparse version
 
         if np.any(self.outputx):
@@ -322,7 +322,7 @@ class HeatMapBCC(ibcc.IBCC):
 
         return self.E_t
     
-    def expec_lnkappa(self):
+    def _expec_lnkappa(self):
         if self.nclasses==2:
             gprange = [1]
         else:
@@ -342,22 +342,22 @@ class HeatMapBCC(ibcc.IBCC):
         if self.nclasses==2:
             self.lnkappa[0] = lnkappa_notj.flatten()
             
-    def lnjoint(self, alldata=False):
+    def _lnjoint(self, alldata=False):
         lnkappa_all = self.lnkappa 
         if not self.uselowerbound and not alldata:       
             self.lnkappa = self.lnkappa[:, self.testidxs]
-        super(HeatMapBCC, self).lnjoint(alldata)
+        super(HeatMapBCC, self)._lnjoint(alldata)
         self.lnkappa = lnkappa_all
 
-    def post_lnjoint_ct(self):
+    def _post_lnjoint_ct(self):
         if self.nclasses==2:
             gprange = [1]
         else:
             gprange = np.arange(self.nclasses)
         self.oldkappa = np.exp(self.lnkappa)            
-        self.lnjoint(alldata=True)
+        self._lnjoint(alldata=True)
         # If we have not already calculated lnpCT for the lower bound, then make sure we recalculate using all data
-#         lnpCT = super(HeatMapBCC, self).post_lnjoint_ct()
+#         lnpCT = super(HeatMapBCC, self)._post_lnjoint_ct()
         lnpCT = 0
         for j in gprange:
             lnrhoj, lnnotrhoj = self.heatGP[j]._logpt()
@@ -379,9 +379,9 @@ class HeatMapBCC(ibcc.IBCC):
             
         return lnpCT
 
-    def q_ln_t(self):
+    def _q_ln_t(self):
         if not self.uselowerbound:
-            self.lnjoint(alldata=True)
+            self._lnjoint(alldata=True)
         
 #         qjoint = self.lnpCT - self.lnkappa.T
 #         qjoint = qjoint[self.testidxs, :]        
@@ -413,14 +413,14 @@ class HeatMapBCC(ibcc.IBCC):
 #             lnqT += self.heatGP[j].logpy()
         return lnqT
                 
-    def post_lnkappa(self):
+    def _post_lnkappa(self):
         lnpKappa = 0
         for j in range(self.nclasses):
             if j in self.heatGP:
                 lnpKappa += self.heatGP[j]._logps() + self.heatGP[j]._logpf()
         return lnpKappa                
                 
-    def q_lnkappa(self):
+    def _q_lnkappa(self):
         lnqKappa = 0
         for j in range(self.nclasses):
             if j in self.heatGP:
@@ -438,10 +438,10 @@ class HeatMapBCC(ibcc.IBCC):
                 logging.debug("GP for class %i using length-scale %f" % (j, self.heatGP[j].ls))
         return lnp + lnp_gp
     
-    def set_hyperparams(self, hyperparams):
+    def _set_hyperparams(self, hyperparams):
         if not self.optimize_lengthscale_only:
             ibcc_hyperparams = hyperparams[0:self.nclasses * self.nscores * self.alpha0_length + self.nclasses]
-            super(HeatMapBCC, self).set_hyperparams(ibcc_hyperparams)
+            super(HeatMapBCC, self)._set_hyperparams(ibcc_hyperparams)
         
         if self.n_lengthscales==1:
             self.ls_initial[:] = np.exp(hyperparams[ - self.n_lengthscales])
@@ -451,9 +451,9 @@ class HeatMapBCC(ibcc.IBCC):
         lengthscales = self.ls_initial    
         return self.alpha0, self.nu0, lengthscales
 
-    def get_hyperparams(self):
+    def _get_hyperparams(self):
         if not self.optimize_lengthscale_only:
-            hyperparams = super(HeatMapBCC, self).get_hyperparams()
+            hyperparams = super(HeatMapBCC, self)._get_hyperparams()
         else:
             hyperparams = []
         for j in range(self.n_lengthscales):
