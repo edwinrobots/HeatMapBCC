@@ -317,7 +317,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._expec_s()
 
         self.old_s = self.s
-        invK_mm_expecFF = self.invKs_mm_uS / self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
+        invK_mm_expecFF = self.invKs_mm_uS/self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T) + self.cov_mu0_mm)
         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF)
         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
