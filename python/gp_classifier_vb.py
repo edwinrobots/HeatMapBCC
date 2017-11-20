@@ -658,10 +658,11 @@ class GPClassifierVB(object):
 
         mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
 
-        invK_expecF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) - \
-                   mu0.dot(self.obs_f.T) - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T), trans=True, check_finite=False)
+        invK_expecF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) - mu0.dot(self.obs_f.T) \
+                       - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T) + self.cov_mu0, trans=True, check_finite=False)
         invK_expecF = solve_triangular(self.cholK, invK_expecF, check_finite=False)
         invK_expecF *= self.s # because we're using self.cholK not cholesky(self.Ks)
+        
         D = len(self.obs_f)
         logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
         return logpf
@@ -785,7 +786,7 @@ class GPClassifierVB(object):
             self.vb_iter += 1
 
         self._update_f() # this is needed so that L and A match s
-
+        
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
