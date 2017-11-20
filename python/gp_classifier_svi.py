@@ -47,6 +47,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.K_mm = None
         self.invK_mm = None
         self.K_nm = None
+        self.cov_mu0_mm = 0
 
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
         if use_svi and kernel_func=='diagonal':
@@ -180,7 +181,7 @@ class GPClassifierSVI(GPClassifierVB):
         D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
 
-        invK_expecF = self.invKs_mm_uS + self.invKs_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
+        invK_expecF = self.invKs_mm_uS + self.invKs_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T) + self.cov_mu0_mm)
 
         _logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
         return _logpf
