@@ -29,7 +29,7 @@ class GPClassifierSVI(GPClassifierVB):
 
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None,
                  force_update_all_points=False, kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000,
-                 ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False):
+                 ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False, fixed_s=False):
 
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
 
@@ -47,7 +47,6 @@ class GPClassifierSVI(GPClassifierVB):
         self.K_mm = None
         self.invK_mm = None
         self.K_nm = None
-        self.cov_mu0_mm = 0
 
         # if use_svi is switched off, we revert to the standard (parent class) VB implementation
         if use_svi and kernel_func=='diagonal':
@@ -60,12 +59,12 @@ class GPClassifierSVI(GPClassifierVB):
         self.reset_inducing_coords = True # creates new inducing coords each time fit is called, if this flag is set
 
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial,
-                                    force_update_all_points, kernel_func, kernel_combination, verbose=verbose)
+                            force_update_all_points, kernel_func, kernel_combination, verbose=verbose, fixed_s=fixed_s)
 
     # Initialisation --------------------------------------------------------------------------------------------------
 
-    def _init_params(self, mu0=None, cov_mu0=0, reinit_params=True):
-        super(GPClassifierSVI, self)._init_params(mu0, cov_mu0, reinit_params)
+    def _init_params(self, mu0=None, reinit_params=True, K=None):
+        super(GPClassifierSVI, self)._init_params(mu0, reinit_params, K)
         if self.use_svi:
             self._choose_inducing_points()
 
@@ -181,7 +180,7 @@ class GPClassifierSVI(GPClassifierVB):
         D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
 
-        invK_expecF = self.invKs_mm_uS + self.invKs_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T) + self.cov_mu0_mm)
+        invK_expecF = self.invKs_mm_uS + self.invKs_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
 
         _logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
         return _logpf
@@ -317,7 +316,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._expec_s()
 
         self.old_s = self.s
-        invK_mm_expecFF = self.invKs_mm_uS/self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T) + self.cov_mu0_mm)
+        invK_mm_expecFF = self.invKs_mm_uS/self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF)
         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
@@ -369,17 +368,18 @@ class GPClassifierSVI(GPClassifierVB):
         self.data_obs_idx_i = self.data_idx_i
 
     # Prediction methods ---------------------------------------------------------------------------------------------
-
-    def _expec_f_output(self, block, blockidxs, reset_block=True):
+#
+    def _get_training_cov(self):
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._expec_f_output(block, blockidxs, reset_block)
+            return super(GPClassifierSVI, self)._get_training_cov()
+        # return the covariance matrix for training points to inducing points (if used) and the variance of the training points. 
+        return self.K_nm, np.diag(self.K)
+                    
+    def _expec_f_output(self, Ks_starstar, Ks_star, mu0):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0)
 
-        if block not in self.K_out or reset_block:
-            block_coords = self.output_coords[blockidxs]
-            self.K_out[block] = self.kernel_func(block_coords, self.ls, self.inducing_coords,
-                                                 operator=self.kernel_combination)
-
-        K_out_block_s = self.K_out[block] / self.s
-
-        self.f[blockidxs, :], C_out = self._f_given_u(K_out_block_s, self.mu0_output[blockidxs, :], 1.0 / self.s)
-        self.v[blockidxs, 0] = np.diag(C_out)
+        f, C_out = self._f_given_u(Ks_star, mu0, Ks_starstar)
+        v = np.diag(C_out)
+        
+        return f, v
