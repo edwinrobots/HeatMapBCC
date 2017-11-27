@@ -260,6 +260,8 @@ class GPClassifierVB(object):
     obs_values = [] # value of the positive class at each observations. Any duplicate points will be summed.
     obs_f = []
     obs_C = []
+    
+    out_feats = None
 
     G = []
     z = []
@@ -281,7 +283,7 @@ class GPClassifierVB(object):
     p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
 
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None,
-         force_update_all_points=False, kernel_func='matern_3_2', kernel_combination='*', verbose=False, fixed_s=False):
+                 kernel_func='matern_3_2', kernel_combination='*', verbose=False, fixed_s=False):
 
         self.verbose = verbose
 
@@ -320,8 +322,6 @@ class GPClassifierVB(object):
         self.ls = self.ls.astype(float)
 
         #Algorithm configuration
-        self.update_all_points = force_update_all_points
-
         self._select_covariance_function(kernel_func)
         self.kernel_combination = kernel_combination # operator for combining kernels for each feature.
 
@@ -354,7 +354,7 @@ class GPClassifierVB(object):
         if self.K is None and self.cov_type=='pre':
             logging.error('With covariance type "pre", the kernel must be passed in when calling fit()')
             
-        self.cholK = cholesky(self.K, overwrite_a=False, check_finite=False)
+        self.invK = np.linalg.inv(self.K)
 
         self.Ks = self.K / self.s
         self.obs_C = self.K / self.s
@@ -365,7 +365,7 @@ class GPClassifierVB(object):
 
     def reset_kernel(self):
         self.K = None
-        self.cholK = None
+        self.invK = None
         self.Ks = None
         self.obs_C = None
         self.Cov = None
@@ -408,8 +408,9 @@ class GPClassifierVB(object):
         #    logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))
 
     def _init_s(self):
-        self.shape_s = self.shape_s0 + self.n_locs/2.0
-        self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f-self.mu0)**2)) + self.rate_s0*self.shape_s/self.shape_s0
+        if not self.fixed_s:
+            self.shape_s = self.shape_s0 + self.n_locs/2.0
+            self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f-self.mu0)**2)) + self.rate_s0*self.shape_s/self.shape_s0
         self.s = self.shape_s / self.rate_s
         self.Elns = psi(self.shape_s) - np.log(self.rate_s)
         self.old_s = self.s
@@ -568,28 +569,25 @@ class GPClassifierVB(object):
             return lb, data_ll, logp_f, logq_f, logp_s, logq_s
 
         return lb
+    
+    def get_obs_precision(self):
+        return self.G.T.dot(np.diag(1.0 / self.Q)).dot(self.G)        
 
     def lowerbound_gradient(self, dim):
         '''
         Gradient of the lower bound on the marginal likelihood with respect to the length-scale of dimension dim.
         '''
         fhat = (self.obs_f - self.mu0)
+        invKs_fhat = self.s * self.invK.dot(fhat)
 
-        invKs_fhat = solve_triangular(self.cholK, fhat, trans=True, check_finite=False)
-        invKs_fhat = solve_triangular(self.cholK, invKs_fhat, check_finite=False)
-        invKs_fhat *= self.s
-
-        sigmasq = self.G.T.dot(1.0 / np.diag(self.Q)).dot(self.G)
+        sigmasq = self.get_obs_precision()
 
         if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
         else: # do it for only the dimension dim
             dims = [dim]
 
-        invKs_C = solve_triangular(self.cholK, self.obs_C, trans=True, check_finite=False)
-        invKs_C = solve_triangular(self.cholK, invKs_C, check_finite=False)
-        invKs_C *= self.s
-
+        invKs_C = self.s * self.invK.dot(self.obs_C)
         invKs_C_sigmasq = invKs_C.T.dot(sigmasq)
 
         firstterm = np.zeros(len(dims))
@@ -670,10 +668,8 @@ class GPClassifierVB(object):
 
         mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
 
-        invK_expecF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) - mu0.dot(self.obs_f.T) \
-                       - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T), trans=True, check_finite=False)
-        invK_expecF = solve_triangular(self.cholK, invK_expecF, check_finite=False)
-        invK_expecF *= self.s # because we're using self.cholK not cholesky(self.Ks)
+        invK_expecF = self.invK.dot(self.obs_C + self.obs_f.dot(self.obs_f.T) - mu0.dot(self.obs_f.T) \
+                       - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T)) * self.s
         
         D = len(self.obs_f)
         logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
@@ -731,7 +727,7 @@ class GPClassifierVB(object):
             lml = marginal_log_likelihood + log_model_prior
         else:
             lml = marginal_log_likelihood
-        logging.debug("LML: %f, with Length-scales from %f to %f" % (lml, np.min(self.ls), np.max(self.ls)) )
+        logging.debug("LML: %f, with Length-scales from %f to %f, after %i iterations" % (lml, np.min(self.ls), np.max(self.ls), self.vb_iter) )
         return -lml
 
     def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
@@ -751,8 +747,9 @@ class GPClassifierVB(object):
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.")
 
-        logging.debug('Jacobian of NLML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient),
-                                                                                               np.min(gradient)))
+        logging.debug('Jacobian of NLML: ' + str(np.round(gradient, 4)))
+        #logging.debug('Jacobian of NLML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient),
+        #                                                                                       np.min(gradient)))
 
         return -np.array(gradient, order='F')
 
@@ -767,7 +764,7 @@ class GPClassifierVB(object):
         self.features = features
 
         if optimize:
-            return self._optimize(obs_coords, obs_values, totals, process_obs, mu0, maxfun, use_MAP, nrestarts)
+            return self._optimize(obs_coords, obs_values, totals, process_obs, mu0, K, maxfun, use_MAP, nrestarts)
 
         # Initialise the objects that store the observation data
         if process_obs:
@@ -889,12 +886,10 @@ class GPClassifierVB(object):
 
     def _expec_s(self):
         self.old_s = self.s
-        L_expecFF = solve_triangular(self.cholK, self.obs_C + self.obs_f.dot(self.obs_f.T) \
-                                      - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) +
-                                      self.mu0.dot(self.mu0.T), trans=True,
-                                     overwrite_b=True, check_finite=False)
-        LT_L_expecFF = solve_triangular(self.cholK, L_expecFF, overwrite_b=True, check_finite=False)
-        self.rate_s = self.rate_s0 + 0.5 * np.trace(LT_L_expecFF)
+        invK_expecFF = self.invK.dot(self.obs_C + self.obs_f.dot(self.obs_f.T) \
+                                  - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + self.mu0.dot(self.mu0.T))
+        if not self.fixed_s:
+            self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_expecFF)
         #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
         self.Elns = psi(self.shape_s) - np.log(self.rate_s)
@@ -938,7 +933,7 @@ class GPClassifierVB(object):
 
     # Prediction methods ---------------------------------------------------------------------------------------------
 
-    def predict(self, out_idxs=None, out_feats=None, K_star=None, K_starstar=None, variance_method='rough', 
+    def predict(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, variance_method='rough', 
                 max_block_size=1e4, expectedlog=False, return_not=False, mu0_output=None, reuse_output_kernel=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential
@@ -952,7 +947,7 @@ class GPClassifierVB(object):
         do not change between calls.
         
         '''
-        self.predict_f(out_idxs, out_feats, K_star, K_starstar, max_block_size, mu0_output, reuse_output_kernel)
+        self.predict_f(out_feats, out_idxs, K_star, K_starstar, max_block_size, mu0_output, reuse_output_kernel)
         
         if variance_method == 'sample' or expectedlog:
             if variance_method == 'rough':
@@ -996,14 +991,17 @@ class GPClassifierVB(object):
         nout = nx * ny
         outputx = np.tile(np.arange(nx, dtype=np.float).reshape(nx, 1), (1, ny)).reshape(nout)
         outputy = np.tile(np.arange(ny, dtype=np.float).reshape(1, ny), (nx, 1)).reshape(nout)
-        self.predict(None, [outputx, outputy], None, None, variance_method, max_block_size, return_not=return_not, 
+        self.predict([outputx, outputy], None, None, None, variance_method, max_block_size, return_not=return_not, 
                      mu0_output=mu0_output)
 
     def _get_training_cov(self):
         # return the covariance matrix for training points to inducing points (if used) and the variance of the training points. 
         return self.K, np.diag(self.K)
     
-    def predict_f(self, out_idxs=None, out_feats=None, K_star=None, K_starstar=None, max_block_size=1e4, 
+    def _get_training_feats(self):
+        return self.obs_coords
+    
+    def predict_f(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, max_block_size=1e4, 
                   mu0_output=None, reuse_output_kernel=False):
         # Establish the output covariance matrices
         if K_star is not None and K_starstar is not None:
@@ -1012,11 +1010,11 @@ class GPClassifierVB(object):
         elif out_feats is not None and K_star is None and K_starstar is None:
             # should only change if lengthscale self.ls or cov_type change
             if not reuse_output_kernel or np.any(out_feats != self.out_feats):
-                if self.out_feats.shape[0] == self.ninput_features and self.out_feats.shape[1] != self.ninput_features:
+                if out_feats.shape[0] == self.ninput_features and out_feats.shape[1] != self.ninput_features:
                     out_feats = out_feats.T                
                 self.out_feats = out_feats 
                 # compute kernels given the feature vectors supplied
-                self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self.obs_coords, 
+                self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self._get_training_feats(), 
                                                 operator=self.kernel_combination)
                 self.K_starstar = 1.0 # assuming that the kernel function places ones along diagonals
             K_star = self.K_star
@@ -1062,7 +1060,10 @@ class GPClassifierVB(object):
             blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
 
             Ks_star_block = K_star[blockidxs, :] / self.s
-            Ks_starstar_block = K_starstar[blockidxs] / self.s
+            if not np.isscalar(K_starstar): 
+                Ks_starstar_block = K_starstar[blockidxs] / self.s
+            else:
+                Ks_starstar_block = K_starstar / self.s
             mu0_block = self.mu0_output[blockidxs, :]
             
             self.f[blockidxs, :], self.v[blockidxs, 0] = self._expec_f_output(Ks_starstar_block, Ks_star_block, mu0_block)

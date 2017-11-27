@@ -28,7 +28,7 @@ class GPClassifierSVI(GPClassifierVB):
     changed_selection = True # indicates whether the random subset of data has changed since variables were initialised
 
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None,
-                 force_update_all_points=False, kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000,
+                 kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000,
                  ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False, fixed_s=False):
 
         self.max_update_size = max_update_size # maximum number of data points to update in each SVI iteration
@@ -59,7 +59,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.reset_inducing_coords = True # creates new inducing coords each time fit is called, if this flag is set
 
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial,
-                            force_update_all_points, kernel_func, kernel_combination, verbose=verbose, fixed_s=fixed_s)
+                            kernel_func, kernel_combination, verbose=verbose, fixed_s=fixed_s)
 
     # Initialisation --------------------------------------------------------------------------------------------------
 
@@ -195,6 +195,12 @@ class GPClassifierSVI(GPClassifierVB):
         D = len(self.um_minus_mu0)
         _logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)
         return _logqf
+    
+    def get_obs_precision(self):
+        #_, G = self._compute_jacobian()
+        #Lambda_factor1 = self.invKs_mm.dot(self.Ks_nm.T).dot(G.T)
+        #return Lambda_factor1.dot(np.diag(1.0 / self.Q)).dot(Lambda_factor1.T)
+        return self.u_invS - (self.invK_mm * self.s)        
 
     def lowerbound_gradient(self, dim):
         '''
@@ -204,13 +210,9 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self).lowerbound_gradient(dim)
 
         fhat = self.um_minus_mu0
-
-        invKs_fhat = (self.invK_mm * self.s).dot(fhat)                
+        invKs_fhat = self.invKs_mm.dot(fhat)                
          
-        #_, G = self._compute_jacobian()
-        #GTQG = (G.T / self.Q[None, :]).dot(G)
-        #sigmasq = self.invK_mm.dot(self.K_nm.T).dot(GTQG).dot(self.K_nm).dot(self.invK_mm) 
-        sigmasq = self.u_invS - (self.invK_mm * self.s)
+        sigmasq = self.get_obs_precision()
 
         invKs_mm_uS_sigmasq = self.invKs_mm_uS.dot(sigmasq)
 
@@ -372,8 +374,14 @@ class GPClassifierSVI(GPClassifierVB):
     def _get_training_cov(self):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._get_training_cov()
-        # return the covariance matrix for training points to inducing points (if used) and the variance of the training points. 
-        return self.K_nm, np.diag(self.K)
+        # return the covariance matrix for training points to inducing points (if used) and the variance of the training points.
+        if self.K is not None: 
+            return self.K_nm, np.diag(self.K)
+        else:
+            return self.K_nm, np.ones(self.n_locs)
+           
+    def _get_training_feats(self):
+        return self.inducing_coords
                     
     def _expec_f_output(self, Ks_starstar, Ks_star, mu0):
         if not self.use_svi:
