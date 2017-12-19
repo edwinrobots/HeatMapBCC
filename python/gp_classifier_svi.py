@@ -197,6 +197,8 @@ class GPClassifierSVI(GPClassifierVB):
         return _logqf
     
     def get_obs_precision(self):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self).get_obs_precision()
         #_, G = self._compute_jacobian()
         #Lambda_factor1 = self.invKs_mm.dot(self.Ks_nm.T).dot(G.T)
         #return Lambda_factor1.dot(np.diag(1.0 / self.Q)).dot(Lambda_factor1.T)
@@ -381,6 +383,8 @@ class GPClassifierSVI(GPClassifierVB):
             return self.K_nm, np.ones(self.n_locs)
            
     def _get_training_feats(self):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self)._get_training_feats()
         return self.inducing_coords
                     
     def _expec_f_output(self, Ks_starstar, Ks_star, mu0):
