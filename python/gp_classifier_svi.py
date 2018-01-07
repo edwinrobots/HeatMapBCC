@@ -64,9 +64,10 @@ class GPClassifierSVI(GPClassifierVB):
     # Initialisation --------------------------------------------------------------------------------------------------
 
     def _init_params(self, mu0=None, reinit_params=True, K=None):
-        super(GPClassifierSVI, self)._init_params(mu0, reinit_params, K)
         if self.use_svi:
             self._choose_inducing_points()
+            
+        super(GPClassifierSVI, self)._init_params(mu0, reinit_params, K)
 
     def _init_covariance(self):
         if not self.use_svi:
@@ -81,17 +82,15 @@ class GPClassifierSVI(GPClassifierVB):
 
     def _choose_inducing_points(self):
         # choose a set of inducing points -- for testing we can set these to the same as the observation points.
-        nobs = self.obs_f.shape[0]
-
         self.update_size = self.max_update_size # number of inducing points in each stochastic update
-        if self.update_size > nobs:
-            self.update_size = nobs
+        if self.update_size > self.n_locs:
+            self.update_size = self.n_locs
 
         # diagonal can't use inducing points but can use the subsampling of observations
-        if self.inducing_coords is None and (self.ninducing > self.obs_coords.shape[0] or self.cov_type=='diagonal'):
+        if self.inducing_coords is None and (self.ninducing > self.n_locs or self.cov_type=='diagonal'):
             if self.inducing_coords is not None:
                 logging.warning('replacing intial inducing points with observation coordinates because they are smaller.')
-            self.ninducing = self.obs_coords.shape[0]
+            self.ninducing = self.n_locs
             self.inducing_coords = self.obs_coords
             # invalidate matrices passed in to init_inducing_points() as we need to recompute for new inducing points
             self.reset_kernel()
@@ -108,15 +107,10 @@ class GPClassifierSVI(GPClassifierVB):
 
             kmeans.fit(coords)
 
-            #self.inducing_coords = self.obs_coords[np.random.randint(0, nobs, size=(ninducing)), :]
+            #self.inducing_coords = self.obs_coords[np.random.randint(0, self.n_locs, size=(ninducing)), :]
             self.inducing_coords = kmeans.cluster_centers_
             #self.inducing_coords = self.obs_coords
             self.reset_kernel()
-
-        self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
-        self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
-        self.um_minus_mu0 = np.zeros((self.ninducing, 1))
-        self.invKs_mm_uS = np.eye(self.ninducing)
 
         if self.K_mm is None:
             self.K_mm = self.kernel_func(self.inducing_coords, self.ls, operator=self.kernel_combination)
@@ -127,6 +121,12 @@ class GPClassifierSVI(GPClassifierVB):
             self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords, operator=self.kernel_combination)
 
         self.shape_s = self.shape_s0 + 0.5 * self.ninducing # update this because we are not using n_locs data points
+
+        self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)# theta_1
+        self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float) # theta_2
+        self.uS = self.K_mm * self.rate_s0 / self.shape_s0 # initialise properly to prior        
+        self.um_minus_mu0 = np.zeros((self.ninducing, 1))
+        self.invKs_mm_uS = np.eye(self.ninducing)
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
 
@@ -288,13 +288,13 @@ class GPClassifierSVI(GPClassifierVB):
         #B = solve_triangular(L_u_invS, self.invKs_mm.T, lower=True, check_finite=False)
         #A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
 
-        uS = np.linalg.inv(self.u_invS)
-        self.invKs_mm_uS = self.invKs_mm.dot(uS)# A.T
+        self.uS = np.linalg.inv(self.u_invS)
+        self.invKs_mm_uS = self.invKs_mm.dot(self.uS)# A.T
 
 #         self.um_minus_mu0 = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
 #         self.um_minus_mu0 = solve_triangular(L_u_invS, self.um_minus_mu0, lower=True, trans=True, check_finite=False,
 #                                              overwrite_b=True)
-        self.um_minus_mu0 = uS.dot(self.u_invSm)
+        self.um_minus_mu0 = self.uS.dot(self.u_invSm)
 
         self.obs_f = self._f_given_u(self.Ks_nm, self.mu0)
 
@@ -367,8 +367,7 @@ class GPClassifierSVI(GPClassifierVB):
 
     def _update_sample_idxs(self):
         if not self.fixed_sample_idxs:
-            nobs = self.obs_f.shape[0]
-            self.data_idx_i = np.sort(np.random.choice(nobs, self.update_size, replace=False))
+            self.data_idx_i = np.sort(np.random.choice(self.n_locs, self.update_size, replace=False))
         self.data_obs_idx_i = self.data_idx_i
 
     # Prediction methods ---------------------------------------------------------------------------------------------
@@ -378,20 +377,22 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._get_training_cov()
         # return the covariance matrix for training points to inducing points (if used) and the variance of the training points.
         if self.K is not None: 
-            return self.K_nm, np.diag(self.K)
+            return self.K_nm, self.K
         else:
-            return self.K_nm, np.ones(self.n_locs)
+            return self.K_nm, self.K_nm.dot(self.invK_mm).dot(self.K_nm.T)
            
     def _get_training_feats(self):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._get_training_feats()
         return self.inducing_coords
                     
-    def _expec_f_output(self, Ks_starstar, Ks_star, mu0):
+    def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0)
 
         f, C_out = self._f_given_u(Ks_star, mu0, Ks_starstar)
-        v = np.diag(C_out)
         
-        return f, v
+        if not full_cov:
+            C_out = np.diag(C_out)
+        
+        return f, C_out

@@ -329,6 +329,11 @@ class GPClassifierVB(object):
 
     def _init_params(self, mu0, reinit_params, K=None):
         self._init_obs_mu0(mu0)
+        
+        if reinit_params or K is not None:    
+            self.K = K
+            self._init_covariance()        
+        
         # Prior noise variance
         self._init_obs_prior()
         self._estimate_obs_noise()
@@ -340,11 +345,7 @@ class GPClassifierVB(object):
             # same calculation with the same values, meaning that the convergence check will think nothing changes in the
             # first iteration.
             if self.G is not 0 and not len(self.G):
-                self.G = 0
-            
-        if reinit_params or K is not None:    
-            self.K = K
-            self._init_covariance()                
+                self.G = 0            
 
     def _init_covariance(self):
         # Get the correct covariance matrix
@@ -378,18 +379,18 @@ class GPClassifierVB(object):
         if mu0 is None:
             mu0 = self.mu0_default
         self.mu0 = np.zeros((self.n_locs, 1)) + mu0
+        self.Ntrain = self.obs_values.size
 
     def _init_obs_f(self):
         # Mean probability at observed points given local observations
         self.obs_f = logit(self.obs_mean)
-        self.Ntrain = self.obs_f.size
 
     def _estimate_obs_noise(self):
         # Noise in observations
         nu0_total = np.sum(self.nu0, axis=0)
         self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + nu0_total)
         var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + nu0_total + 1) # uncertainty in obs_mean
-        self.Q = (self.obs_mean * (1 - self.obs_mean) - var_obs_mean) / self.obs_total_counts
+        self.Q = (self.obs_mean * (1 - self.obs_mean) + var_obs_mean) / self.obs_total_counts
         self.Q = self.Q.flatten()
 
     def _init_obs_prior(self):
@@ -401,9 +402,9 @@ class GPClassifierVB(object):
         a_plus_b = 1.0 / (rho_var / (rho_mean*(1 - rho_mean))) - 1
         a = a_plus_b * rho_mean
         b = a_plus_b * (1 - rho_mean)
-        #b = 1.0
-        #a = 1.0
-        self.nu0 = np.array([b, a])
+#         b = 1.0 
+#         a = 1.0
+        self.nu0 = np.array([b, a]) 
         #if self.verbose:
         #    logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))
 
@@ -934,7 +935,7 @@ class GPClassifierVB(object):
     # Prediction methods ---------------------------------------------------------------------------------------------
 
     def predict(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, variance_method='rough', 
-                max_block_size=1e4, expectedlog=False, return_not=False, mu0_output=None, reuse_output_kernel=False):
+                expectedlog=False, return_not=False, mu0_output=None, reuse_output_kernel=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential
         kernel
@@ -947,21 +948,14 @@ class GPClassifierVB(object):
         do not change between calls.
         
         '''
-        self.predict_f(out_feats, out_idxs, K_star, K_starstar, max_block_size, mu0_output, reuse_output_kernel)
+        self.predict_f(out_feats, out_idxs, K_star, K_starstar, mu0_output, reuse_output_kernel)
         
         if variance_method == 'sample' or expectedlog:
             if variance_method == 'rough':
                 logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
             
-            noutputs = self.f.shape[0]
-            m_post = np.empty((noutputs, 1), dtype=float)
-            not_m_post = np.empty((noutputs, 1), dtype=float)
-            v_post = np.empty((noutputs, 1), dtype=float)
-            
-            for blockidxs in self.blocks:
-                # Approximate the expected value of the variable transformed through the sigmoid.
-                m_post[blockidxs, :], not_m_post[blockidxs, :], v_post[blockidxs, :] = \
-                    self._post_sample(self.f[blockidxs, :], self.v[blockidxs, :], expectedlog)
+            # Approximate the expected value of the variable transformed through the sigmoid.
+            m_post, not_m_post, v_post = self._post_sample(self.f, self.v, expectedlog)
         elif variance_method == 'rough' and not expectedlog:
             m_post, not_m_post, v_post = self._post_rough(self.f, self.v)
 
@@ -1001,12 +995,13 @@ class GPClassifierVB(object):
     def _get_training_feats(self):
         return self.obs_coords
     
-    def predict_f(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, max_block_size=1e4, 
-                  mu0_output=None, reuse_output_kernel=False):
+    def predict_f(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, mu0_output=None, 
+                  reuse_output_kernel=False, full_cov=False):
         # Establish the output covariance matrices
         if K_star is not None and K_starstar is not None:
             # use the matrices passed in directly
-            pass
+            self.K_star = K_star
+            self.K_starstar = K_starstar
         elif out_feats is not None and K_star is None and K_starstar is None:
             # should only change if lengthscale self.ls or cov_type change
             if not reuse_output_kernel or np.any(out_feats != self.out_feats):
@@ -1017,11 +1012,12 @@ class GPClassifierVB(object):
                 self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self._get_training_feats(), 
                                                 operator=self.kernel_combination)
                 self.K_starstar = 1.0 # assuming that the kernel function places ones along diagonals
-            K_star = self.K_star
-            K_starstar = self.K_starstar 
+            else:
+                pass # we reuse the previous self.K_star and self.K_starstar values
+            
         elif out_feats is None and K_star is None and K_starstar is None:
             # use the training feature vectors 
-            K_star, K_starstar = self._get_training_cov()
+            self.K_star, self.K_starstar = self._get_training_cov()
             if mu0_output is None:
                 mu0_output = self.mu0
         else:
@@ -1029,18 +1025,19 @@ class GPClassifierVB(object):
             logging.error('Invalid combination of parameters for predict(): please supply either out_feats OR (K_star AND K_starstar)')
             return
         
+        K_star = self.K_star
+        K_starstar = self.K_starstar
+        
         # Select the data points from the complete set using the indexes
         if out_idxs is not None:
             K_star = K_star[out_idxs, :]
             if not np.isscalar(K_starstar):
-                K_starstar = K_starstar[out_idxs, out_idxs]
+                K_starstar = K_starstar[out_idxs, :][:, out_idxs]
 
         noutputs = K_star.shape[0]
         self.f = np.empty((noutputs, 1), dtype=float)
         self.v = np.empty((noutputs, 1), dtype=float)
 
-        nblocks = int(np.ceil(float(noutputs) / max_block_size))
-        
         # The output mean
         if mu0_output is None:
             self.mu0_output = np.zeros((noutputs, 1)) + self.mu0_default
@@ -1048,41 +1045,30 @@ class GPClassifierVB(object):
             self.mu0_output = mu0_output
 
         # predict f for the given kernels and mean
-        all_blockidxs = []
-        
-        for block in range(nblocks):
-            if self.verbose or nblocks > 1:
-                logging.debug("GPClassifierVB predicting block %i of %i" % (block, nblocks))
+        logging.debug("GPClassifierVB predicting f")
 
-            maxidx = (block + 1) * max_block_size
-            if maxidx > noutputs:
-                maxidx = noutputs
-            blockidxs = np.arange(block * max_block_size, maxidx, dtype=int)
-
-            Ks_star_block = K_star[blockidxs, :] / self.s
-            if not np.isscalar(K_starstar): 
-                Ks_starstar_block = K_starstar[blockidxs] / self.s
-            else:
-                Ks_starstar_block = K_starstar / self.s
-            mu0_block = self.mu0_output[blockidxs, :]
+        Ks_star = K_star / self.s
+        Ks_starstar = K_starstar / self.s
             
-            self.f[blockidxs, :], self.v[blockidxs, 0] = self._expec_f_output(Ks_starstar_block, Ks_star_block, mu0_block)
+        self.f, self.v = self._expec_f_output(Ks_starstar, Ks_star, self.mu0_output, full_cov)
 
-            if np.any(self.v[blockidxs] < 0):
-                self.v[(self.v[blockidxs] < 0) & (self.v[blockidxs] > -1e-6)] = 0
-                if np.any(self.v[blockidxs] < 0): # anything still below zero?
-                    logging.error("Negative variance in GPClassifierVB._predict_block(), %f" % np.min(self.v[blockidxs]))
+        if full_cov:
+            v = np.diag(self.v)
+        else:
+            v = self.v
+        if np.any(v < 0):
+            logging.error("Negative variance in GPClassifierVB._predict_block(), %f" % np.min(v))
 
-            all_blockidxs.append(blockidxs)
-        self.blocks = all_blockidxs           
-        
         return self.f, self.v
 
-    def _expec_f_output(self, Ks_starstar, Ks_star, mu0):
+    def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False):
         f = Ks_star.dot(self.G.T).dot(self.A) + mu0
         V = solve_triangular(self.L, self.G.dot(Ks_star.T), lower=True, overwrite_b=True, check_finite=False)
-        v = Ks_starstar - np.sum(V**2, axis=0) #np.diag(V.T.dot(V))[:, np.newaxis]
-        return f, v
+        if full_cov:
+            C = Ks_starstar - V.T.dot(V)
+        else:
+            C = np.diag(Ks_starstar) - np.sum(V**2, axis=0)
+        return f, C
 
     def _post_rough(self, f, v):
         k = 1.0 / np.sqrt(1 + (np.pi * v / 8.0))
