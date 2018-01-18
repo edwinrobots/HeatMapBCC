@@ -3,6 +3,8 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/HeatMapBCC.iml" filepath="$PROJECT_DIR$/.idea/HeatMapBCC.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../crowdsourcing_argumentation/.idea/crowdsourcing_argumentation.iml" filepath="$PROJECT_DIR$/../crowdsourcing_argumentation/.idea/crowdsourcing_argumentation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../pyIBCC/.idea/pyIBCC.iml" filepath="$PROJECT_DIR$/../pyIBCC/.idea/pyIBCC.iml" />
     </modules>
   </component>
 </project>
