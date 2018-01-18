@@ -487,7 +487,7 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("GP inference with %i observations." % n_obs)
 
-        if not np.any(totals >= 0):
+        if totals is None or not np.any(totals >= 0):
             if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
                 totals = np.ones(n_obs)
             else: # obs_values given as two columns: first is positive counts, second is total counts.
@@ -500,7 +500,7 @@ class GPClassifierVB(object):
         elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts.
             poscounts = obs_values[:, 0]
 
-        if np.any(self.obs_values >= 0):
+        if np.any(obs_values >= 0):
             poscounts[poscounts == 1] = self.p_rep
             poscounts[poscounts == 0] = 1 - self.p_rep
 
@@ -1137,6 +1137,6 @@ if __name__ == '__main__':
         rate += 0.5 * np.trace( solve_triangular(L, solve_triangular(L, f_true.dot(f_true.T),
                  lower=True, overwrite_b=True, check_finite=False), trans=True, overwrite_b=True, check_finite=False ))
     post_s = shape / rate
-    print shape
-    print rate
-    print "Posterior estimate of s is %f" % post_s
+    print(shape)
+    print(rate)
+    print("Posterior estimate of s is %f" % post_s)
