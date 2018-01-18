@@ -1045,7 +1045,8 @@ class GPClassifierVB(object):
             self.mu0_output = mu0_output
 
         # predict f for the given kernels and mean
-        logging.debug("GPClassifierVB predicting f")
+        if self.verbose:
+            logging.debug("GPClassifierVB predicting f")
 
         Ks_star = K_star / self.s
         Ks_starstar = K_starstar / self.s
@@ -1057,7 +1058,7 @@ class GPClassifierVB(object):
         else:
             v = self.v
         if np.any(v < 0):
-            logging.error("Negative variance in GPClassifierVB._predict_block(), %f" % np.min(v))
+            logging.error("Negative variance in GPClassifierVB._predict_f(), %f" % np.min(v))
 
         return self.f, self.v
 
@@ -1067,7 +1068,9 @@ class GPClassifierVB(object):
         if full_cov:
             C = Ks_starstar - V.T.dot(V)
         else:
-            C = np.diag(Ks_starstar) - np.sum(V**2, axis=0)
+            if Ks_starstar.ndim == 2:
+                Ks_starstar = np.diag(Ks_starstar) 
+            C = Ks_starstar - np.sum(V**2, axis=0)
         return f, C
 
     def _post_rough(self, f, v):
