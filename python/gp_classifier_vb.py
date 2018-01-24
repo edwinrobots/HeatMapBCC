@@ -12,45 +12,53 @@ import multiprocessing
 
 max_no_jobs = 4
 
+
 def compute_distance(col, row):
     # create a grid where each element of the row is subtracted from each element of the column
     if issparse(col) or issparse(row):
-        #col = col[:, np.zeros(row.shape[1])]
-        #row = row[np.zeros(col.shape[0]), :]
-        col = col.A # we assume the column and row are taken from a larger sparse matrix so converting to nparray is ok
+        # col = col[:, np.zeros(row.shape[1])]
+        # row = row[np.zeros(col.shape[0]), :]
+        col = col.A  # we assume the column and row are taken from a larger sparse matrix so converting to nparray is ok
         row = row.A
-    #else: # this is trivial for a numpy array
+    # else: # this is trivial for a numpy array
     return col - row
+
 
 def coord_arr_to_1d(arr):
     arr = np.ascontiguousarray(arr)
     return arr.view(np.dtype((np.void, arr.dtype.itemsize * arr.shape[1])))
 
+
 def coord_arr_from_1d(arr, dtype, dims):
     arr = arr.view(dtype)
     return arr.reshape(dims)
 
+
 def sigmoid(f):
-    g = 1/(1+np.exp(-f))
+    g = 1 / (1 + np.exp(-f))
     return g
 
+
 def logit(g):
-    f = -np.log(1/g - 1)
+    f = -np.log(1 / g - 1)
     return f
 
-def target_var(f,s,v):
-    mean = sigmoid(f,s)
-    u = mean*(1-mean)
-    v = v*s*s
-    return u/(1/(u*v) + 1)
+
+def target_var(f, s, v):
+    mean = sigmoid(f, s)
+    u = mean * (1 - mean)
+    v = v * s * s
+    return u / (1 / (u * v) + 1)
+
 
 def temper_extreme_probs(probs, zero_only=False):
     if not zero_only:
-        probs[probs > 1-1e-7] = 1-1e-7
+        probs[probs > 1 - 1e-7] = 1 - 1e-7
 
     probs[probs < 1e-7] = 1e-7
 
     return probs
+
 
 # Kernels
 
@@ -58,6 +66,7 @@ def temper_extreme_probs(probs, zero_only=False):
 
 def derivfactor_diag_from_raw_vals(vals, vals2, ls_d, operator='*'):
     return 0
+
 
 def diagonal_from_raw_vals(vals, ls, vals2=None, operator='*'):
     '''
@@ -69,8 +78,9 @@ def diagonal_from_raw_vals(vals, ls, vals2=None, operator='*'):
     K = np.zeros((vals.shape[0], vals2.shape[0]), dtype=float)
     for i in range(vals.shape[0]):
         # check for the same locations.
-        K[i, :] = np.sum(np.abs(vals[i:i+1, :] - vals2), axis=1) == 0
+        K[i, :] = np.sum(np.abs(vals[i:i + 1, :] - vals2), axis=1) == 0
     return K
+
 
 # Squared Exponential -- needs converting to work with raw values
 
@@ -94,8 +104,8 @@ def diagonal_from_raw_vals(vals, ls, vals2=None, operator='*'):
 # Matern 3/2
 
 def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
-    xvals = xvals * 3**0.5 / ls_d
-    x2vals = x2vals * 3**0.5 / ls_d
+    xvals = xvals * 3 ** 0.5 / ls_d
+    x2vals = x2vals * 3 ** 0.5 / ls_d
 
     K = compute_distance(xvals, x2vals.T)
     K = np.abs(K, K)
@@ -106,16 +116,17 @@ def matern_3_2_onedimension_from_raw_vals(xvals, x2vals, ls_d):
 
     return K
 
+
 def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d, operator='*'):
     '''
     To obtain the derivative W.R.T the length scale indicated by dim, multiply the value returned by this function
     with the kernel. Use this to save recomputing the kernel for each dimension.
     '''
     D = np.abs(compute_distance(vals, vals2.T))
-    #K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
-    sqrt3d = D * 3**0.5 / ls_d
+    # K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
+    sqrt3d = D * 3 ** 0.5 / ls_d
     exp_minus_sqrt3d = np.exp(-sqrt3d)
-    dKdls_d = 3 * D**2 * exp_minus_sqrt3d/ ls_d**3
+    dKdls_d = 3 * D ** 2 * exp_minus_sqrt3d / ls_d ** 3
 
     if operator == '*':
         Kfactor = sqrt3d * exp_minus_sqrt3d
@@ -124,6 +135,7 @@ def derivfactor_matern_3_2_from_raw_vals_onedimension(vals, vals2, ls_d, operato
         dKdls_d /= Kfactor
 
     return dKdls_d
+
 
 def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
     '''
@@ -135,15 +147,15 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
     else:
         ls_d = ls[0]
 
-    xvals = vals[:, d:d+1]
+    xvals = vals[:, d:d + 1]
     if vals2 is None:
         xvals2 = xvals
     else:
-        xvals2 = vals2[:, d:d+1]
+        xvals2 = vals2[:, d:d + 1]
 
     D = np.abs(compute_distance(xvals, xvals2.T))
-    #K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
-    K = 3 * D**2 * np.exp(-D * 3**0.5 / ls_d) / ls_d**3
+    # K = -(1 + K) * (ls_d - K) * np.exp(-K / ls_d) / ls_d**3
+    K = 3 * D ** 2 * np.exp(-D * 3 ** 0.5 / ls_d) / ls_d ** 3
 
     if len(ls) > 1:
         ls_i = ls[d]
@@ -157,17 +169,19 @@ def derivfactor_matern_3_2_from_raw_vals(vals, ls, d, vals2=None, operator='*'):
 
     return K
 
+
 def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
     num_jobs = multiprocessing.cpu_count()
     if num_jobs > max_no_jobs:
         num_jobs = max_no_jobs
     subset_size = int(np.ceil(vals.shape[1] / float(num_jobs)))
     K = Parallel(n_jobs=num_jobs, backend='threading')(delayed(compute_K_subset)(i, subset_size, vals, vals2, ls,
-                                         matern_3_2_onedimension_from_raw_vals, operator) for i in range(num_jobs))
+                                                                                 matern_3_2_onedimension_from_raw_vals,
+                                                                                 operator) for i in range(num_jobs))
 
-    #if vals2 is None:
+    # if vals2 is None:
     #    vals2 = vals
-    #K = Parallel(n_jobs=num_jobs, backend='threading')(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], ls[i])
+    # K = Parallel(n_jobs=num_jobs, backend='threading')(delayed(matern_3_2_onedimension_from_raw_vals)(vals[:, i:i+1], vals2[:, i:i+1], ls[i])
     #                                  for i in range(vals.shape[1]))
 
     if operator == '*':
@@ -176,25 +190,26 @@ def matern_3_2_from_raw_vals(vals, ls, vals2=None, operator='*'):
         K = np.sum(K, axis=0) / float(vals.shape[1])
     return K
 
+
 def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
     if operator == '*':
         K_subset = 1
     elif operator == '+':
         K_subset = 0
 
-    range_end = subset_size*(subset+1)
+    range_end = subset_size * (subset + 1)
     if range_end > vals.shape[1]:
         range_end = vals.shape[1]
 
-    for i in range(subset_size*subset, range_end):
+    for i in range(subset_size * subset, range_end):
         if np.mod(i, 1000) == 999:
             logging.debug("computing kernel for feature %i" % i)
-        xvals = vals[:, i:i+1]
+        xvals = vals[:, i:i + 1]
 
         if vals2 is None:
             xvals2 = xvals
         else:
-            xvals2 = vals2[:, i:i+1]
+            xvals2 = vals2[:, i:i + 1]
 
         if len(ls) > 1:
             ls_i = ls[i]
@@ -207,47 +222,51 @@ def compute_K_subset(subset, subset_size, vals, vals2, ls, fun, operator):
             K_subset += K_d
     return K_subset
 
+
 def _dists_f(items_feat_sample, f):
     if np.mod(f, 1000) == 0:
         logging.info('computed lengthscale for feature %i' % f)
     dists = np.abs(items_feat_sample[:, np.newaxis] - items_feat_sample[np.newaxis, :])
     # we exclude the zero distances. With sparse features, these would likely downplay the lengthscale.                                
-    med = np.median(dists[dists>0])
+    med = np.median(dists[dists > 0])
     if np.isnan(med):
         med = 1.0
-    return med  
- 
+    return med
+
+
 def compute_median_lengthscales(items_feat, multiply_heuristic_power=1.0, N_max=3000):
-    
     if items_feat.shape[0] > N_max:
         items_feat = items_feat[np.random.choice(items_feat.shape[0], N_max, replace=False)]
-    
+
     ndims = items_feat.shape[1]
     num_jobs = multiprocessing.cpu_count()
     if num_jobs > max_no_jobs:
         num_jobs = max_no_jobs
     default_ls_value = Parallel(n_jobs=num_jobs, backend="multiprocessing")(delayed(_dists_f)(
         items_feat[:, f], f) for f in range(ndims))
-            
-    ls_initial_guess = np.ones(ndims) * default_ls_value 
-    
-    logging.info('I am using a heuristic multiplier for the length-scale because median is too low to work in high-D spaces')
-    #ls_initial_guess *= 1000 # this worked reasonably well but was plucked out of thin air
-    ls_initial_guess *= items_feat.shape[1]**multiply_heuristic_power # this is a heuristic, see e.g. "On the High-dimensional 
-    #Power of Linear-time Kernel Two-Sample Testing under Mean-difference Alternatives" by Ramdas et al. 2014. In that 
+
+    ls_initial_guess = np.ones(ndims) * default_ls_value
+
+    logging.info(
+        'I am using a heuristic multiplier for the length-scale because median is too low to work in high-D spaces')
+    # ls_initial_guess *= 1000 # this worked reasonably well but was plucked out of thin air
+    ls_initial_guess *= items_feat.shape[
+                            1] ** multiply_heuristic_power  # this is a heuristic, see e.g. "On the High-dimensional
+    # Power of Linear-time Kernel Two-Sample Testing under Mean-difference Alternatives" by Ramdas et al. 2014. In that
     # paper they refer to root(no. dimensions) because they square the lengthscale in the kernel function.
     # It's possible that this value should be higher if a lot of feature values are actually missing values, as these
     # would lower the median. 
-    
-    return ls_initial_guess 
+
+    return ls_initial_guess
+
 
 class GPClassifierVB(object):
     verbose = False
 
     # hyper-parameters
-    s = 1 # inverse output scale
-    ls = 100 # inner length scale of the GP
-    n_lengthscales = 1 # separate or single length scale?
+    s = 1  # inverse output scale
+    ls = 100  # inner length scale of the GP
+    n_lengthscales = 1  # separate or single length scale?
     mu0 = 0
 
     # parameters for the hyper-priors if we want to optimise the hyper-parameters
@@ -257,10 +276,10 @@ class GPClassifierVB(object):
     rate_s0 = 1
 
     # save the training points
-    obs_values = [] # value of the positive class at each observations. Any duplicate points will be summed.
+    obs_values = []  # value of the positive class at each observations. Any duplicate points will be summed.
     obs_f = []
     obs_C = []
-    
+
     out_feats = None
 
     G = []
@@ -270,8 +289,8 @@ class GPClassifierVB(object):
     f = []
     v = []
 
-    n_converged = 1 # number of iterations while the algorithm appears to be converged -- in case of local maxima
-    max_iter_VB = 200#1000
+    n_converged = 1  # number of iterations while the algorithm appears to be converged -- in case of local maxima
+    max_iter_VB = 200  # 1000
     min_iter_VB = 5
     max_iter_G = 10
     conv_threshold = 1e-4
@@ -280,26 +299,26 @@ class GPClassifierVB(object):
 
     uselowerbound = True
 
-    p_rep = 1.0 # weight report values by a constant probability to indicate uncertainty in the reports
+    p_rep = 1.0  # weight report values by a constant probability to indicate uncertainty in the reports
 
     def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=1, ls_initial=None,
                  kernel_func='matern_3_2', kernel_combination='*', verbose=False, fixed_s=False):
 
         self.verbose = verbose
 
-        #Grid size for prediction
+        # Grid size for prediction
         self.ninput_features = ninput_features
 
         if ls_initial is not None:
-            self.n_lengthscales = len(ls_initial) # can pass in a single length scale to be used for all dimensions
+            self.n_lengthscales = len(ls_initial)  # can pass in a single length scale to be used for all dimensions
         else:
             self.n_lengthscales = self.ninput_features
 
         # Output scale (sigmoid scaling)
-        self.shape_s0 = float(shape_s0) # prior pseudo counts * 0.5
-        self.rate_s0 = float(rate_s0) # prior sum of squared deviations
+        self.shape_s0 = float(shape_s0)  # prior pseudo counts * 0.5
+        self.rate_s0 = float(rate_s0)  # prior sum of squared deviations
         self.shape_s = float(shape_s0)
-        self.rate_s = float(rate_s0) # init to the priors until we receive data
+        self.rate_s = float(rate_s0)  # init to the priors until we receive data
         self.s = self.shape_s0 / self.rate_s0
 
         self.fixed_s = fixed_s
@@ -307,9 +326,9 @@ class GPClassifierVB(object):
         # Prior mean
         self._init_prior_mean_f(z0)
 
-        #Length-scale
-        self.shape_ls = shape_ls # prior pseudo counts * 0.5
-        self.rate_ls = rate_ls # analogous to a sum of changes between points at a distance of 1
+        # Length-scale
+        self.shape_ls = shape_ls  # prior pseudo counts * 0.5
+        self.rate_ls = rate_ls  # analogous to a sum of changes between points at a distance of 1
         if np.any(ls_initial) and len(ls_initial) > 1:
             self.ls = np.array(ls_initial)
         else:
@@ -321,40 +340,40 @@ class GPClassifierVB(object):
 
         self.ls = self.ls.astype(float)
 
-        #Algorithm configuration
+        # Algorithm configuration
         self._select_covariance_function(kernel_func)
-        self.kernel_combination = kernel_combination # operator for combining kernels for each feature.
+        self.kernel_combination = kernel_combination  #  operator for combining kernels for each feature.
 
     # Initialisation --------------------------------------------------------------------------------------------------
 
     def _init_params(self, mu0, reinit_params, K=None):
         self._init_obs_mu0(mu0)
-        
-        if reinit_params or K is not None:    
+
+        if reinit_params or K is not None:
             self.K = K
-            self._init_covariance()        
-        
-        # Prior noise variance
+            self._init_covariance()
+
+            # Prior noise variance
         self._init_obs_prior()
         self._estimate_obs_noise()
 
         if reinit_params:
             self._init_obs_f()
             self._init_s()
-            #g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the
+            # g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the
             # same calculation with the same values, meaning that the convergence check will think nothing changes in the
             # first iteration.
             if self.G is not 0 and not len(self.G):
-                self.G = 0            
+                self.G = 0
 
     def _init_covariance(self):
         # Get the correct covariance matrix
         if self.kernel_func is not None:
             self.K = self.kernel_func(self.obs_coords, self.ls, operator=self.kernel_combination)
-            self.K += 1e-6 * np.eye(len(self.K)) # jitter
-        if self.K is None and self.cov_type=='pre':
+            self.K += 1e-6 * np.eye(len(self.K))  # jitter
+        if self.K is None and self.cov_type == 'pre':
             logging.error('With covariance type "pre", the kernel must be passed in when calling fit()')
-            
+
         self.invK = np.linalg.inv(self.K)
 
         self.Ks = self.K / self.s
@@ -389,29 +408,32 @@ class GPClassifierVB(object):
         # Noise in observations
         nu0_total = np.sum(self.nu0, axis=0)
         self.obs_mean = (self.obs_values + self.nu0[1]) / (self.obs_total_counts + nu0_total)
-        var_obs_mean = self.obs_mean * (1-self.obs_mean) / (self.obs_total_counts + nu0_total + 1) # uncertainty in obs_mean
+        var_obs_mean = self.obs_mean * (1 - self.obs_mean) / (
+                self.obs_total_counts + nu0_total + 1)  # uncertainty in obs_mean
         self.Q = (self.obs_mean * (1 - self.obs_mean) + var_obs_mean) / self.obs_total_counts
         self.Q = self.Q.flatten()
 
     def _init_obs_prior(self):
-        f_samples = np.random.normal(loc=self.mu0, scale=np.sqrt(self.rate_s0/self.shape_s0), size=(self.n_locs, 1000))
+        f_samples = np.random.normal(loc=self.mu0, scale=np.sqrt(self.rate_s0 / self.shape_s0),
+                                     size=(self.n_locs, 1000))
         rho_samples = self.forward_model(f_samples)
         rho_mean = np.mean(rho_samples)
         rho_var = np.var(rho_samples)
         # find the beta parameters
-        a_plus_b = 1.0 / (rho_var / (rho_mean*(1 - rho_mean))) - 1
+        a_plus_b = 1.0 / (rho_var / (rho_mean * (1 - rho_mean))) - 1
         a = a_plus_b * rho_mean
         b = a_plus_b * (1 - rho_mean)
-#         b = 1.0 
-#         a = 1.0
-        self.nu0 = np.array([b, a]) 
-        #if self.verbose:
+        #         b = 1.0
+        #         a = 1.0
+        self.nu0 = np.array([b, a])
+        # if self.verbose:
         #    logging.debug("Prior parameters for the observation noise variance are: %s" % str(self.nu0))
 
     def _init_s(self):
         if not self.fixed_s:
-            self.shape_s = self.shape_s0 + self.n_locs/2.0
-            self.rate_s = (self.rate_s0 + 0.5 * np.sum((self.obs_f-self.mu0)**2)) + self.rate_s0*self.shape_s/self.shape_s0
+            self.shape_s = self.shape_s0 + self.n_locs / 2.0
+            self.rate_s = (self.rate_s0 + 0.5 * np.sum(
+                (self.obs_f - self.mu0) ** 2)) + self.rate_s0 * self.shape_s / self.shape_s0
         self.s = self.shape_s / self.rate_s
         self.Elns = psi(self.shape_s) - np.log(self.rate_s)
         self.old_s = self.s
@@ -429,9 +451,9 @@ class GPClassifierVB(object):
             self.kernel_func = diagonal_from_raw_vals
             self.kernel_derfactor = derivfactor_diag_from_raw_vals
 
-#         elif cov_type == 'sq_exp': # no longer works -- needs kernel functions that work with the raw values
-#             self.kernel_func = sq_exp_cov
-#             self.kernel_der = deriv_sq_exp_cov
+        #         elif cov_type == 'sq_exp': # no longer works -- needs kernel functions that work with the raw values
+        #             self.kernel_func = sq_exp_cov
+        #             self.kernel_der = deriv_sq_exp_cov
 
         elif cov_type is 'pre':
             # the covariance matrix is prespecified and passed in using set_covariance()
@@ -451,7 +473,7 @@ class GPClassifierVB(object):
 
         if self.features is not None:
             self.obs_uidxs = np.arange(self.features.shape[0])
-            #poscounts = poscounts.astype(int)
+            # poscounts = poscounts.astype(int)
             totals = totals.astype(int)
             self.obs_coords = self.features
             return poscounts, totals
@@ -460,17 +482,18 @@ class GPClassifierVB(object):
         ravelled_coords = coord_arr_to_1d(obs_coords)
         uravelled_coords, origidxs, idxs = np.unique(ravelled_coords, return_index=True, return_inverse=True)
 
-        grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs))) ).toarray()
-        grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs))) ).toarray()
-        nonzero_idxs = grid_obs_counts.nonzero()[0] # ravelled coordinates with duplicates removed
+        grid_obs_counts = coo_matrix((totals, (idxs, np.ones(n_obs)))).toarray()
+        grid_obs_pos_counts = coo_matrix((poscounts, (idxs, np.ones(n_obs)))).toarray()
+        nonzero_idxs = grid_obs_counts.nonzero()[0]  # ravelled coordinates with duplicates removed
         uravelled_coords_nonzero = uravelled_coords[nonzero_idxs]
         origidxs_nonzero = origidxs[nonzero_idxs]
         # preserve the original order
         sortedidxs = np.argsort(origidxs_nonzero)
         uravelled_coords_nonzero_sorted = uravelled_coords_nonzero[sortedidxs]
         self.obs_coords = coord_arr_from_1d(uravelled_coords_nonzero_sorted, obs_coords.dtype,
-                                                [nonzero_idxs.size, self.ninput_features])
-        self.obs_uidxs = origidxs_nonzero[sortedidxs] # records the mapping from the input data to the obs_coords object
+                                            [nonzero_idxs.size, self.ninput_features])
+        self.obs_uidxs = origidxs_nonzero[
+            sortedidxs]  # records the mapping from the input data to the obs_coords object
 
         pos_counts = grid_obs_pos_counts[nonzero_idxs, 1][sortedidxs]
         totals = grid_obs_counts[nonzero_idxs, 1][sortedidxs]
@@ -478,8 +501,8 @@ class GPClassifierVB(object):
         return pos_counts, totals
 
     def _process_observations(self, obs_coords, obs_values, totals=None):
-        if obs_values==[]:
-            return [],[]
+        if obs_values == []:
+            return [], []
 
         obs_values = np.array(obs_values)
         n_obs = obs_values.shape[0]
@@ -488,16 +511,19 @@ class GPClassifierVB(object):
             logging.debug("GP inference with %i observations." % n_obs)
 
         if totals is None or not np.any(totals >= 0):
-            if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
+            if (obs_values.ndim == 1 or obs_values.shape[
+                1] == 1):  # obs_value is one column with values of either 0 or 1
                 totals = np.ones(n_obs)
-            else: # obs_values given as two columns: first is positive counts, second is total counts.
+            else:  # obs_values given as two columns: first is positive counts, second is total counts.
                 totals = obs_values[:, 1]
-        elif (obs_values.shape[1]==2):
-            logging.warning('GPClassifierVB received two sets of totals; ignoring the second column of the obs_values argument')
+        elif (obs_values.shape[1] == 2):
+            logging.warning(
+                'GPClassifierVB received two sets of totals; ignoring the second column of the obs_values argument')
 
-        if (obs_values.ndim==1 or obs_values.shape[1]==1): # obs_value is one column with values of either 0 or 1
+        if (obs_values.ndim == 1 or obs_values.shape[1] == 1):  # obs_value is one column with values of either 0 or 1
             poscounts = obs_values.flatten()
-        elif (obs_values.shape[1]==2): # obs_values given as two columns: first is positive counts, second is total counts.
+        elif (obs_values.shape[
+                  1] == 2):  # obs_values given as two columns: first is positive counts, second is total counts.
             poscounts = obs_values[:, 0]
 
         if np.any(obs_values >= 0):
@@ -516,11 +542,11 @@ class GPClassifierVB(object):
 
         self._observations_to_z()
 
-        self.K_out = {} # store the output cov matrix for each block. Reset when we have new observations.
+        self.K_out = {}  # store the output cov matrix for each block. Reset when we have new observations.
         self.K_star_diag = {}
 
     def _observations_to_z(self):
-        obs_probs = self.obs_values/self.obs_total_counts
+        obs_probs = self.obs_values / self.obs_total_counts
         self.z = obs_probs
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
@@ -532,14 +558,15 @@ class GPClassifierVB(object):
             return sigmoid(f)
 
     def _compute_jacobian(self):
-        g_obs_f = self.forward_model(self.obs_f.flatten()) # first order Taylor series approximation
-        J = np.diag(g_obs_f * (1-g_obs_f))
+        g_obs_f = self.forward_model(self.obs_f.flatten())  # first order Taylor series approximation
+        J = np.diag(g_obs_f * (1 - g_obs_f))
 
         return g_obs_f, J
 
     def _update_jacobian(self, G_update_rate=1.0):
         g_obs_f, J = self._compute_jacobian()
-        if G_update_rate==1 or not len(self.G) or self.G.shape != J.shape: # either G has not been initialised, or is from different observations
+        if G_update_rate == 1 or not len(
+                self.G) or self.G.shape != J.shape:  # either G has not been initialised, or is from different observations
             self.G = J
         else:
             self.G = G_update_rate * J + (1 - G_update_rate) * self.G
@@ -559,10 +586,11 @@ class GPClassifierVB(object):
         logq_s = self._logqs()
 
         if self.verbose:
-            logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (data_ll, logp_f, logq_f, logp_s-logq_s) )
-            #logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
-            #logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
-            #logging.debug("LB terms without the output scale: %.3f" % (data_ll + logp_f - logq_f))
+            logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (
+            data_ll, logp_f, logq_f, logp_s - logq_s))
+            # logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
+            # logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
+            # logging.debug("LB terms without the output scale: %.3f" % (data_ll + logp_f - logq_f))
 
         lb = data_ll + logp_f - logq_f + logp_s - logq_s
 
@@ -570,9 +598,9 @@ class GPClassifierVB(object):
             return lb, data_ll, logp_f, logq_f, logp_s, logq_s
 
         return lb
-    
+
     def get_obs_precision(self):
-        return self.G.T.dot(np.diag(1.0 / self.Q)).dot(self.G)        
+        return self.G.T.dot(np.diag(1.0 / self.Q)).dot(self.G)
 
     def lowerbound_gradient(self, dim):
         '''
@@ -583,9 +611,9 @@ class GPClassifierVB(object):
 
         sigmasq = self.get_obs_precision()
 
-        if self.n_lengthscales == 1 or dim == -1: # create an array with values for each dimension
+        if self.n_lengthscales == 1 or dim == -1:  # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
-        else: # do it for only the dimension dim
+        else:  # do it for only the dimension dim
             dims = [dim]
 
         invKs_C = self.s * self.invK.dot(self.obs_C)
@@ -594,10 +622,10 @@ class GPClassifierVB(object):
         firstterm = np.zeros(len(dims))
         secondterm = np.zeros(len(dims))
         for d, dim in enumerate(dims):
-            kernel_derfactor = self.kernel_derfactor(self.obs_coords[:, dim:dim+1], self.obs_coords[:, dim:dim+1],
+            kernel_derfactor = self.kernel_derfactor(self.obs_coords[:, dim:dim + 1], self.obs_coords[:, dim:dim + 1],
                                                      self.ls[dim], operator=self.kernel_combination) / self.s
             if self.kernel_combination == '*':
-                dKdls =  self.K * kernel_derfactor
+                dKdls = self.K * kernel_derfactor
             else:
                 dKdls = kernel_derfactor
             firstterm[d] = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
@@ -612,15 +640,15 @@ class GPClassifierVB(object):
         return np.array(gradient)
 
     def ln_modelprior(self):
-        #Gamma distribution over each value. Set the parameters of the gammas.
-        lnp_gp = - gammaln(self.shape_ls) + self.shape_ls*np.log(self.rate_ls) \
-                   + (self.shape_ls-1)*np.log(self.ls) - self.ls*self.rate_ls
+        # Gamma distribution over each value. Set the parameters of the gammas.
+        lnp_gp = - gammaln(self.shape_ls) + self.shape_ls * np.log(self.rate_ls) \
+                 + (self.shape_ls - 1) * np.log(self.ls) - self.ls * self.rate_ls
         return np.sum(lnp_gp)
 
     def _data_ll(self, logrho, lognotrho):
         bc = binom(self.obs_total_counts, self.z * self.obs_total_counts)
         logbc = np.log(bc)
-        lpobs = np.sum(self.z*self.obs_total_counts * logrho + self.obs_total_counts*(1-self.z) * lognotrho)
+        lpobs = np.sum(self.z * self.obs_total_counts * logrho + self.obs_total_counts * (1 - self.z) * lognotrho)
         lpobs += np.sum(logbc)
 
         data_ll = lpobs
@@ -632,7 +660,7 @@ class GPClassifierVB(object):
         _, G = self._compute_jacobian()
         if self.verbose:
             logging.debug("in _logpt(), computing diagGTQG")
-        diagGTQG = np.diag(G) * self.Q * np.diag(G) #np.sum(G.T * self.Q[None, :] * G.T, axis=1)
+        diagGTQG = np.diag(G) * self.Q * np.diag(G)  # np.sum(G.T * self.Q[None, :] * G.T, axis=1)
         sigma = np.sqrt(diagGTQG)[:, np.newaxis]
         if self.verbose:
             logging.debug("in _logpt(), computing samples...")
@@ -650,7 +678,8 @@ class GPClassifierVB(object):
                 fin = self.n_locs
             thisblocksize = fin - start
 
-            f_samples = np.random.normal(loc=self.obs_f[start:fin, :], scale=sigma[start:fin, :], size=(thisblocksize, 500))
+            f_samples = np.random.normal(loc=self.obs_f[start:fin, :], scale=sigma[start:fin, :],
+                                         size=(thisblocksize, 500))
 
             rho_samples = self.forward_model(f_samples)
             rho_samples = temper_extreme_probs(rho_samples)
@@ -670,26 +699,26 @@ class GPClassifierVB(object):
         mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
 
         invK_expecF = self.invK.dot(self.obs_C + self.obs_f.dot(self.obs_f.T) - mu0.dot(self.obs_f.T) \
-                       - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T)) * self.s
-        
+                                    - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T)) * self.s
+
         D = len(self.obs_f)
-        logpf = 0.5 * (- np.log(2*np.pi)*D - logdet_Ks - np.trace(invK_expecF))
+        logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF))
         return logpf
 
     def _logqf(self):
         # We want to do this, but we can simplify it, since the x and mean values cancel:
         _, logdet_C = np.linalg.slogdet(self.obs_C)
         D = len(self.obs_f)
-        logqf = 0.5 * (- np.log(2*np.pi)*D - logdet_C - D)
+        logqf = 0.5 * (- np.log(2 * np.pi) * D - logdet_C - D)
         return logqf
 
     def _logps(self):
-        logprob_s = - gammaln(self.shape_s0) + self.shape_s0 * np.log(self.rate_s0) + (self.shape_s0-1) * self.Elns \
+        logprob_s = - gammaln(self.shape_s0) + self.shape_s0 * np.log(self.rate_s0) + (self.shape_s0 - 1) * self.Elns \
                     - self.rate_s0 * self.s
         return logprob_s
 
     def _logqs(self):
-        lnq_s = - gammaln(self.shape_s) + self.shape_s * np.log(self.rate_s) + (self.shape_s-1) * self.Elns - \
+        lnq_s = - gammaln(self.shape_s) + self.shape_s * np.log(self.rate_s) + (self.shape_s - 1) * self.Elns - \
                 self.rate_s * self.s
 
         return lnq_s
@@ -712,10 +741,10 @@ class GPClassifierVB(object):
             # avoid very small length scales
             return np.inf
 
-        self.reset_kernel() # regenerate kernel with new length-scales
+        self.reset_kernel()  # regenerate kernel with new length-scales
 
         # make sure we start again
-        #Sets the value of parameters back to the initial guess
+        # Sets the value of parameters back to the initial guess
         self._init_params(None, 0, True)
         self.fit(process_obs=False, optimize=False)
         if self.verbose:
@@ -728,7 +757,8 @@ class GPClassifierVB(object):
             lml = marginal_log_likelihood + log_model_prior
         else:
             lml = marginal_log_likelihood
-        logging.debug("LML: %f, with Length-scales from %f to %f, after %i iterations" % (lml, np.min(self.ls), np.max(self.ls), self.vb_iter) )
+        logging.debug("LML: %f, with Length-scales from %f to %f, after %i iterations" % (
+        lml, np.min(self.ls), np.max(self.ls), self.vb_iter))
         return -lml
 
     def nml_jacobian(self, hyperparams, dimension, use_MAP=False):
@@ -743,13 +773,13 @@ class GPClassifierVB(object):
             self.neg_marginal_likelihood(hyperparams, dimension, use_MAP)
 
         gradient = self.lowerbound_gradient(dimension)
-        gradient[np.isnan(gradient)] = 1e-20 # remove any values that are likely to cause errors. Positive gradient to
+        gradient[np.isnan(gradient)] = 1e-20  # remove any values that are likely to cause errors. Positive gradient to
         # encourage the lengthscales causing the problems to be increased, since they are most likely close to zero
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.")
 
         logging.debug('Jacobian of NLML: ' + str(np.round(gradient, 4)))
-        #logging.debug('Jacobian of NLML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient),
+        # logging.debug('Jacobian of NLML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient),
         #                                                                                       np.min(gradient)))
 
         return -np.array(gradient, order='F')
@@ -771,8 +801,8 @@ class GPClassifierVB(object):
         if process_obs:
             self._process_observations(obs_coords, obs_values, totals)
             self._init_params(mu0, True, K)
-        elif mu0 is not None: # updated mean but not updated observations
-            self._init_params(mu0, False, K) # don't reset the parameters, but make sure mu0 is updated
+        elif mu0 is not None:  # updated mean but not updated observations
+            self._init_params(mu0, False, K)  # don't reset the parameters, but make sure mu0 is updated
 
         if not len(self.obs_coords):
             return
@@ -784,10 +814,10 @@ class GPClassifierVB(object):
         self.vb_iter = 0
         converged_count = 0
         prev_val = -np.inf
-        while converged_count < self.n_converged and self.vb_iter<self.max_iter_VB:
+        while converged_count < self.n_converged and self.vb_iter < self.max_iter_VB:
             self._expec_f()
 
-            #update the output scale parameter (also called latent function scale/sigmoid steepness)
+            # update the output scale parameter (also called latent function scale/sigmoid steepness)
             if not self.fixed_s:
                 self._expec_s()
 
@@ -795,16 +825,17 @@ class GPClassifierVB(object):
             converged_count += converged
             self.vb_iter += 1
 
-        self._update_f() # this is needed so that L and A match s
-        
+        self._update_f()  # this is needed so that L and A match s
+
         if self.verbose:
             logging.debug("gp grid trained with inverse output scale %.5f" % self.s)
 
-    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, K=None, maxfun=25, 
+    def _optimize(self, obs_coords, obs_values, totals=None, process_obs=True, mu0=None, K=None, maxfun=25,
                   use_MAP=False, nrestarts=1):
 
         if process_obs:
-            self._process_observations(obs_coords, obs_values, totals) # process the data here so we don't repeat each call
+            self._process_observations(obs_coords, obs_values,
+                                       totals)  # process the data here so we don't repeat each call
             self._init_params(mu0, True, K)
             self.fit(process_obs=False, optimize=False)
 
@@ -821,8 +852,8 @@ class GPClassifierVB(object):
             logging.debug("Initial length-scale guess in restart %i: %s" % (r, self.ls))
 
             res = minimize(self.neg_marginal_likelihood, initialguess,
-              args=(-1, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B',
-              options={'maxiter':maxfun, 'gtol': 10**(-self.ninput_features)})
+                           args=(-1, use_MAP,), jac=self.nml_jacobian, method='L-BFGS-B',
+                           options={'maxiter': maxfun, 'gtol': 10 ** (-self.ninput_features)})
 
             opt_hyperparams = res['x']
             nlml = res['fun']
@@ -835,7 +866,7 @@ class GPClassifierVB(object):
 
             # choose a new lengthscale for the initial guess of the next attempt
             if r < nrestarts - 1:
-                self.ls = gamma.rvs(self.shape_ls, scale=1.0/self.rate_ls, size=len(self.ls))
+                self.ls = gamma.rvs(self.shape_ls, scale=1.0 / self.rate_ls, size=len(self.ls))
 
         if best_iter < r:
             # need to go back to the best result
@@ -843,7 +874,7 @@ class GPClassifierVB(object):
 
         logging.debug("Optimal hyper-parameters: %s; found using %i objective fun evals" %
                       (self.ls, nfits))
-        return self.ls, -min_nlml # return the log marginal likelihood
+        return self.ls, -min_nlml  # return the log marginal likelihood
 
     def _expec_f(self):
         '''
@@ -851,13 +882,13 @@ class GPClassifierVB(object):
         GP implementation here.
         '''
         diff_G = 0
-        G_update_rate = 1.0 # start with full size updates
+        G_update_rate = 1.0  # start with full size updates
         # Iterate a few times to get G to stabilise
         for G_iter in range(self.max_iter_G):
             oldG = self.G
             self._update_jacobian(G_update_rate)
             self._update_f()
-            prev_diff_G = diff_G # save last iteration's difference
+            prev_diff_G = diff_G  # save last iteration's difference
             diff_G = np.max(np.abs(oldG - self.G))
             # Use a smaller update size if we get stuck oscillating about the solution
             if (np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-6 and G_update_rate > 0.1:
@@ -881,17 +912,18 @@ class GPClassifierVB(object):
         self.L = cholesky(self.Cov, lower=True, check_finite=False, overwrite_a=True)
         B = solve_triangular(self.L, (self.z - z0), lower=True, overwrite_b=True, check_finite=False)
         self.A = solve_triangular(self.L, B, lower=True, trans=True, overwrite_b=False, check_finite=False)
-        self.obs_f = self.KsG.dot(self.A, out=self.obs_f) + self.mu0 # need to add the prior mean here?
+        self.obs_f = self.KsG.dot(self.A, out=self.obs_f) + self.mu0  # need to add the prior mean here?
         V = solve_triangular(self.L, self.KsG.T, lower=True, overwrite_b=True, check_finite=False)
         self.obs_C = self.Ks - V.T.dot(V, out=self.obs_C)
 
     def _expec_s(self):
         self.old_s = self.s
         invK_expecFF = self.invK.dot(self.obs_C + self.obs_f.dot(self.obs_f.T) \
-                                  - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + self.mu0.dot(self.mu0.T))
+                                     - self.mu0.dot(self.obs_f.T) - self.obs_f.dot(self.mu0.T) + self.mu0.dot(
+            self.mu0.T))
         if not self.fixed_s:
             self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_expecFF)
-        #Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
+        # Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
         self.Elns = psi(self.shape_s) - np.log(self.rate_s)
         if self.verbose:
@@ -899,26 +931,27 @@ class GPClassifierVB(object):
         self.Ks = self.K / self.s
 
     def _check_convergence(self, prev_val):
-        if self.uselowerbound and np.mod(self.vb_iter, self.conv_check_freq)==self.conv_check_freq-1:
+        if self.uselowerbound and np.mod(self.vb_iter, self.conv_check_freq) == self.conv_check_freq - 1:
             oldL = prev_val
             L = self.lowerbound()
             diff = (L - oldL) / np.abs(L)
 
             if self.verbose:
-                logging.debug('GP Classifier VB lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, self.vb_iter))
+                logging.debug(
+                    'GP Classifier VB lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, self.vb_iter))
 
-            if diff < - self.conv_threshold: # ignore any error of less than ~1%, as we are using approximations here anyway
+            if diff < - self.conv_threshold:  # ignore any error of less than ~1%, as we are using approximations here anyway
                 logging.warning('GP Classifier VB Lower Bound = %.5f, changed by %.5f in iteration %i' %
                                 (L, diff, self.vb_iter))
                 logging.warning('-- probable approximation error or bug. Output scale=%.3f.' % (self.s))
 
             current_value = L
             converged = diff < self.conv_threshold
-        elif np.mod(self.vb_iter, self.conv_check_freq)==2:
+        elif np.mod(self.vb_iter, self.conv_check_freq) == 2:
             diff = np.max([np.max(np.abs(self.g_obs_f - prev_val)),
-                       np.max(np.abs(self.g_obs_f*(1-self.g_obs_f) - prev_val*(1-prev_val))**0.5)])
+                           np.max(np.abs(self.g_obs_f * (1 - self.g_obs_f) - prev_val * (1 - prev_val)) ** 0.5)])
             if self.verbose:
-                logging.debug('GP Classifier VB g_obs_f diff = %.5f at iteration %.i' % (diff, self.vb_iter) )
+                logging.debug('GP Classifier VB g_obs_f diff = %.5f at iteration %.i' % (diff, self.vb_iter))
 
             sdiff = np.abs(self.old_s - self.s) / self.s
             if self.verbose:
@@ -928,14 +961,14 @@ class GPClassifierVB(object):
             current_value = self.g_obs_f
             converged = (diff < self.conv_threshold) & (self.vb_iter > 2)
         else:
-            return False, prev_val # not checking in this iteration, return the old value and don't converge
+            return False, prev_val  # not checking in this iteration, return the old value and don't converge
 
-        return (converged & (self.vb_iter+1 >= self.min_iter_VB)), current_value
+        return (converged & (self.vb_iter + 1 >= self.min_iter_VB)), current_value
 
     # Prediction methods ---------------------------------------------------------------------------------------------
 
-    def predict(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, variance_method='rough', 
-                expectedlog=False, return_not=False, mu0_output=None, reuse_output_kernel=False):
+    def predict(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, variance_method='rough',
+                expectedlog=False, mu0_output=None, reuse_output_kernel=False):
         '''
         Evaluate the function posterior mean and variance at the given co-ordinates using the 2D squared exponential
         kernel
@@ -949,17 +982,18 @@ class GPClassifierVB(object):
         
         '''
         self.predict_f(out_feats, out_idxs, K_star, K_starstar, mu0_output, reuse_output_kernel)
-        
+
         if variance_method == 'sample' or expectedlog:
             if variance_method == 'rough':
-                logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
-            
+                logging.warning(
+                    "Switched to using sample method as expected log requested. No quick method is available.")
+
             # Approximate the expected value of the variable transformed through the sigmoid.
             m_post, not_m_post, v_post = self._post_sample(self.f, self.v, expectedlog)
         elif variance_method == 'rough' and not expectedlog:
-            m_post, not_m_post, v_post = self._post_rough(self.f, self.v)
+            m_post, _, v_post = self._post_rough(self.f, self.v)
 
-        if return_not:
+        if expectedlog:
             return m_post, not_m_post, v_post
         else:
             return m_post, v_post
@@ -970,32 +1004,32 @@ class GPClassifierVB(object):
     def predict_obs(self, variance_method='rough', expectedlog=False, return_not=False):
         f = self.obs_f
         v = self.obs_variance()
-        if variance_method=='rough' and not expectedlog:
+        if variance_method == 'rough' and not expectedlog:
             m_post, not_m_post, v_post = self._post_rough(f, v)
         else:
             if variance_method == 'rough':
-                logging.warning("Switched to using sample method as expected log requested. No quick method is available.")
+                logging.warning(
+                    "Switched to using sample method as expected log requested. No quick method is available.")
             m_post, not_m_post, v_post = self._post_sample(f, v, variance_method)
         if return_not:
             return m_post, not_m_post, v_post
         else:
             return m_post, v_post
 
-    def predict_grid(self, nx, ny, variance_method='rough', max_block_size=1e5, return_not=False, mu0_output=None):
+    def predict_grid(self, nx, ny, variance_method='rough', mu0_output=None):
         nout = nx * ny
         outputx = np.tile(np.arange(nx, dtype=np.float).reshape(nx, 1), (1, ny)).reshape(nout)
         outputy = np.tile(np.arange(ny, dtype=np.float).reshape(1, ny), (nx, 1)).reshape(nout)
-        self.predict([outputx, outputy], None, None, None, variance_method, max_block_size, return_not=return_not, 
-                     mu0_output=mu0_output)
+        return self.predict(out_feats=[outputx, outputy], variance_method=variance_method, mu0_output=mu0_output)
 
     def _get_training_cov(self):
         # return the covariance matrix for training points to inducing points (if used) and the variance of the training points. 
         return self.K, np.diag(self.K)
-    
+
     def _get_training_feats(self):
         return self.obs_coords
-    
-    def predict_f(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, mu0_output=None, 
+
+    def predict_f(self, out_feats=None, out_idxs=None, K_star=None, K_starstar=None, mu0_output=None,
                   reuse_output_kernel=False, full_cov=False):
         # Establish the output covariance matrices
         if K_star is not None and K_starstar is not None:
@@ -1006,15 +1040,16 @@ class GPClassifierVB(object):
             # should only change if lengthscale self.ls or cov_type change
             if not reuse_output_kernel or np.any(out_feats != self.out_feats):
                 if out_feats.shape[0] == self.ninput_features and out_feats.shape[1] != self.ninput_features:
-                    out_feats = out_feats.T                
-                self.out_feats = out_feats 
+                    out_feats = out_feats.T
+                self.out_feats = out_feats
                 # compute kernels given the feature vectors supplied
-                self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self._get_training_feats(), 
-                                                operator=self.kernel_combination)
-                self.K_starstar = 1.0 # assuming that the kernel function places ones along diagonals
+                if self.kernel_func is None:
+                    self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self._get_training_feats(),
+                                               operator=self.kernel_combination)
+                self.K_starstar = 1.0  # assuming that the kernel function places ones along diagonals
             else:
-                pass # we reuse the previous self.K_star and self.K_starstar values
-            
+                pass  # we reuse the previous self.K_star and self.K_starstar values
+
         elif out_feats is None and K_star is None and K_starstar is None:
             # use the training feature vectors 
             self.K_star, self.K_starstar = self._get_training_cov()
@@ -1022,12 +1057,13 @@ class GPClassifierVB(object):
                 mu0_output = self.mu0
         else:
             # other combinations are invalid
-            logging.error('Invalid combination of parameters for predict(): please supply either out_feats OR (K_star AND K_starstar)')
+            logging.error(
+                'Invalid combination of parameters for predict(): please supply either out_feats OR (K_star AND K_starstar)')
             return
-        
+
         K_star = self.K_star
         K_starstar = self.K_starstar
-        
+
         # Select the data points from the complete set using the indexes
         if out_idxs is not None:
             K_star = K_star[out_idxs, :]
@@ -1050,7 +1086,7 @@ class GPClassifierVB(object):
 
         Ks_star = K_star / self.s
         Ks_starstar = K_starstar / self.s
-            
+
         self.f, self.v = self._expec_f_output(Ks_starstar, Ks_star, self.mu0_output, full_cov)
 
         if full_cov:
@@ -1063,21 +1099,27 @@ class GPClassifierVB(object):
         return self.f, self.v
 
     def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False):
+        """
+        Compute the expected value of f and the variance or covariance of f
+        :param Ks_starstar: prior variance at the output points (scalar or 1-D vector), or covariance if full_cov==True.
+        :param Ks_star: covariance between output points and training points
+        :param mu0: prior mean for output points
+        :param full_cov: set to True to compute the full posterior covariance between output points
+        :return f, C: posterior expectation of f, variance or covariance of the output locations.
+        """
         f = Ks_star.dot(self.G.T).dot(self.A) + mu0
         V = solve_triangular(self.L, self.G.dot(Ks_star.T), lower=True, overwrite_b=True, check_finite=False)
         if full_cov:
             C = Ks_starstar - V.T.dot(V)
         else:
-            if Ks_starstar.ndim == 2:
-                Ks_starstar = np.diag(Ks_starstar) 
-            C = Ks_starstar - np.sum(V**2, axis=0)
+            C = Ks_starstar - np.sum(V ** 2, axis=0)
         return f, C
 
     def _post_rough(self, f, v):
         k = 1.0 / np.sqrt(1 + (np.pi * v / 8.0))
-        m_post = sigmoid(k*f)
-        not_m_post = sigmoid(-k*f)
-        v_post = (sigmoid(f + np.sqrt(v)) - m_post)**2 + (sigmoid(f - np.sqrt(v)) - m_post)**2 / 2.0
+        m_post = sigmoid(k * f)
+        not_m_post = sigmoid(-k * f)
+        v_post = (sigmoid(f + np.sqrt(v)) - m_post) ** 2 + (sigmoid(f - np.sqrt(v)) - m_post) ** 2 / 2.0
 
         return m_post, not_m_post, v_post
 
@@ -1092,13 +1134,15 @@ class GPClassifierVB(object):
             rho_not_samples = np.log(rho_not_samples)
         m_post = np.mean(rho_samples, axis=1)[:, np.newaxis]
         not_m_post = np.mean(rho_not_samples, axis=1)[:, np.newaxis]
-        v_post = np.mean((rho_samples - m_post)**2, axis=1)[:, np.newaxis]
+        v_post = np.mean((rho_samples - m_post) ** 2, axis=1)[:, np.newaxis]
 
         return m_post, not_m_post, v_post
+
 
 if __name__ == '__main__':
     logging.warning('Caution: this is not a proper test of the whole algorithm.')
     from scipy.stats import multivariate_normal as mvn
+
     # run some tests on the learning algorithm
 
     N = 100
@@ -1116,8 +1160,8 @@ if __name__ == '__main__':
     ddx = x_all[:, np.newaxis] - x_all[np.newaxis, :]
     ddy = y_all[:, np.newaxis] - y_all[np.newaxis, :]
 
-    Kx = np.exp( -ddx**2 / ls )
-    Ky = np.exp( -ddy**2 / ls )
+    Kx = np.exp(-ddx ** 2 / ls)
+    Ky = np.exp(-ddy ** 2 / ls)
     K = Kx * Ky
 
     K += np.eye(N) * 1e-6
@@ -1137,8 +1181,9 @@ if __name__ == '__main__':
         f_true = mvn.rvs(mean=mean, cov=K_over_s)[:, np.newaxis]
 
         shape += 0.5 * len(f_true)
-        rate += 0.5 * np.trace( solve_triangular(L, solve_triangular(L, f_true.dot(f_true.T),
-                 lower=True, overwrite_b=True, check_finite=False), trans=True, overwrite_b=True, check_finite=False ))
+        rate += 0.5 * np.trace(solve_triangular(L, solve_triangular(L, f_true.dot(f_true.T),
+                                                                    lower=True, overwrite_b=True, check_finite=False),
+                                                trans=True, overwrite_b=True, check_finite=False))
     post_s = shape / rate
     print(shape)
     print(rate)

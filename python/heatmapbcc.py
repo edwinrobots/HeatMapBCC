@@ -336,7 +336,7 @@ class HeatMapBCC(ibcc.IBCC):
             
             self.heatGP[j].verbose = False
             lnkappaj, lnkappa_notj, _ = self.heatGP[j].predict((self.obsx, self.obsy), variance_method='sample', 
-                                                        expectedlog=True, return_not=True)
+                                                        expectedlog=True)
             self.heatGP[j].verbose = self.verbose
             self.lnkappa[j] = lnkappaj.flatten()
         if self.nclasses==2:

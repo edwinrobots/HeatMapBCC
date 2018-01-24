@@ -409,6 +409,14 @@ class GPClassifierSVI(GPClassifierVB):
         return self.inducing_coords
 
     def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False):
+        """
+        Compute the expected value of f and the variance or covariance of f
+        :param Ks_starstar: prior variance at the output points (scalar or 1-D vector), or covariance if full_cov==True.
+        :param Ks_star: covariance between output points and training points
+        :param mu0: prior mean for output points
+        :param full_cov: set to True to compute the full posterior covariance between output points
+        :return f, C: posterior expectation of f, variance or covariance of the output locations.
+        """
         if not self.use_svi:
             return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0)
 

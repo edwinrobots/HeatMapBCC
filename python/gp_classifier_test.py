@@ -117,12 +117,12 @@ if __name__ == '__main__':
     obs_coords = np.concatenate((xvals[trainidxs, :], yvals[trainidxs, :]), axis=1)
     
     for modelkey in models:
-        print "--- Running model %s ---" % modelkey
+        print("--- Running model %s ---" % modelkey)
         
         model = models[modelkey]
     
         model.fit(obs_coords, labels[trainidxs], optimize=True)
-        print "Final lower bound: %f" % model.lowerbound()
+        print("Final lower bound: %f" % model.lowerbound())
         
         # Predict at the test locations
         fpred, vpred = model.predict_f(np.concatenate((xvals_test, yvals_test), axis=1))
@@ -131,12 +131,12 @@ if __name__ == '__main__':
         obs_coords_1d = coord_arr_to_1d(model.obs_coords)
         test_coords_1d = coord_arr_to_1d(np.concatenate((xvals, yvals), axis=1))
         f_obs = [f[(test_coords_1d==obs_coords_1d[i]).flatten()][0] for i in range(model.obs_coords.shape[0])]
-        print "Kendall's tau (observations): %.3f" % kendalltau(f_obs, model.obs_f.flatten())[0]
+        print("Kendall's tau (observations): %.3f" % kendalltau(f_obs, model.obs_f.flatten())[0])
             
         # Evaluate the accuracy of the predictions
         #print "RMSE of %f" % np.sqrt(np.mean((f-fpred)**2))
         #print "NLPD of %f" % -np.sum(norm.logpdf(f, loc=fpred, scale=vpred**0.5))
-        print "Kendall's tau (test): %.3f" % kendalltau(f_test, fpred)[0] 
+        print("Kendall's tau (test): %.3f" % kendalltau(f_test, fpred)[0] )
             
         rho = sigmoid(f[testidxs])
         rho_pred, var_rho_pred = model.predict((xvals[testidxs], yvals[testidxs]))
@@ -147,12 +147,12 @@ if __name__ == '__main__':
         if fix_seeds:
             np.random.seed(2)    
         
-        print "Brier score of %.3f" % np.sqrt(np.mean((rho-rho_pred)**2))
-        print "Cross entropy error of %.3f" % -np.sum(rho * np.log(rho_pred) + (1-rho) * np.log(1 - rho_pred))    
+        print("Brier score of %.3f" % np.sqrt(np.mean((rho-rho_pred)**2)) )
+        print("Cross entropy error of %.3f" % -np.sum(rho * np.log(rho_pred) + (1-rho) * np.log(1 - rho_pred)) )
         
         t = np.round(rho)
         
         from sklearn.metrics import f1_score, roc_auc_score
-        print "F1 score of %.3f" % f1_score(t, t_pred)
-        print "Accuracy of %.3f" % np.mean(t==t_pred)
-        print "ROC of %.3f" % roc_auc_score(t, rho_pred)
+        print("F1 score of %.3f" % f1_score(t, t_pred) )
+        print("Accuracy of %.3f" % np.mean(t==t_pred) )
+        print("ROC of %.3f" % roc_auc_score(t, rho_pred) )

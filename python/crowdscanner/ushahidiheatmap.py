@@ -108,7 +108,7 @@ class Heatmap(object):
             self.heatmapcombiner[j].verbose = False
 
         self.heatmapcombiner[j].combine_classifications(C)
-        print "S = "
+        print*"S = "
         print self.heatmapcombiner[j].heatGP[j].s
         bcc_pred, _, bcc_var = self.heatmapcombiner[j].predict_grid()
         bcc_pred = bcc_pred[j, :, :].reshape((self.nx, self.ny))
