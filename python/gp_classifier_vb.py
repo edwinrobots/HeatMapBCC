@@ -368,10 +368,10 @@ class GPClassifierVB(object):
 
     def _init_covariance(self):
         # Get the correct covariance matrix
-        if self.kernel_func is not None:
+        if self.kernel_func is not None and self.cov_type != 'pre':
             self.K = self.kernel_func(self.obs_coords, self.ls, operator=self.kernel_combination)
             self.K += 1e-6 * np.eye(len(self.K))  # jitter
-        if self.K is None and self.cov_type == 'pre':
+        elif self.K is None:
             logging.error('With covariance type "pre", the kernel must be passed in when calling fit()')
 
         self.invK = np.linalg.inv(self.K)
@@ -1022,9 +1022,9 @@ class GPClassifierVB(object):
         outputy = np.tile(np.arange(ny, dtype=np.float).reshape(1, ny), (nx, 1)).reshape(nout)
         return self.predict(out_feats=[outputx, outputy], variance_method=variance_method, mu0_output=mu0_output)
 
-    def _get_training_cov(self):
-        # return the covariance matrix for training points to inducing points (if used) and the variance of the training points. 
-        return self.K, np.diag(self.K)
+    def _get_training_cov(self,):
+        # return the covariance matrix for training points to inducing points (if used) and the variance of the training points.
+        return self.K, self.K
 
     def _get_training_feats(self):
         return self.obs_coords
@@ -1053,6 +1053,8 @@ class GPClassifierVB(object):
         elif out_feats is None and K_star is None and K_starstar is None:
             # use the training feature vectors 
             self.K_star, self.K_starstar = self._get_training_cov()
+            if not full_cov:
+                self.K_starstar = np.diag(self.K_starstar)
             if mu0_output is None:
                 mu0_output = self.mu0
         else:
