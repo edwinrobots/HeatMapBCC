@@ -418,7 +418,7 @@ class GPClassifierSVI(GPClassifierVB):
         :return f, C: posterior expectation of f, variance or covariance of the output locations.
         """
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0)
+            return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0, full_cov)
 
         f, C_out = self._f_given_u(Ks_star, mu0, Ks_starstar)
 
