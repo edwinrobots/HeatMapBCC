@@ -259,6 +259,39 @@ def compute_median_lengthscales(items_feat, multiply_heuristic_power=1.0, N_max=
 
     return ls_initial_guess
 
+def fractional_convergence(newval, oldval, conv_threshold, positive_only, iter=-1, label=''):
+    """
+    Test whether a method has converged given values of interest and threshold.
+    Assumes convergence if the difference between the two values as a fraction of the new value is below
+    the threshold.  Use this if the magnitude of the values is not known a priori, so that convergence is assumed
+    when the change is below a certain fraction of the values.
+
+    :param newval: new value of variable we test for convergence. May be a vector to test multiple variables
+    :param oldval: previous value of variable we are testing for convergence. May be a vector if we want to test multiple variables.
+    :param conv_threshold: threshold below which the fractional difference must fall before convergence is declared.
+    :param positive_only: if True, assumes that values must simply be below the threshold, and that negative differences are bad and prints warnings if they occur.
+    :param iter: iteration number, used to print debugging logs. Set to -1 to turn off the logging
+    :param label: method name or other label used to identify the output from this test in debugging logs
+    :return: True or False depending on whether the fraction is below the threshold
+    """
+
+    diff = (newval - oldval) / np.abs(newval)
+
+    if not positive_only:
+        diff = np.abs(diff)
+
+    # if we are testing a vector of multiple variables, consider the biggest difference
+    diff = np.max(diff)
+
+    if iter > -1:
+        logging.debug(
+            '%s = %.5f, diff = %.5f at iteration %i' % (label, newval, diff, iter))
+
+    if positive_only and diff < - conv_threshold:  # ignore any error of less than ~1%, as we are using approximations here anyway
+        logging.warning('%s = %.5f, changed by %.5f in iteration %i' % (label, newval, diff, iter))
+
+    converged = diff < conv_threshold
+    return converged
 
 class GPClassifierVB(object):
     verbose = False
@@ -575,9 +608,7 @@ class GPClassifierVB(object):
     # Log Likelihood Computation -------------------------------------------------------------------------------------
 
     def lowerbound(self, return_terms=False):
-        logrho, lognotrho = self._logpt()
-
-        data_ll = self._data_ll(logrho, lognotrho)
+        data_ll = self.data_ll()
 
         logp_f = self._logpf()
         logq_f = self._logqf()
@@ -645,7 +676,9 @@ class GPClassifierVB(object):
                  + (self.shape_ls - 1) * np.log(self.ls) - self.ls * self.rate_ls
         return np.sum(lnp_gp)
 
-    def _data_ll(self, logrho, lognotrho):
+    def data_ll(self, f=None):
+        logrho, lognotrho = self._logpt(f)
+
         bc = binom(self.obs_total_counts, self.z * self.obs_total_counts)
         logbc = np.log(bc)
         lpobs = np.sum(self.z * self.obs_total_counts * logrho + self.obs_total_counts * (1 - self.z) * lognotrho)
@@ -654,7 +687,7 @@ class GPClassifierVB(object):
         data_ll = lpobs
         return data_ll
 
-    def _logpt(self):
+    def _logpt(self, f=None):
         if self.verbose:
             logging.debug("in _logpt(), computing jacobian...")
         _, G = self._compute_jacobian()
@@ -664,6 +697,9 @@ class GPClassifierVB(object):
         sigma = np.sqrt(diagGTQG)[:, np.newaxis]
         if self.verbose:
             logging.debug("in _logpt(), computing samples...")
+
+        if f is None:
+            f = self.obs_f
 
         blocksize = 2000
         nblocks = int(np.ceil(self.n_locs / float(blocksize)))
@@ -678,7 +714,7 @@ class GPClassifierVB(object):
                 fin = self.n_locs
             thisblocksize = fin - start
 
-            f_samples = np.random.normal(loc=self.obs_f[start:fin, :], scale=sigma[start:fin, :],
+            f_samples = np.random.normal(loc=f[start:fin, :], scale=sigma[start:fin, :],
                                          size=(thisblocksize, 500))
 
             rho_samples = self.forward_model(f_samples)
@@ -934,19 +970,9 @@ class GPClassifierVB(object):
         if self.uselowerbound and np.mod(self.vb_iter, self.conv_check_freq) == self.conv_check_freq - 1:
             oldL = prev_val
             L = self.lowerbound()
-            diff = (L - oldL) / np.abs(L)
-
-            if self.verbose:
-                logging.debug(
-                    'GP Classifier VB lower bound = %.5f, diff = %.5f at iteration %i' % (L, diff, self.vb_iter))
-
-            if diff < - self.conv_threshold:  # ignore any error of less than ~1%, as we are using approximations here anyway
-                logging.warning('GP Classifier VB Lower Bound = %.5f, changed by %.5f in iteration %i' %
-                                (L, diff, self.vb_iter))
-                logging.warning('-- probable approximation error or bug. Output scale=%.3f.' % (self.s))
-
+            converged = fractional_convergence(L, oldL, self.conv_threshold, True, self.vb_iter if self.verbose else -1,
+                                               'GP Classifier VB lower bound')
             current_value = L
-            converged = diff < self.conv_threshold
         elif np.mod(self.vb_iter, self.conv_check_freq) == 2:
             diff = np.max([np.max(np.abs(self.g_obs_f - prev_val)),
                            np.max(np.abs(self.g_obs_f * (1 - self.g_obs_f) - prev_val * (1 - prev_val)) ** 0.5)])
