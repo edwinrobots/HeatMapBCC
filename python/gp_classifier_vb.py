@@ -927,10 +927,10 @@ class GPClassifierVB(object):
             prev_diff_G = diff_G  # save last iteration's difference
             diff_G = np.max(np.abs(oldG - self.G))
             # Use a smaller update size if we get stuck oscillating about the solution
-            if (np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-6 and G_update_rate > 0.1:
+            if np.abs(np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-8 and G_update_rate > 0.1:
                 G_update_rate *= 0.9
             if self.verbose:
-                logging.debug("Iterating over G: diff was %.5f in iteration %i" % (diff_G, G_iter))
+                logging.debug("Iterating over G: diff was %.5f in iteration %i; update rate = %f" % (diff_G, G_iter, G_update_rate))
             if diff_G < self.conv_threshold_G:
                 break;
         if G_iter >= self.max_iter_G - 1:
