@@ -90,6 +90,9 @@ class HeatMapBCC(ibcc.IBCC):
         self.post_T = []
         self.update_all_points = force_update_all_points
         self.z0 = z0
+        if np.isscalar(self.z0):
+            self.z0 = np.ones(self.nclasses) * z0
+
         self.shape_s0 = shape_s0
         self.rate_s0 = rate_s0
         self.shape_ls = shape_ls
@@ -110,18 +113,20 @@ class HeatMapBCC(ibcc.IBCC):
         self.crowddict = {}
         self.obsx = []
         self.obsy = []
-            
-        for i in range(len(self.crowdx)):
-            coord = crowdcoords[i]
+        linearIdxs = []
+
+        for i, coord in enumerate(crowdcoords):
             if not coord in self.crowddict:
                 self.crowddict[coord] = len(self.crowddict.values()) # we are adding to the existing list in crowddict, 
                 # skipping values of i that are duplicates   
                 self.obsx.append(self.crowdx[i])
                 self.obsy.append(self.crowdy[i])
+
+            linearIdxs.append(self.crowddict[coord]) # do this to ensure that we get unique values for each coord
+
         self.obsx = np.array(self.obsx)
         self.obsy = np.array(self.obsy)
-        
-        linearIdxs = [self.crowddict[l] for l in crowdcoords] # do this to ensure that we get unique values for each coord
+
         crowdlabels_flat = crowdlabels[:,[0,1,3]]
         crowdlabels_flat[:,1] = linearIdxs
         super(HeatMapBCC,self)._desparsify_crowdlabels(crowdlabels_flat)

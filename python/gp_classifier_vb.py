@@ -259,7 +259,7 @@ def compute_median_lengthscales(items_feat, multiply_heuristic_power=1.0, N_max=
 
     return ls_initial_guess
 
-def fractional_convergence(newval, oldval, conv_threshold, positive_only, iter=-1, label=''):
+def fractional_convergence(newval, oldval, conv_threshold, positive_only, iter=-1, verbose=False, label=''):
     """
     Test whether a method has converged given values of interest and threshold.
     Assumes convergence if the difference between the two values as a fraction of the new value is below
@@ -283,7 +283,7 @@ def fractional_convergence(newval, oldval, conv_threshold, positive_only, iter=-
     # if we are testing a vector of multiple variables, consider the biggest difference
     diff = np.max(diff)
 
-    if iter > -1:
+    if verbose:
         logging.debug(
             '%s = %.5f, diff = %.5f at iteration %i' % (label, newval, diff, iter))
 
@@ -327,7 +327,7 @@ class GPClassifierVB(object):
     min_iter_VB = 5
     max_iter_G = 10
     conv_threshold = 1e-4
-    conv_threshold_G = 1e-3
+    conv_threshold_G = 1e-5
     conv_check_freq = 2
 
     uselowerbound = True
@@ -590,8 +590,12 @@ class GPClassifierVB(object):
         else:
             return sigmoid(f)
 
-    def _compute_jacobian(self):
-        g_obs_f = self.forward_model(self.obs_f.flatten())  # first order Taylor series approximation
+    def _compute_jacobian(self, f=None):
+
+        if f is None:
+            f = self.obs_f
+
+        g_obs_f = self.forward_model(f.flatten())  # first order Taylor series approximation
         J = np.diag(g_obs_f * (1 - g_obs_f))
 
         return g_obs_f, J
@@ -608,25 +612,22 @@ class GPClassifierVB(object):
     # Log Likelihood Computation -------------------------------------------------------------------------------------
 
     def lowerbound(self, return_terms=False):
-        data_ll = self.data_ll()
-
-        logp_f = self._logpf()
+        logp_Df = self._logp_Df()
         logq_f = self._logqf()
 
         logp_s = self._logps()
         logq_s = self._logqs()
 
         if self.verbose:
-            logging.debug("DLL: %.5f, logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (
-            data_ll, logp_f, logq_f, logp_s - logq_s))
+            logging.debug("DLL + logp_f: %.5f, logq_f: %.5f, logp_s-logq_s: %.5f" % (logp_Df, logq_f, logp_s - logq_s))
             # logging.debug("pobs : %.4f, pz: %.4f" % (pobs, pz) )
             # logging.debug("logp_f - logq_f: %.5f. logp_s - logq_s: %.5f" % (logp_f - logq_f, logp_s - logq_s))
             # logging.debug("LB terms without the output scale: %.3f" % (data_ll + logp_f - logq_f))
 
-        lb = data_ll + logp_f - logq_f + logp_s - logq_s
+        lb = logp_Df - logq_f + logp_s - logq_s
 
         if return_terms:
-            return lb, data_ll, logp_f, logq_f, logp_s, logq_s
+            return lb, logp_Df, logq_f, logp_s, logq_s
 
         return lb
 
@@ -676,9 +677,27 @@ class GPClassifierVB(object):
                  + (self.shape_ls - 1) * np.log(self.ls) - self.ls * self.rate_ls
         return np.sum(lnp_gp)
 
-    def data_ll(self, f=None):
-        logrho, lognotrho = self._logpt(f=f)
+    def _logp_Df(self):
+        """
+        Expected joint log likelihood of the data, D, and the latent function, f
 
+        :return:
+        """
+        logrho, lognotrho, _ = self._post_sample(self.obs_f, np.diag(self.obs_C)[:, None], True)
+        logdll = self.data_ll(logrho, lognotrho)
+
+        _, logdet_K = np.linalg.slogdet(self.K)
+        D = len(self.obs_f)
+        logdet_Ks = -D * self.Elns + logdet_K
+
+        invK_expecF = self.invK.dot(self.obs_C) * self.s
+
+        m_invK_m = (self.obs_f - self.mu0).T.dot(self.K / self.s).dot(self.obs_f-self.mu0)
+
+        logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF) - m_invK_m)
+        return logpf + logdll
+
+    def data_ll(self, logrho, lognotrho):
         bc = binom(self.obs_total_counts, self.z * self.obs_total_counts)
         logbc = np.log(bc)
         lpobs = np.sum(self.z * self.obs_total_counts * logrho + self.obs_total_counts * (1 - self.z) * lognotrho)
@@ -686,63 +705,6 @@ class GPClassifierVB(object):
 
         data_ll = lpobs
         return data_ll
-
-    def _logpt(self, f=None):
-
-        if G is None:
-            if self.verbose:
-                logging.debug("in _logpt(), computing jacobian...")
-            _, G = self._compute_jacobian()
-
-        if self.verbose:
-            logging.debug("in _logpt(), computing diagGTQG")
-        diagGTQG = np.diag(G) * self.Q * np.diag(G)  # np.sum(G.T * self.Q[None, :] * G.T, axis=1)
-        sigma = np.sqrt(diagGTQG)[:, np.newaxis]
-        if self.verbose:
-            logging.debug("in _logpt(), computing samples...")
-
-        if f is None:
-            f = self.obs_f
-
-        blocksize = 2000
-        nblocks = int(np.ceil(self.n_locs / float(blocksize)))
-
-        logrho = np.empty((self.n_locs, 1))
-        lognotrho = np.empty((self.n_locs, 1))
-
-        for b in range(nblocks):
-            start = b * blocksize
-            fin = b * blocksize + blocksize
-            if fin > self.n_locs:
-                fin = self.n_locs
-            thisblocksize = fin - start
-
-            f_samples = np.random.normal(loc=f[start:fin, :], scale=sigma[start:fin, :],
-                                         size=(thisblocksize, 500))
-
-            rho_samples = self.forward_model(f_samples)
-            rho_samples = temper_extreme_probs(rho_samples)
-
-            lognotrho[start:fin, 0] = np.mean(np.log(1 - rho_samples), axis=1)
-            logrho[start:fin, 0] = np.mean(np.log(rho_samples), axis=1)
-
-        if self.verbose:
-            logging.debug("in _logpt(), completed sampling process...")
-
-        return logrho, lognotrho
-
-    def _logpf(self):
-        _, logdet_K = np.linalg.slogdet(self.K)
-        logdet_Ks = - len(self.obs_f) * self.Elns + logdet_K
-
-        mu0 = np.zeros((len(self.obs_f), 1)) + self.mu0
-
-        invK_expecF = self.invK.dot(self.obs_C + self.obs_f.dot(self.obs_f.T) - mu0.dot(self.obs_f.T) \
-                                    - self.obs_f.dot(mu0.T) + mu0.dot(mu0.T)) * self.s
-
-        D = len(self.obs_f)
-        logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF))
-        return logpf
 
     def _logqf(self):
         # We want to do this, but we can simplify it, since the x and mean values cancel:
@@ -817,8 +779,8 @@ class GPClassifierVB(object):
         if use_MAP:
             logging.error("MAP not implemented yet with gradient descent methods -- will ignore the model prior.")
 
-        logging.debug('Jacobian of NLML: ' + str(np.round(gradient, 4)))
-        # logging.debug('Jacobian of NLML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient),
+        logging.debug('Jacobian of LML: ' + str(np.round(gradient, 4)))
+        # logging.debug('Jacobian of LML: largest gradient = %.3f, smallest gradient = %.3f' % (np.max(gradient),
         #                                                                                       np.min(gradient)))
 
         return -np.array(gradient, order='F')
@@ -930,7 +892,7 @@ class GPClassifierVB(object):
             prev_diff_G = diff_G  # save last iteration's difference
             diff_G = np.max(np.abs(oldG - self.G))
             # Use a smaller update size if we get stuck oscillating about the solution
-            if np.abs(np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-8 and G_update_rate > 0.1:
+            if np.abs(np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-6 and G_update_rate > 0.1:
                 G_update_rate *= 0.9
             if self.verbose:
                 logging.debug("Iterating over G: diff was %.5f in iteration %i; update rate = %f" % (diff_G, G_iter, G_update_rate))
@@ -973,7 +935,7 @@ class GPClassifierVB(object):
         if self.uselowerbound and np.mod(self.vb_iter, self.conv_check_freq) == self.conv_check_freq - 1:
             oldL = prev_val
             L = self.lowerbound()
-            converged = fractional_convergence(L, oldL, self.conv_threshold, True, self.vb_iter if self.verbose else -1,
+            converged = fractional_convergence(L, oldL, self.conv_threshold, True, self.vb_iter, self.verbose,
                                                'GP Classifier VB lower bound')
             current_value = L
         elif np.mod(self.vb_iter, self.conv_check_freq) == 2:
@@ -1039,7 +1001,7 @@ class GPClassifierVB(object):
             if variance_method == 'rough':
                 logging.warning(
                     "Switched to using sample method as expected log requested. No quick method is available.")
-            m_post, not_m_post, v_post = self._post_sample(f, v, variance_method)
+            m_post, not_m_post, v_post = self._post_sample(f, v, False)
         if return_not:
             return m_post, not_m_post, v_post
         else:
@@ -1072,8 +1034,7 @@ class GPClassifierVB(object):
                     out_feats = out_feats.T
                 self.out_feats = out_feats
                 # compute kernels given the feature vectors supplied
-                if self.kernel_func is None:
-                    self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self._get_training_feats(),
+                self.K_star = self.kernel_func(np.array(out_feats).astype(float), self.ls, self._get_training_feats(),
                                                operator=self.kernel_combination)
                 self.K_starstar = 1.0  # assuming that the kernel function places ones along diagonals
             else:
@@ -1102,8 +1063,6 @@ class GPClassifierVB(object):
                 K_starstar = K_starstar[out_idxs, :][:, out_idxs]
 
         noutputs = K_star.shape[0]
-        self.f = np.empty((noutputs, 1), dtype=float)
-        self.v = np.empty((noutputs, 1), dtype=float)
 
         # The output mean
         if mu0_output is None:
@@ -1143,7 +1102,7 @@ class GPClassifierVB(object):
         if full_cov:
             C = Ks_starstar - V.T.dot(V)
         else:
-            C = Ks_starstar - np.sum(V ** 2, axis=0)
+            C = (Ks_starstar - np.sum(V ** 2, axis=0))[:, None]
         return f, C
 
     def _post_rough(self, f, v):
@@ -1157,7 +1116,7 @@ class GPClassifierVB(object):
     def _post_sample(self, f, v, expectedlog):
         # draw samples from a Gaussian with mean f and variance v
         f_samples = np.random.normal(loc=f, scale=np.sqrt(v), size=(len(f), 500))
-        rho_samples = sigmoid(f_samples)
+        rho_samples = self.forward_model(f_samples) # replace with forward model!
         rho_samples = temper_extreme_probs(rho_samples)
         rho_not_samples = 1 - rho_samples
         if expectedlog:

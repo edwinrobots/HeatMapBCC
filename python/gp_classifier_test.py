@@ -3,7 +3,8 @@ Created on 3 Mar 2017
 
 @author: edwin
 '''
-import logging 
+import logging
+logging.basicConfig(level=logging.DEBUG)
 import numpy as np
 from gp_classifier_vb import matern_3_2_from_raw_vals, coord_arr_to_1d, sigmoid, GPClassifierVB
 from gp_classifier_svi import GPClassifierSVI
@@ -76,7 +77,7 @@ if __name__ == '__main__':
     ls_initial = [112]#np.random.randint(1, 100, 2)#[10, 10] 
     
     model = GPClassifierVB(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
-    #model.verbose = True
+    model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
     model.uselowerbound = True
@@ -114,14 +115,14 @@ if __name__ == '__main__':
     if fix_seeds:
         np.random.seed() # do this to test the variation in results due to stochastic methods with same data
     
-    obs_coords = np.concatenate((xvals[trainidxs, :], yvals[trainidxs, :]), axis=1)
+    obs_coords = np.concatenate((xvals, yvals), axis=1)
     
     for modelkey in models:
         print("--- Running model %s ---" % modelkey)
         
         model = models[modelkey]
     
-        model.fit(obs_coords, labels[trainidxs], optimize=True)
+        model.fit(obs_coords[trainidxs, :], labels[trainidxs], optimize=False)
         print("Final lower bound: %f" % model.lowerbound())
         
         # Predict at the test locations
@@ -139,7 +140,7 @@ if __name__ == '__main__':
         print("Kendall's tau (test): %.3f" % kendalltau(f_test, fpred)[0] )
             
         rho = sigmoid(f[testidxs])
-        rho_pred, var_rho_pred = model.predict((xvals[testidxs], yvals[testidxs]))
+        rho_pred, var_rho_pred = model.predict(obs_coords[testidxs])
         rho_pred = rho_pred.flatten()
         t_pred = np.round(rho_pred)
         

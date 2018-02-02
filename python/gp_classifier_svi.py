@@ -20,7 +20,7 @@ def _gradient_terms_for_subset(K_mm, kernel_derfactor, kernel_operator, invKs_fh
         dKdls = K_mm * kernel_derfactor(coords, coords, ls_d, operator=kernel_operator) / s
     elif kernel_operator == '+':
         dKdls = kernel_derfactor(coords, coords, ls_d, operator=kernel_operator) / s
-    firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)
+    firstterm = invKs_fhat.T.dot(dKdls).dot(invKs_fhat)[0][0]
     secondterm = np.trace(invKs_mm_uS_sigmasq.dot(dKdls))
     return 0.5 * (firstterm - secondterm)
 
@@ -135,13 +135,17 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
 
-    def _compute_jacobian(self, data_idx_i=None):
+    def _compute_jacobian(self, f=None, data_idx_i=None):
+
+        if f is None:
+            f = self.obs_f
+
         if data_idx_i is not None:
-            g_obs_f = self.forward_model(self.obs_f.flatten()[data_idx_i])  # first order Taylor series approximation
+            g_obs_f = self.forward_model(f.flatten()[data_idx_i])  # first order Taylor series approximation
         else:
             if self.verbose:
                 logging.debug("in _compute_jacobian, applying forward model to all observation points")
-            g_obs_f = self.forward_model(self.obs_f.flatten())
+            g_obs_f = self.forward_model(f.flatten())
             if self.verbose:
                 logging.debug("in _compute_jacobian, computing gradients for all observation points...")
         J = np.diag(g_obs_f * (1 - g_obs_f))
@@ -151,7 +155,7 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._update_jacobian(G_update_rate)
 
-        g_obs_f, J = self._compute_jacobian(self.data_idx_i)
+        g_obs_f, J = self._compute_jacobian(data_idx_i=self.data_idx_i)
 
         if G_update_rate == 1 or not len(self.G) or self.G.shape != J.shape or self.changed_selection:
             # either G has not been initialised, or is from different observations, or random subset of data has changed
@@ -167,28 +171,28 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Log Likelihood Computation -------------------------------------------------------------------------------------
 
-    #     def _logpt(self):
-    # this approximation is really poor -- doesn't work
-    #         k = 1.0 / np.sqrt(1 + (np.pi * np.diag(self.obs_C)[:, np.newaxis] / 8.0))
-    #         rho_rough = sigmoid(k* self.obs_f)
-    #         notrho_rough = sigmoid(-k*self.obs_f)
-    #         logrho = np.log(rho_rough)
-    #         lognotrho = np.log(notrho_rough)
-    #
-    #         return logrho, lognotrho
+    def _logp_Df(self):
+        """
+        Expected joint log likelihood of the data, D, and the latent function, f
 
-    def _logpf(self):
+        :return:
+        """
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._logpf()
+            return super(GPClassifierSVI, self)._logp_Df()
+
+        logrho, lognotrho, _ = self._post_sample(self.obs_f, self.obs_variance(), True)
+        logdll = self.data_ll(logrho, lognotrho)
 
         _, logdet_K = np.linalg.slogdet(self.Ks_mm * self.s)
         D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
 
-        invK_expecF = self.invKs_mm_uS + self.invKs_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
+        invK_expecF = self.invKs_mm_uS
 
-        _logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF))
-        return _logpf
+        m_invK_m = (self.um_minus_mu0.T).dot(self.K_mm / self.s).dot(self.um_minus_mu0)
+
+        logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF) - m_invK_m)
+        return logpf + logdll
 
     def _logqf(self):
         if not self.use_svi:
@@ -334,6 +338,9 @@ class GPClassifierSVI(GPClassifierVB):
             return fhat
 
     def obs_variance(self):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self).obs_variance()
+
         return np.diag(self._f_given_u(self.Ks_nm, self.mu0, np.diag(np.ones(self.obs_f.shape[0])) / self.s)[1])[:,
                np.newaxis]
 
@@ -423,6 +430,6 @@ class GPClassifierSVI(GPClassifierVB):
         f, C_out = self._f_given_u(Ks_star, mu0, Ks_starstar)
 
         if not full_cov:
-            C_out = np.diag(C_out)
+            C_out = np.diag(C_out)[:, None]
 
         return f, C_out
