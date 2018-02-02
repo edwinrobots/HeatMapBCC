@@ -677,7 +677,7 @@ class GPClassifierVB(object):
         return np.sum(lnp_gp)
 
     def data_ll(self, f=None):
-        logrho, lognotrho = self._logpt(f)
+        logrho, lognotrho = self._logpt(f=f)
 
         bc = binom(self.obs_total_counts, self.z * self.obs_total_counts)
         logbc = np.log(bc)
@@ -688,9 +688,12 @@ class GPClassifierVB(object):
         return data_ll
 
     def _logpt(self, f=None):
-        if self.verbose:
-            logging.debug("in _logpt(), computing jacobian...")
-        _, G = self._compute_jacobian()
+
+        if G is None:
+            if self.verbose:
+                logging.debug("in _logpt(), computing jacobian...")
+            _, G = self._compute_jacobian()
+
         if self.verbose:
             logging.debug("in _logpt(), computing diagGTQG")
         diagGTQG = np.diag(G) * self.Q * np.diag(G)  # np.sum(G.T * self.Q[None, :] * G.T, axis=1)
