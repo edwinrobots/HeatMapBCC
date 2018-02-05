@@ -77,7 +77,7 @@ if __name__ == '__main__':
     ls_initial = [112]#np.random.randint(1, 100, 2)#[10, 10] 
     
     model = GPClassifierVB(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
-    model.verbose = True
+    # model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
     model.uselowerbound = True
@@ -87,9 +87,12 @@ if __name__ == '__main__':
     #model.conv_threshold = 1e-3 # the difference must be less than 1% of the value of the lower bound
     
     #models['VB'] = model
-    
+
+    # TODO: why is the SVI test now giving me errors in the LB but the standard VB one is not? Jumps in s?
+    # TODO: next, test preference learning with and without SVI, then preference components.
+
     model = GPClassifierSVI(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=True)
-    #model.verbose = True
+    # model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
     model.uselowerbound = True
@@ -101,7 +104,7 @@ if __name__ == '__main__':
     models['SVI'] = model
     
     model = GPClassifierSVI(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=False)
-    #model.verbose = True
+    model.verbose = True
     model.max_iter_VB = 1000
     model.min_iter_VB = 5
     model.uselowerbound = True
@@ -110,7 +113,7 @@ if __name__ == '__main__':
     #model.conv_check_freq = 1
     #model.conv_threshold = 1e-3 # the difference must be less than 1% of the value of the lower bound
        
-    #models['SVI_switched_off'] = model   
+    #models['SVI_switched_off'] = model
     
     if fix_seeds:
         np.random.seed() # do this to test the variation in results due to stochastic methods with same data

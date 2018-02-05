@@ -75,6 +75,20 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._init_covariance()
 
+    def _init_s(self):
+        if not self.use_svi:
+            return super(GPClassifierSVI, self)._init_s()
+
+        if not self.fixed_s:
+            self.shape_s = self.shape_s0 + self.ninducing / 2.0
+            self.rate_s = (self.rate_s0 + 0.5 * np.sum(
+                (self.obs_f - self.mu0) ** 2)) + self.rate_s0 * self.shape_s / self.shape_s0
+        self.s = self.shape_s / self.rate_s
+        self.Elns = psi(self.shape_s) - np.log(self.rate_s)
+        self.old_s = self.s
+        if self.verbose:
+            logging.debug("Setting the initial precision scale to s=%.3f" % self.s)
+
     def reset_kernel(self):
         self._init_covariance()
         if self.use_svi:
@@ -180,7 +194,9 @@ class GPClassifierSVI(GPClassifierVB):
         if not self.use_svi:
             return super(GPClassifierSVI, self)._logp_Df()
 
-        logrho, lognotrho, _ = self._post_sample(self.obs_f, self.obs_variance(), True)
+        sigma = self.obs_variance()
+
+        logrho, lognotrho, _ = self._post_sample(self.obs_f, sigma, True)
         logdll = self.data_ll(logrho, lognotrho)
 
         _, logdet_K = np.linalg.slogdet(self.Ks_mm * self.s)
@@ -189,7 +205,7 @@ class GPClassifierSVI(GPClassifierVB):
 
         invK_expecF = self.invKs_mm_uS
 
-        m_invK_m = (self.um_minus_mu0.T).dot(self.K_mm / self.s).dot(self.um_minus_mu0)
+        m_invK_m = (self.um_minus_mu0.T).dot(self.invK_mm * self.s).dot(self.um_minus_mu0)
 
         logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF) - m_invK_m)
         return logpf + logdll

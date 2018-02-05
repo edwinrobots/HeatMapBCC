@@ -386,11 +386,11 @@ class GPClassifierVB(object):
             self.K = K
             self._init_covariance()
 
-            # Prior noise variance
-        self._init_obs_prior()
-        self._estimate_obs_noise()
-
         if reinit_params:
+            # Prior noise variance
+            self._init_obs_prior()
+            self._estimate_obs_noise()
+
             self._init_obs_f()
             self._init_s()
             # g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the
@@ -683,7 +683,13 @@ class GPClassifierVB(object):
 
         :return:
         """
-        logrho, lognotrho, _ = self._post_sample(self.obs_f, np.diag(self.obs_C)[:, None], True)
+        # _, G = self._compute_jacobian()
+        # diagGTQG = np.diag(G) * self.Q * np.diag(G)  # np.sum(G.T * self.Q[None, :] * G.T, axis=1)
+        # sigma = np.sqrt(diagGTQG)[:, np.newaxis]
+
+        sigma = np.diag(self.obs_C)[:, None]
+
+        logrho, lognotrho, _ = self._post_sample(self.obs_f, sigma, True)
         logdll = self.data_ll(logrho, lognotrho)
 
         _, logdet_K = np.linalg.slogdet(self.K)
@@ -692,7 +698,7 @@ class GPClassifierVB(object):
 
         invK_expecF = self.invK.dot(self.obs_C) * self.s
 
-        m_invK_m = (self.obs_f - self.mu0).T.dot(self.K / self.s).dot(self.obs_f-self.mu0)
+        m_invK_m = (self.obs_f - self.mu0).T.dot(self.invK*self.s).dot(self.obs_f-self.mu0)
 
         logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - np.trace(invK_expecF) - m_invK_m)
         return logpf + logdll
@@ -896,7 +902,7 @@ class GPClassifierVB(object):
                 G_update_rate *= 0.9
             if self.verbose:
                 logging.debug("Iterating over G: diff was %.5f in iteration %i; update rate = %f" % (diff_G, G_iter, G_update_rate))
-            if diff_G < self.conv_threshold_G:
+            if diff_G < self.conv_threshold_G and G_iter > 0:
                 break;
         if G_iter >= self.max_iter_G - 1:
             if self.verbose:
@@ -1116,7 +1122,7 @@ class GPClassifierVB(object):
     def _post_sample(self, f, v, expectedlog):
         # draw samples from a Gaussian with mean f and variance v
         f_samples = np.random.normal(loc=f, scale=np.sqrt(v), size=(len(f), 500))
-        rho_samples = self.forward_model(f_samples) # replace with forward model!
+        rho_samples = self.forward_model(f_samples)
         rho_samples = temper_extreme_probs(rho_samples)
         rho_not_samples = 1 - rho_samples
         if expectedlog:
