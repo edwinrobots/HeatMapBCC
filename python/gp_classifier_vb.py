@@ -393,7 +393,7 @@ class GPClassifierVB(object):
 
             self._init_obs_f()
             self._init_s()
-            # g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise the loop below will repeate the
+            # g_obs_f = self._update_jacobian(G_update_rate) # don't do this here otherwise loop below will repeat the
             # same calculation with the same values, meaning that the convergence check will think nothing changes in the
             # first iteration.
             if self.G is not 0 and not len(self.G):
