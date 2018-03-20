@@ -63,6 +63,7 @@ def genSimData(plot_3d_data=True):
     nresp = np.zeros(nreceiver,dtype=np.int64)
     npresp = np.zeros(nreceiver)
     C = None
+    point_coords = None
         
     for i in range(nreceiver):
         detection_area = np.where( np.sqrt( np.square(gridx-rec_x[i]) \
@@ -77,7 +78,7 @@ def genSimData(plot_3d_data=True):
                         damage_grid[detection_area]) ))
 
         np.int64(npresp[i])
-            
+
         for n in range(nresp[i]):
             repx = rec_x[i] + np.random.randint(-rec_range,rec_range)
             repy = rec_y[i] + np.random.randint(-rec_range,rec_range)
@@ -85,21 +86,24 @@ def genSimData(plot_3d_data=True):
                 rep = 1
             else:
                 rep = 0
-            Crow = np.matrix([i, repx, repy, rep])
+            Crow = np.array([[i, n, rep]])
+            coords_n = np.array([[n, repx, repy]])
             if C is None:
                 C = Crow
+                point_coords = coords_n
             else:
                 C = np.concatenate((C, Crow), axis=0)
+                point_coords = np.concatenate((point_coords, coords_n), axis=0)
                 
-    return nreceiver, C, gridx, gridy, pop_grid, fig
+    return nreceiver, C, point_coords, gridx, gridy, pop_grid, fig
 
-def runBCC(C,nx,ny,nreceiver):
+def runBCC(C, coords, nreceiver, nx, ny):
     z0 = 0.5
     alpha0 = np.array([[2, 1], [1, 2]])  
-    heatmapcombiner = heatmapbcc.HeatMapBCC(nx, ny, 2, 2, alpha0, nreceiver, z0)
+    heatmapcombiner = heatmapbcc.HeatMapBCC(2, 2, alpha0, nreceiver, z0)
     heatmapcombiner.minNoIts = 20
-    heatmapcombiner.combine_classifications(C)
-    bcc_pred, _, _ = heatmapcombiner.predict_grid()
+    heatmapcombiner.combine_classifications(C, coords)
+    bcc_pred, _, _ = heatmapcombiner.predict_grid(nx, ny)
     return bcc_pred[1, :, :], heatmapcombiner
 
 def plotresults():
@@ -124,6 +128,6 @@ if __name__ == '__main__':
     nx = scale*10
     ny = scale*10
 
-    nreceiver, C, gridx, gridy, pop_grid, fig = genSimData(plot_3d_data=True)
-    bcc_pred,heatmapcombiner = runBCC(C,nx,ny,nreceiver)
+    nreceiver, C, coords, gridx, gridy, pop_grid, fig = genSimData(plot_3d_data=True)
+    bcc_pred, heatmapcombiner = runBCC(C, coords, nreceiver, nx, ny)
     plotresults()
