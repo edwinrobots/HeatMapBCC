@@ -7,6 +7,9 @@ of the VB algorithm, only a fixed number of random data points are used to updat
 
 import numpy as np
 import logging
+
+import scipy
+
 from gp_classifier_vb import GPClassifierVB, sigmoid, max_no_jobs
 from sklearn.cluster import MiniBatchKMeans
 from joblib import Parallel, delayed
@@ -28,8 +31,10 @@ def _gradient_terms_for_subset(K_mm, kernel_derfactor, kernel_operator, invKs_fh
 class GPClassifierSVI(GPClassifierVB):
     data_idx_i = []  # data indices to update in the current iteration, i
     changed_selection = True  # indicates whether the random subset of data has changed since variables were initialised
+    covpair = None
+    covpair_out = None
 
-    def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None,
+    def __init__(self, ninput_features, z0=0.5, shape_s0=200, rate_s0=200, shape_ls=10, rate_ls=0.1, ls_initial=None,
                  kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000,
                  ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False, fixed_s=False):
 
@@ -135,17 +140,17 @@ class GPClassifierSVI(GPClassifierVB):
             self.K_mm = self.kernel_func(self.inducing_coords, self.ls, operator=self.kernel_combination)
             # self.K_mm += 1e-6 * np.eye(len(self.K_mm))  # jitter
         if self.invK_mm is None:
-            self.invK_mm = np.linalg.inv(self.K_mm)
+            self.invK_mm = scipy.linalg.inv(self.K_mm)
         if self.K_nm is None:
             self.K_nm = self.kernel_func(self.obs_coords, self.ls, self.inducing_coords,
                                          operator=self.kernel_combination)
 
         self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)  # theta_1
         self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float)  # theta_2
+        self.u_invK = np.zeros((self.ninducing, self.ninducing), dtype=float)  # prior covariance -- s changes
         self.u_Lambda = np.zeros((self.ninducing, self.ninducing), dtype=float) # observation precision at inducing points
         self.uS = self.K_mm * self.rate_s0 / self.shape_s0  # initialise properly to prior
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
-        self.invKs_mm_uS = np.eye(self.ninducing)
 
     # Mapping between latent and observation spaces -------------------------------------------------------------------
 
@@ -180,7 +185,6 @@ class GPClassifierSVI(GPClassifierVB):
         # set the selected observations i.e. not their locations, but the actual indexes in the input data. In the
         # standard case, these are actually the same anyway, but this can change if the observations are pairwise prefs.
         self.data_obs_idx_i = self.data_idx_i
-
         return g_obs_f
 
     # Log Likelihood Computation -------------------------------------------------------------------------------------
@@ -202,21 +206,21 @@ class GPClassifierSVI(GPClassifierVB):
         #
         #logrho, lognotrho, _ = self._post_sample(self.obs_f, sigma, True)
 
-        rho, notrho = self._post_rough(self.obs_f)
+        rho, notrho, _ = self._post_rough(self.obs_f)
         logrho = np.log(rho)
         lognotrho = np.log(notrho)
 
         _, G = self._compute_jacobian()
         logdll = self.data_ll(logrho, lognotrho)
 
-        _, logdet_K = np.linalg.slogdet(self.Ks_mm)
+        _, logdet_K = np.linalg.slogdet(self.K_mm)
         D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
 
         # the terms below simplify to D only invKs_mm matches uS, which it doesn't because of the stochastic updates
         invK_expecF = np.trace((self.get_obs_precision() + self.invKs_mm).dot(self.uS))
 
-        m_invK_m = (self.um_minus_mu0.T).dot(self.invK_mm * self.s).dot(self.um_minus_mu0)
+        m_invK_m = self.um_minus_mu0.T.dot(self.invK_mm * self.s).dot(self.um_minus_mu0)
 
         logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - invK_expecF - m_invK_m)
         return logpf + logdll
@@ -256,7 +260,7 @@ class GPClassifierSVI(GPClassifierVB):
 
         sigmasq = self.get_obs_precision()
 
-        invKs_mm_uS_sigmasq = self.invKs_mm_uS.dot(sigmasq)
+        invKs_mm_uS_sigmasq = self.invKs_mm.dot(self.uS).dot(sigmasq)
 
         if self.n_lengthscales == 1 or dim == -1:  # create an array with values for each dimension
             dims = range(self.obs_coords.shape[1])
@@ -299,10 +303,10 @@ class GPClassifierSVI(GPClassifierVB):
         # this is done here not update_sample because it needs to be updated every time obs_f is updated
         self.obs_f_i = self.obs_f[self.data_idx_i]
 
-        Ks_nm_i = self.Ks_nm[self.data_idx_i, :]
+        K_nm_i = self.K_nm[self.data_idx_i, :]
 
         Q = self.Q[self.data_obs_idx_i][np.newaxis, :]
-        Lambda_factor1 = self.invKs_mm.dot(Ks_nm_i.T).dot(self.G.T)
+        Lambda_factor1 = self.G.dot(K_nm_i).dot(self.invK_mm).T
         Lambda_i = (Lambda_factor1 / Q).dot(Lambda_factor1.T)
 
         # calculate the learning rate for SVI
@@ -331,30 +335,29 @@ class GPClassifierSVI(GPClassifierVB):
         # B = solve_triangular(L_u_invS, self.invKs_mm.T, lower=True, check_finite=False)
         # A = solve_triangular(L_u_invS, B, lower=True, trans=True, check_finite=False, overwrite_b=True)
 
-        self.uS = np.linalg.inv(self.u_invS)
-        self.invKs_mm_uS = self.invKs_mm.dot(self.uS)  # A.T
+        self.uS = scipy.linalg.inv(self.u_invS)
+        self.u_invK = (1 - rho_i) * self.prev_u_invK + rho_i * self.invKs_mm
 
         #         self.um_minus_mu0 = solve_triangular(L_u_invS, self.u_invSm, lower=True, check_finite=False)
         #         self.um_minus_mu0 = solve_triangular(L_u_invS, self.um_minus_mu0, lower=True, trans=True, check_finite=False,
         #                                              overwrite_b=True)
         self.um_minus_mu0 = self.uS.dot(self.u_invSm)
 
-        self.obs_f = self._f_given_u(self.Ks_nm, self.mu0)
+        if self.covpair is None:
+            self.covpair = scipy.linalg.solve(self.Ks_mm, self.Ks_nm.T).T
 
-    def _f_given_u(self, Ks_nm, mu0, Ks_nn=None):
+        self.obs_f = self._f_given_u(self.covpair, self.mu0)
+
+    def _f_given_u(self, covpair, mu0, Ks_nn=None, reuse_output_kernel=False):
         # see Hensman, Scalable variational Gaussian process classification, equation 18
-        covpair_uS = Ks_nm.dot(self.invKs_mm_uS)
-        fhat = covpair_uS.dot(self.u_invSm) + mu0
+
+        #(self.K_nm / self.s).dot(self.s * self.invK_mm).dot(self.uS).dot(self.u_invSm)
+        fhat = covpair.dot(self.uS).dot(self.u_invSm) + mu0
+
         if Ks_nn is not None:
-            covpair = Ks_nm.dot(
-                self.invKs_mm)  # With and without the 's' included (it should cancel) gives different results!
-            C = Ks_nn + (covpair_uS - covpair.dot(self.Ks_mm)).dot(covpair.T)
+
+            C = Ks_nn + covpair.dot(self.uS - self.Ks_mm).dot(covpair.T)
             if np.any(np.diag(C) < 0):
-                # TODO: this occurs when the diagonals of covpair > 1 so the negative term is too large. I think that
-                # the Ks_mm term involves an update value for s, whereas S involves the old values in a weighted average.
-                # If the s value has decreased over iterations, we may have a problem.
-                # In this case we may need to record a different value of Ks_mm that is also a weighted average, or
-                # have to keep s fixed while we iterate over S and um inside an inner loop.
                 logging.error("Negative variance in _f_given_u(), %f" % np.min(np.diag(C)))
                 # caused by the accumulation of small errors? Possibly when s is very small?
             return fhat, C
@@ -380,7 +383,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._expec_s()
 
         self.old_s = self.s
-        invK_mm_expecFF = self.invKs_mm_uS / self.s + self.invK_mm.dot(self.um_minus_mu0.dot(self.um_minus_mu0.T))
+        invK_mm_expecFF = self.invK_mm.dot(self.uS + self.um_minus_mu0.dot(self.um_minus_mu0.T))
         self.rate_s = self.rate_s0 + 0.5 * np.trace(invK_mm_expecFF)
         # Update expectation of s. See approximations for Binary Gaussian Process Classification, Hannes Nickisch
         self.s = self.shape_s / self.rate_s
@@ -398,6 +401,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.prev_u_invSm = self.u_invSm
         self.prev_u_invS = self.u_invS
         self.prev_u_Lambda = self.u_Lambda
+        self.prev_u_invK = self.u_invK
 
         self._update_sample_idxs()
 
@@ -405,7 +409,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.invKs_mm = self.invK_mm * self.s
         self.Ks_nm = self.K_nm / self.s
 
-        self.G = 0  # reset because we will need to compute afresh with new sample
+        #self.G = 0  # reset because we will need to compute afresh with new sample. This shouldn't be necessary
         self.z_i = self.z[self.data_obs_idx_i]
         self.mu0_i = self.mu0[self.data_idx_i]
 
@@ -430,10 +434,10 @@ class GPClassifierSVI(GPClassifierVB):
 
         self.u_invSm = np.zeros((self.ninducing, 1), dtype=float)  # theta_1
         self.u_invS = np.zeros((self.ninducing, self.ninducing), dtype=float)  # theta_2
+        self.u_invK = np.zeros((self.ninducing, self.ninducing), dtype=float)
         self.u_Lambda = np.zeros((self.ninducing, self.ninducing), dtype=float) # observation precision at inducing points
         self.uS = self.K_mm * self.rate_s0 / self.shape_s0  # initialise properly to prior
         self.um_minus_mu0 = np.zeros((self.ninducing, 1))
-        self.invKs_mm_uS = np.eye(self.ninducing)
 
     def _update_sample_idxs(self):
         if not self.fixed_sample_idxs:
@@ -456,7 +460,7 @@ class GPClassifierSVI(GPClassifierVB):
             return super(GPClassifierSVI, self)._get_training_feats()
         return self.inducing_coords
 
-    def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False):
+    def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False, reuse_output_kernel=False):
         """
         Compute the expected value of f and the variance or covariance of f
         :param Ks_starstar: prior variance at the output points (scalar or 1-D vector), or covariance if full_cov==True.
@@ -466,9 +470,11 @@ class GPClassifierSVI(GPClassifierVB):
         :return f, C: posterior expectation of f, variance or covariance of the output locations.
         """
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0, full_cov)
+            return super(GPClassifierSVI, self)._expec_f_output(Ks_starstar, Ks_star, mu0, full_cov, reuse_output_kernel)
 
-        f, C_out = self._f_given_u(Ks_star, mu0, Ks_starstar)
+        if self.covpair_out is None or not reuse_output_kernel:
+            self.covpair_out = scipy.linalg.solve(self.Ks_mm, Ks_star.T).T
+        f, C_out = self._f_given_u(self.covpair_out, mu0, Ks_starstar)
 
         if not full_cov:
             C_out = np.diag(C_out)[:, None]

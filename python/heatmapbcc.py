@@ -5,6 +5,9 @@ from gp_classifier_svi import GPClassifierSVI
 import numpy as np
 import logging
 
+from gp_classifier_vb import GPClassifierVB
+
+
 class HeatMapBCC(ibcc.IBCC):
     # Crowd-supervised GP (CSGP, CrowdGP)
     # GP crowd combination (GPCC)
@@ -97,11 +100,12 @@ class HeatMapBCC(ibcc.IBCC):
         self.oldkappa = np.exp(self.lnkappa)
         for j in gprange:
             self.heatGP[j] = GPClassifierSVI(self.feat_vecs.shape[1], shape_ls=self.shape_ls, rate_ls=self.rate_ls,
-                                             ls_initial=self.ls_initial, kernel_func=self.kernel_func)
+                                             ls_initial=self.ls_initial, kernel_func=self.kernel_func,
+                                             forgetting_rate=0.9, use_svi=True)
             self.heatGP[j].verbose = self.verbose
-            self.heatGP[j].max_iter_VB = 1
+            self.heatGP[j].max_iter_VB_per_fit = 1
             self.heatGP[j].min_iter_VB = 1
-            self.heatGP[j].max_iter_G = 1
+            self.heatGP[j].max_iter_G = 5
             self.heatGP[j].uselowerbound = False # we calculate the lower bound here instead of the GPClassifierVB function
             logging.debug("Length-scale = " + str(self.heatGP[1].ls))
         
@@ -181,7 +185,7 @@ class HeatMapBCC(ibcc.IBCC):
             
             self.heatGP[j].verbose = False
             lnkappaj, lnkappa_notj, _ = self.heatGP[j].predict(self.feat_vecs, variance_method='sample',
-                                                        expectedlog=True)
+                                                        expectedlog=True, reuse_output_kernel=True)
             self.heatGP[j].verbose = self.verbose
             self.lnkappa[j] = lnkappaj.flatten()
         if self.nclasses==2:

@@ -321,6 +321,7 @@ class GPClassifierVB(object):
     Q = None
     f = None
     v = None
+    K_star = None
 
     n_converged = 1  # number of iterations while the algorithm appears to be converged -- in case of local maxima
     max_iter_VB = 0
@@ -617,7 +618,6 @@ class GPClassifierVB(object):
             self.G = J
         else:
             self.G = G_update_rate * J + (1 - G_update_rate) * self.G
-        self.g_obs_f = g_obs_f
 
     # Log Likelihood Computation -------------------------------------------------------------------------------------
 
@@ -701,7 +701,7 @@ class GPClassifierVB(object):
         # relating to uncertainty in f from the likelihood function given f, then replacing the Gaussian part with
         # the correct likelihood. This leaves one remaining term, - 0.5 * np.trace(self.u_Lambda.dot(self.uS)), which
         # simplifies when combined with np.trace(self.invKs_mm_uS) in log p(f) to D because inv(uS) = self.invKs_mm + self.u_Lambda
-        rho, notrho = self._post_rough(self.obs_f)
+        rho, notrho, _ = self._post_rough(self.obs_f)
         logrho = np.log(rho)
         lognotrho = np.log(notrho)
 
@@ -875,7 +875,6 @@ class GPClassifierVB(object):
             logging.debug("GP Classifier VB: training with max length-scale %.3f and smallest %.3f" % (np.max(self.ls),
                                                                                                        np.min(self.ls)))
         converged_count = 0
-        converged = False
         prev_val = -np.inf
         while converged_count < self.n_converged and self.vb_iter < self.max_iter_VB:
             self._expec_f()
@@ -960,10 +959,10 @@ class GPClassifierVB(object):
             prev_diff_G = diff_G  # save last iteration's difference
             diff_G = np.max(np.abs(oldG - self.G))
             # Use a smaller update size if we get stuck oscillating about the solution
-            if np.abs(np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-6 and G_update_rate > 0.1:
+            if np.abs(np.abs(diff_G) - np.abs(prev_diff_G)) < 1e-3 and G_update_rate > 0.1:
                 G_update_rate *= 0.9
             if self.verbose:
-                logging.debug("Iterating over G: diff was %.5f in iteration %i; update rate = %f" % (diff_G, G_iter, G_update_rate))
+                logging.debug("Iterating over G: diff was %.5f in G-iteration %i; update rate = %f" % (diff_G, G_iter, G_update_rate))
             if diff_G < self.conv_threshold_G and G_iter > 0:
                 break;
         if G_iter >= self.max_iter_G - 1:
@@ -1005,18 +1004,17 @@ class GPClassifierVB(object):
             converged = fractional_convergence(L, oldL, self.conv_threshold, True, self.vb_iter,
                                                self.verbose|(self.vb_iter==0), 'GP Classifier VB lower bound')
             current_value = L
-        elif np.mod(self.vb_iter, self.conv_check_freq) == 2:
-            diff = np.max([np.max(np.abs(self.g_obs_f - prev_val)),
-                           np.max(np.abs(self.g_obs_f * (1 - self.g_obs_f) - prev_val * (1 - prev_val)) ** 0.5)])
+        elif np.mod(self.vb_iter, self.conv_check_freq) == self.conv_check_freq-1:
+            diff = np.max(np.abs(self.obs_f - prev_val))
             if self.verbose:
-                logging.debug('GP Classifier VB g_obs_f diff = %.5f at iteration %.i' % (diff, self.vb_iter))
+                logging.debug('GP Classifier VB obs_f diff = %.5f at iteration %.i' % (diff, self.vb_iter))
 
             sdiff = np.abs(self.old_s - self.s) / self.s
             if self.verbose:
                 logging.debug('GP Classifier VB s diff = %.5f' % sdiff)
 
             diff = np.max([diff, sdiff])
-            current_value = self.g_obs_f
+            current_value = self.obs_f
             converged = (diff < self.conv_threshold) & (self.vb_iter > 2)
         else:
             return False, prev_val  # not checking in this iteration, return the old value and don't converge
@@ -1098,7 +1096,7 @@ class GPClassifierVB(object):
 
         elif out_feats is not None and K_star is None and K_starstar is None:
             # should only change if lengthscale self.ls or cov_type change
-            if not reuse_output_kernel or np.any(out_feats != self.out_feats):
+            if not reuse_output_kernel or self.out_feats is None or np.any(out_feats != self.out_feats) or self.K_star is None:
                 if out_feats.shape[0] == self.ninput_features and out_feats.shape[1] != self.ninput_features:
                     out_feats = out_feats.T
                 self.out_feats = out_feats
@@ -1144,10 +1142,9 @@ class GPClassifierVB(object):
         if self.verbose:
             logging.debug("GPClassifierVB predicting f")
 
-        Ks_star = K_star / self.s
         Ks_starstar = K_starstar / self.s
-
-        self.f, self.v = self._expec_f_output(Ks_starstar, Ks_star, self.mu0_output, full_cov)
+        Ks_star = K_star / self.s
+        self.f, self.v = self._expec_f_output(Ks_starstar, Ks_star, self.mu0_output, full_cov, reuse_output_kernel)
 
         if full_cov: # TODO: where is this used? It seems wrong.
             v = np.diag(self.v)
@@ -1158,7 +1155,7 @@ class GPClassifierVB(object):
 
         return self.f, self.v
 
-    def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False):
+    def _expec_f_output(self, Ks_starstar, Ks_star, mu0, full_cov=False, reuse_output_kernel=False):
         """
         Compute the expected value of f and the variance or covariance of f
         :param Ks_starstar: prior variance at the output points (scalar or 1-D vector), or covariance if full_cov==True.

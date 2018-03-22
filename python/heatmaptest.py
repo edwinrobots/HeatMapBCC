@@ -101,7 +101,9 @@ def runBCC(C, coords, nreceiver, nx, ny):
     z0 = 0.5
     alpha0 = np.array([[2, 1], [1, 2]])  
     heatmapcombiner = heatmapbcc.HeatMapBCC(2, 2, alpha0, nreceiver, z0)
+    heatmapcombiner.verbose = True
     heatmapcombiner.minNoIts = 20
+    heatmapcombiner.uselowerbound = True
     heatmapcombiner.combine_classifications(C, coords)
     bcc_pred, _, _ = heatmapcombiner.predict_grid(nx, ny)
     return bcc_pred[1, :, :], heatmapcombiner
