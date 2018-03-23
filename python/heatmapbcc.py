@@ -5,7 +5,7 @@ from gp_classifier_svi import GPClassifierSVI
 import numpy as np
 import logging
 
-from gp_classifier_vb import GPClassifierVB
+from gp_classifier_vb import GPClassifierVB, compute_median_lengthscales
 
 
 class HeatMapBCC(ibcc.IBCC):
@@ -46,7 +46,7 @@ class HeatMapBCC(ibcc.IBCC):
     conv_count = 0 # count the number of iterations where the change was below the convergence threshold
 
     def __init__(self, nclasses, nscores, alpha0, K, z0=[0.5, 0.5], shape_s0=2, rate_s0=2, shape_ls=10,
-                 rate_ls=0.1, kernel_func='matern_3_2'):
+                 rate_ls=0.1, use_median_ls=False, kernel_func='matern_3_2'):
         '''
         Class for heatmapBCC. The arguments that are typically needed are described as follows.
         
@@ -72,6 +72,8 @@ class HeatMapBCC(ibcc.IBCC):
             shape hyperparameter for the Gamma prior over the GP precision
         rate_s0=2 : float
             rate hyperparameter for the Gamma prior over the GP precision
+        use_median_ls: bool
+            This automatically sets the lengthscale using a heuristic -- use this if unsure how to set shape_ls and rate_ls
         '''
         self.lnkappa = []
         self.post_T = []
@@ -85,6 +87,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.rate_ls = rate_ls
         self.ls_initial = self.shape_ls / self.rate_ls
         self.kernel_func = kernel_func
+        self.use_median_ls = use_median_ls
         nu0 = np.ones(nclasses)
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
     
@@ -158,7 +161,8 @@ class HeatMapBCC(ibcc.IBCC):
         '''
         self.feat_vecs = feature_vectors
         self.ls_initial = self.ls_initial + np.zeros(self.feat_vecs.shape[1])
-
+        if self.use_median_ls:
+            self.ls_initial = compute_median_lengthscales(feature_vectors[:,1:])
         super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams,
                                                                maxiter, False)
 

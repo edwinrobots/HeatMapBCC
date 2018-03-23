@@ -863,7 +863,7 @@ class GPClassifierVB(object):
                                                                                                        np.min(self.ls)))
 
     def fit(self, obs_coords=None, obs_values=None, totals=None, process_obs=True, mu0=None, K=None, optimize=False,
-            maxfun=20, use_MAP=False, nrestarts=1, features=None, use_median_ls=True):
+            maxfun=20, use_MAP=False, nrestarts=1, features=None, use_median_ls=False):
         '''
         obs_coords -- coordinates of observations as an N x D array, where N is number of observations,
         D is number of dimensions
@@ -921,7 +921,7 @@ class GPClassifierVB(object):
             self._init_params(mu0, True, K)
             max_iter = self.max_iter_VB_per_fit
             self.max_iter_VB_per_fit = 1
-            self.fit(process_obs=False, optimize=False)
+            self.fit(process_obs=False, optimize=False, use_median_ls=False)
             self.max_iter_VB_per_fit = max_iter
 
         nfits = 0
