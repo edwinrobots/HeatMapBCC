@@ -34,9 +34,9 @@ class GPClassifierSVI(GPClassifierVB):
     covpair = None
     covpair_out = None
 
-    def __init__(self, ninput_features, z0=0.5, shape_s0=200, rate_s0=200, shape_ls=10, rate_ls=0.1, ls_initial=None,
-                 kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000,
-                 ninducing=500, use_svi=True, delay=1.0, forgetting_rate=0.9, verbose=False, fixed_s=False):
+    def __init__(self, ninput_features, z0=0.5, shape_s0=2, rate_s0=2, shape_ls=10, rate_ls=0.1, ls_initial=None,
+                 kernel_func='matern_3_2', kernel_combination='*', max_update_size=10000, ninducing=500, use_svi=True,
+                 delay=1.0, forgetting_rate=0.9, verbose=False, fixed_s=False):
 
         self.max_update_size = max_update_size  # maximum number of data points to update in each SVI iteration
 
@@ -67,7 +67,7 @@ class GPClassifierSVI(GPClassifierVB):
         self.reset_inducing_coords = True  # creates new inducing coords each time fit is called, if this flag is set
 
         super(GPClassifierSVI, self).__init__(ninput_features, z0, shape_s0, rate_s0, shape_ls, rate_ls, ls_initial,
-                                              kernel_func, kernel_combination, verbose=verbose, fixed_s=fixed_s)
+                                      kernel_func, kernel_combination, verbose=verbose, fixed_s=fixed_s)
 
     # Initialisation --------------------------------------------------------------------------------------------------
 
@@ -138,7 +138,7 @@ class GPClassifierSVI(GPClassifierVB):
 
         if self.K_mm is None:
             self.K_mm = self.kernel_func(self.inducing_coords, self.ls, operator=self.kernel_combination)
-            # self.K_mm += 1e-6 * np.eye(len(self.K_mm))  # jitter
+            self.K_mm += 1e-6 * np.eye(len(self.K_mm))  # jitter
         if self.invK_mm is None:
             self.invK_mm = scipy.linalg.inv(self.K_mm)
         if self.K_nm is None:
@@ -162,11 +162,11 @@ class GPClassifierSVI(GPClassifierVB):
         if data_idx_i is not None:
             g_obs_f = self.forward_model(f.flatten()[data_idx_i])  # first order Taylor series approximation
         else:
-            if self.verbose:
-                logging.debug("in _compute_jacobian, applying forward model to all observation points")
+            # if self.verbose:
+            #     logging.debug("in _compute_jacobian, applying forward model to all observation points")
             g_obs_f = self.forward_model(f.flatten())
-            if self.verbose:
-                logging.debug("in _compute_jacobian, computing gradients for all observation points...")
+            # if self.verbose:
+            #     logging.debug("in _compute_jacobian, computing gradients for all observation points...")
         J = np.diag(g_obs_f * (1 - g_obs_f))
         return g_obs_f, J
 
@@ -189,30 +189,12 @@ class GPClassifierSVI(GPClassifierVB):
 
     # Log Likelihood Computation -------------------------------------------------------------------------------------
 
-    def _logp_Df(self):
-        """
-        Expected joint log likelihood of the data, D, and the latent function, f
-
-        :return:
-        """
+    def _logpf(self):
+        # Note that some terms are cancelled with those in data_ll to simplify
         if not self.use_svi:
-            return super(GPClassifierSVI, self)._logp_Df()
-
-        # We avoid the sampling step by using the Gaussian approximation to the likelihood to separate the term
-        # relating to uncertainty in f from the likelihood function given f, then replacing the Gaussian part with
-        # the correct likelihood. This leaves one remaining term, - 0.5 * np.trace(self.u_Lambda.dot(self.uS)), which
-        # simplifies when combined with np.trace(self.invKs_mm_uS) in log p(f) to D because inv(uS) = self.invKs_mm + self.u_Lambda
-        # sigma = self.obs_variance()
-        #
-        #logrho, lognotrho, _ = self._post_sample(self.obs_f, sigma, True)
-
-        rho, notrho, _ = self._post_rough(self.obs_f)
-        logrho = np.log(rho)
-        lognotrho = np.log(notrho)
+            return super(GPClassifierSVI, self)._logpf()
 
         _, G = self._compute_jacobian()
-        logdll = self.data_ll(logrho, lognotrho)
-
         _, logdet_K = np.linalg.slogdet(self.K_mm)
         D = len(self.um_minus_mu0)
         logdet_Ks = - D * self.Elns + logdet_K
@@ -222,8 +204,7 @@ class GPClassifierSVI(GPClassifierVB):
 
         m_invK_m = self.um_minus_mu0.T.dot(self.invK_mm * self.s).dot(self.um_minus_mu0)
 
-        logpf = 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - invK_expecF - m_invK_m)
-        return logpf + logdll
+        return 0.5 * (- np.log(2 * np.pi) * D - logdet_Ks - invK_expecF - m_invK_m)
 
     def _logqf(self):
         if not self.use_svi:
@@ -348,35 +329,34 @@ class GPClassifierSVI(GPClassifierVB):
 
         self.obs_f = self._f_given_u(self.covpair, self.mu0)
 
-    def _f_given_u(self, covpair, mu0, Ks_nn=None, reuse_output_kernel=False):
+    def _f_given_u(self, covpair, mu0, Ks_nn=None, full_cov=True):
         # see Hensman, Scalable variational Gaussian process classification, equation 18
 
         #(self.K_nm / self.s).dot(self.s * self.invK_mm).dot(self.uS).dot(self.u_invSm)
         fhat = covpair.dot(self.uS).dot(self.u_invSm) + mu0
 
         if Ks_nn is not None:
+            if full_cov:
+                C = Ks_nn + covpair.dot(self.uS - self.Ks_mm).dot(covpair.T)
+                v = np.diag(C)
+            else:
+                C = Ks_nn + np.sum(covpair.dot(self.uS - self.Ks_mm) * covpair, axis=1)
+                v = C
+                C = C[:, None]
 
-            C = Ks_nn + covpair.dot(self.uS - self.Ks_mm).dot(covpair.T)
-            if np.any(np.diag(C) < 0):
-                logging.error("Negative variance in _f_given_u(), %f" % np.min(np.diag(C)))
-                # caused by the accumulation of small errors? Possibly when s is very small?
+            if np.any(v < 0):
+                logging.error("Negative variance in _f_given_u(), %f" % np.min(v))
+                # caused by the accumulation of small errors. Possibly only occurs when s is very small?
+
+                if full_cov:
+                    fixidxs = np.argwhere(v < 0).flatten()
+                    C[fixidxs, fixidxs] = 1e-6 # set to small number.
+                else:
+                    C[C<0] = 1e-6
+
             return fhat, C
         else:
             return fhat
-
-    def obs_variance(self):
-        if not self.use_svi:
-            return super(GPClassifierSVI, self).obs_variance()
-
-        if self.K is None:
-            if self.V_nn is not None:
-                K = self.V_nn
-            else:
-                K = np.diag(np.ones(self.obs_f.shape[0])) / self.s
-        else:
-            K = self.K / self.s
-
-        return np.diag(self._f_given_u(self.Ks_nm, self.mu0, K)[1])[:, np.newaxis]
 
     def _expec_s(self):
         if not self.use_svi:
@@ -474,9 +454,6 @@ class GPClassifierSVI(GPClassifierVB):
 
         if self.covpair_out is None or not reuse_output_kernel:
             self.covpair_out = scipy.linalg.solve(self.Ks_mm, Ks_star.T).T
-        f, C_out = self._f_given_u(self.covpair_out, mu0, Ks_starstar)
-
-        if not full_cov:
-            C_out = np.diag(C_out)[:, None]
+        f, C_out = self._f_given_u(self.covpair_out, mu0, Ks_starstar, full_cov=full_cov)
 
         return f, C_out

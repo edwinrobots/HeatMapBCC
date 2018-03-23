@@ -4,6 +4,9 @@ Created on 23 Jun 2014
 @author: edwin
 '''
 import logging
+
+from scipy.stats import multivariate_normal as mvn, norm
+
 logging.basicConfig(level=logging.DEBUG)
 
 import numpy as np
@@ -18,6 +21,7 @@ def genSimData(plot_3d_data=True):
     #SIMULATED DATA GENERATION    
     cx = scale * np.array([2, 5, 7])
     cy = scale * np.array([2, 5, 6])
+
     pop = np.array([1000, 500, 2000])
     
     ncentres = len(cx)
@@ -97,16 +101,102 @@ def genSimData(plot_3d_data=True):
                 
     return nreceiver, C, point_coords, gridx, gridy, pop_grid, fig
 
+
+def gen_synthetic_classifications(maxval=100, ndim=5):
+    # f_prior_mean should contain the means for all the grid squares
+
+    # Generate some data
+    ls = np.ones(ndim) + 10
+    sigma = 0.1
+    N = 2000
+    # C = 100 # number of labels for training
+    s = 1  # inverse precision scale for the latent function.
+
+    # Some random feature values
+    xvals = []
+    for dim in range(ndim):
+        xvals.append(np.random.choice(maxval, N, replace=True))
+
+    # remove repeated coordinates
+    for coord in range(N):
+
+        checks = np.array([xivals == xivals[coord] for xivals in xvals])
+        occurrences = np.sum(checks, axis=0) == ndim
+
+        while np.sum(occurrences) > 1:
+            xvals[np.random.randint(0, ndim)][coord] = np.random.choice(maxval, 1)
+            checks = np.array([xivals == xivals[coord] for xivals in xvals])
+            occurrences = np.sum(checks, axis=0) == ndim
+
+        print(coord)
+
+    K = gp_classifier_vb.matern_3_2_from_raw_vals(np.array(xvals).T, ls)
+    f = mvn.rvs(cov=K / s)  # zero mean
+
+    # generate the noisy function values for the pairs
+    fnoisy = norm.rvs(scale=sigma, size=N) + f
+
+    # generate the discrete labels from the noisy function
+    labels = np.round(gp_classifier_vb.sigmoid(fnoisy)).astype(int)
+
+    xvals = np.array(xvals)
+    return N, labels, xvals, f, K
+
+def gen_5D_data():
+    nsources = 4 # number of workers
+    maxval = 10
+
+
+    N, labels, xvals, f, K = gen_synthetic_classifications(maxval, 5)
+    Ntest = int(N * 0.1)
+    Ntrain = N - Ntest
+
+    max_good = 20
+    max_bad = 3
+
+    C = None
+
+    for s in range(nsources):
+        alpha0 = np.array([[np.random.randint(1, max_good), np.random.randint(1, max_bad)],
+                           [np.random.randint(1, max_bad),  np.random.randint(1, max_good)]])
+
+        pi0 = alpha0 / np.sum(alpha0, axis=1)[:, None]
+
+        for i in range(Ntrain):
+            rep = np.random.rand() < pi0[labels[i], 1]
+            Crow = np.array([[s, i, rep]])
+            if C is not None:
+                C = np.concatenate((C, Crow), axis=0)
+            else:
+                C = Crow
+
+    coords = np.concatenate((np.arange(N)[:, None], xvals.T), axis=1)
+    test_coords = coords[Ntrain:]
+    return nsources, C, coords, test_coords
+
+
 def runBCC(C, coords, nreceiver, nx, ny):
     z0 = 0.5
     alpha0 = np.array([[2, 1], [1, 2]])  
     heatmapcombiner = heatmapbcc.HeatMapBCC(2, 2, alpha0, nreceiver, z0)
-    heatmapcombiner.verbose = True
-    heatmapcombiner.minNoIts = 20
-    heatmapcombiner.uselowerbound = True
+    heatmapcombiner.verbose = False
+    # heatmapcombiner.min_iterations = 200
+    heatmapcombiner.uselowerbound = True#False
     heatmapcombiner.combine_classifications(C, coords)
     bcc_pred, _, _ = heatmapcombiner.predict_grid(nx, ny)
     return bcc_pred[1, :, :], heatmapcombiner
+
+def runBCC_5D(C, coords, nsources, test_coords):
+    z0 = 0.5
+    alpha0 = np.array([[2, 1], [1, 2]])
+    heatmapcombiner = heatmapbcc.HeatMapBCC(2, 2, alpha0, nsources, z0)
+    heatmapcombiner.verbose = False
+    # heatmapcombiner.min_iterations = 200
+    heatmapcombiner.uselowerbound = True#False
+    heatmapcombiner.combine_classifications(C, coords)
+    bcc_pred, _, _ = heatmapcombiner.predict(test_coords, variance_method='sample')
+    return bcc_pred[1, :], heatmapcombiner
+
 
 def plotresults():
     
@@ -130,6 +220,9 @@ if __name__ == '__main__':
     nx = scale*10
     ny = scale*10
 
-    nreceiver, C, coords, gridx, gridy, pop_grid, fig = genSimData(plot_3d_data=True)
-    bcc_pred, heatmapcombiner = runBCC(C, coords, nreceiver, nx, ny)
-    plotresults()
+    # nreceiver, C, coords, gridx, gridy, pop_grid, fig = genSimData(plot_3d_data=True)
+    # bcc_pred, heatmapcombiner = runBCC(C, coords, nreceiver, nx, ny)
+    # plotresults()
+
+    nsources, C, coords, test_coords = gen_5D_data()
+    bcc_pred, heatmapcombiner = runBCC_5D(C, coords, nsources, test_coords)

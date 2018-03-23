@@ -83,7 +83,7 @@ class HeatMapBCC(ibcc.IBCC):
         self.rate_s0 = rate_s0
         self.shape_ls = shape_ls
         self.rate_ls = rate_ls
-        self.ls_initial = self.shape_ls / self.rate_ls + np.zeros(nclasses)
+        self.ls_initial = self.shape_ls / self.rate_ls
         self.kernel_func = kernel_func
         nu0 = np.ones(nclasses)
         super(HeatMapBCC, self).__init__(nclasses, nscores, alpha0, nu0, K) 
@@ -101,7 +101,7 @@ class HeatMapBCC(ibcc.IBCC):
         for j in gprange:
             self.heatGP[j] = GPClassifierSVI(self.feat_vecs.shape[1], shape_ls=self.shape_ls, rate_ls=self.rate_ls,
                                              ls_initial=self.ls_initial, kernel_func=self.kernel_func,
-                                             forgetting_rate=0.9, use_svi=True)
+                                             forgetting_rate=0.9, use_svi=True)#, ninducing=100, max_update_size=20)
             self.heatGP[j].verbose = self.verbose
             self.heatGP[j].max_iter_VB_per_fit = 1
             self.heatGP[j].min_iter_VB = 1
@@ -157,6 +157,7 @@ class HeatMapBCC(ibcc.IBCC):
             Predictions at the observed locations, where each column indicates probability of corresponding class
         '''
         self.feat_vecs = feature_vectors
+        self.ls_initial = self.ls_initial + np.zeros(self.feat_vecs.shape[1])
 
         super(HeatMapBCC, self).combine_classifications(crowdlabels, goldlabels, testidxs, optimise_hyperparams,
                                                                maxiter, False)
@@ -205,16 +206,12 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = np.arange(self.nclasses)
         self.oldkappa = np.exp(self.lnkappa)            
         self._lnjoint(alldata=True)
-        # If we have not already calculated lnpCT for the lower bound, then make sure we recalculate using all data
         lnpCT = 0
         for j in gprange:
-            lnrhoj, lnnotrhoj = self.heatGP[j]._logpt()
-            lnpCTj = self.lnpCT[:, j] - self.lnkappa[j] + lnrhoj.flatten() # this operation is required because we
-            # need the p(C, T | f) since the terms p(f) and q(f) will also be included in the lower bound. In contrast,
-            # self.lnpCT integrates out f.
+            lnpCTj = self.lnpCT[:, j]
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, j], lnpCTj))
         if self.nclasses==2:
-            lnpCTj = self.lnpCT[:, 0] - self.lnkappa[0] + lnnotrhoj.flatten()
+            lnpCTj = self.lnpCT[:, 0]
             lnpCT += np.sum(np.multiply(self.E_t[self.testidxs, 0], lnpCTj))
             
         return lnpCT
@@ -240,7 +237,7 @@ class HeatMapBCC(ibcc.IBCC):
                 lnqKappa += self.heatGP[j]._logqs() + self.heatGP[j]._logqf()
         return lnqKappa
 
-    def predict(self, feat_vecs, variance_method='rough'):
+    def predict(self, feat_vecs, variance_method='sample'):
         '''
         Predict class at new locations.
 
@@ -276,7 +273,7 @@ class HeatMapBCC(ibcc.IBCC):
             gprange = np.arange(self.nclasses)
 
         for j in gprange:
-            mean_kappa, v_kappa = self.heatGP[j].predict(feat_vecs, variance_method=variance_method)
+            mean_kappa, v_kappa = self.heatGP[j].predict(feat_vecs[:, 1:], variance_method=variance_method)
             kappa_out[j, :] = mean_kappa.flatten()
             v_kappa_out[j, :] = v_kappa.flatten()
         if self.nclasses == 2:
@@ -325,9 +322,9 @@ class HeatMapBCC(ibcc.IBCC):
 
         E_t_grid[:] = kappa_grid
 
-        obs_at_grid_points = (np.mod(self.feat_vecs[:, 1], 1) == 0) & (np.mod(self.feat_vecs[:, 2], 1) == 0)
-        obsx_grid = self.feat_vecs[obs_at_grid_points, 1].astype(int)
-        obsy_grid = self.feat_vecs[obs_at_grid_points, 2].astype(int)
+        obs_at_grid_points = (np.mod(self.feat_vecs[:, 0], 1) == 0) & (np.mod(self.feat_vecs[:, 1], 1) == 0)
+        obsx_grid = self.feat_vecs[obs_at_grid_points, 0].astype(int)
+        obsy_grid = self.feat_vecs[obs_at_grid_points, 1].astype(int)
         E_t_grid[:, obsx_grid, obsy_grid] = self.E_t[obs_at_grid_points, :].T
 
         return E_t_grid, kappa_grid, v_kappa_grid
