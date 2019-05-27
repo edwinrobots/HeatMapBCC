@@ -16,7 +16,7 @@ def gen_synthetic_classifications(f_prior_mean=None, nx=100, ny=100):
     # Generate some data
     ls = [10, 10]
     sigma = 0.1 
-    N = 1000
+    N = 2000
     #C = 100 # number of labels for training
     s = 1 # inverse precision scale for the latent function.
     
@@ -29,7 +29,7 @@ def gen_synthetic_classifications(f_prior_mean=None, nx=100, ny=100):
             xvals[coord] = np.random.choice(nx, 1)
             yvals[coord] = np.random.choice(ny, 1)           
         
-    K = matern_3_2_from_raw_vals(np.array([xvals, yvals]), ls)
+    K = matern_3_2_from_raw_vals(np.concatenate((xvals, yvals), axis=1), ls)
     if f_prior_mean is None:
         f = mvn.rvs(cov=K/s) # zero mean        
     else:
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     
     models = {}
     
-    ls_initial = np.random.randint(1, 100, 2)#[10, 10] 
+    ls_initial = [112]#np.random.randint(1, 100, 2)#[10, 10] 
     
     model = GPClassifierVB(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial)
     #model.verbose = True
@@ -85,7 +85,7 @@ if __name__ == '__main__':
     #model.conv_check_freq = 1
     #model.conv_threshold = 1e-3 # the difference must be less than 1% of the value of the lower bound
     
-    models['VB'] = model
+    #models['VB'] = model
     
     model = GPClassifierSVI(2, z0=0.5, shape_s0=1, rate_s0=1, ls_initial=ls_initial, use_svi=True)
     #model.verbose = True
@@ -109,7 +109,7 @@ if __name__ == '__main__':
     #model.conv_check_freq = 1
     #model.conv_threshold = 1e-3 # the difference must be less than 1% of the value of the lower bound
        
-    models['SVI_switched_off'] = model   
+    #models['SVI_switched_off'] = model   
     
     if fix_seeds:
         np.random.seed() # do this to test the variation in results due to stochastic methods with same data
@@ -121,7 +121,7 @@ if __name__ == '__main__':
         
         model = models[modelkey]
     
-        model.fit(obs_coords, labels[trainidxs], optimize=False)#True)
+        model.fit(obs_coords, labels[trainidxs], optimize=True)
         print "Final lower bound: %f" % model.lowerbound()
         
         # Predict at the test locations
